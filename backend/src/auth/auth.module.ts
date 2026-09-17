@@ -10,7 +10,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
 @Module({
   imports: [
     UserModule,
-    PassportModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [jwtConfig.KEY],
       useFactory: (config: ReturnType<typeof jwtConfig>) => ({
