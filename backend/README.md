@@ -1,20 +1,32 @@
 # BRASA 47 — Backend (Phase 1)
 
-Real backend for the BRASA 47 demo, replacing the frontend's hardcoded
-`src/data/menu.js` over time. Built with [NestJS](https://nestjs.com) and
-[TypeORM](https://typeorm.io) against PostgreSQL.
+Backend real para BRASA 47, construido con [NestJS](https://nestjs.com) y
+[TypeORM](https://typeorm.io) sobre PostgreSQL. Preparado desde el inicio
+para soportar varios negocios: `Business` → `Category` → `Product`, aunque
+por ahora solo existe **Brasa 47**.
 
-This is phase 1: the data model (`Business` → `Category` → `Product`) and a
-full REST API for `Product`. `Business` and `Category` exist as entities so
-the relations and schema are in place, but don't have their own endpoints
-yet — that's expected to land in a later phase, along with auth, orders, and
-wiring the frontend up to this API instead of the static menu file.
+Esta es la Fase 1: modelo de datos base + API de `Product` (crear/listar) y
+`/categories` (listar/crear). El frontend (Vite/React) **sigue usando** su
+menú estático (`src/data/menu.js`) — todavía no está conectado a esta API;
+eso será una fase aparte.
 
-## Prerequisites
+## Prerequisitos
 
-- Node.js 20+ (this was built and tested on Node 24)
-- A running PostgreSQL instance (14+ is fine). Two easy ways to get one
-  locally if you don't already have one:
+- Node.js 20+ (probado en Node 24)
+- Una base PostgreSQL. Dos formas de conseguir una:
+
+  **Opción A — Supabase (recomendado si vas a desplegar):**
+
+  1. Entra a [supabase.com](https://supabase.com) e inicia sesión.
+  2. Crea un proyecto nuevo (elige una contraseña de base de datos y
+     guárdala).
+  3. Ve a **Project Settings → Database → Connection string**, pestaña
+     **URI**. Copia esa cadena (empieza con `postgresql://postgres:...`).
+  4. Pégala como `DATABASE_URL` en tu `.env` (ver sección abajo). Reemplaza
+     `[PASSWORD]` por la contraseña que definiste en el paso 2.
+  5. No la subas nunca a Git — `.env` ya está en `.gitignore`.
+
+  **Opción B — Postgres local (para desarrollo sin depender de internet):**
 
   ```bash
   # Docker
@@ -31,84 +43,134 @@ wiring the frontend up to this API instead of the static menu file.
 ```bash
 cd backend
 npm install
-cp .env.example .env   # adjust DB_* values if your Postgres differs from the defaults
+cp .env.example .env   # completa DATABASE_URL (Supabase) o deja los DB_* para Postgres local
 npm run start:dev
 ```
 
-The API listens on `http://localhost:3000` by default (`PORT` in `.env`).
+La API queda en `http://localhost:3000` (`PORT` en `.env`).
 
-On boot, outside of `NODE_ENV=production`, TypeORM's `synchronize` option
-creates/updates tables from the entities automatically — there's no
-migration step yet for local development. **Do not rely on `synchronize` in
-production**; a real deploy needs TypeORM migrations instead (not set up
-yet in this phase).
+En desarrollo (`NODE_ENV` distinto de `production`), TypeORM usa
+`synchronize: true` y crea/actualiza las tablas automáticamente a partir de
+las entidades — no hace falta correr migraciones todavía. **`synchronize`
+nunca debe usarse en producción**; para eso ya está preparado el CLI de
+migraciones (ver abajo).
 
-## Data model
+## Variables de entorno
+
+| Variable        | Uso                                                               |
+| --------------- | ------------------------------------------------------------------ |
+| `NODE_ENV`      | `development` en local; controla `synchronize`                    |
+| `PORT`          | Puerto del servidor (default `3000`)                               |
+| `FRONTEND_URL`  | Origen permitido por CORS (default `http://localhost:5173`)        |
+| `DATABASE_URL`  | Connection string de Supabase/Postgres hosteado (activa SSL)       |
+| `DB_HOST` etc.  | Alternativa a `DATABASE_URL` para Postgres local (sin SSL)          |
+
+No se necesitan ambas cosas: si `DATABASE_URL` está definida, tiene
+prioridad y se usa con SSL; si no, se usan `DB_HOST/DB_PORT/DB_USERNAME/
+DB_PASSWORD/DB_NAME`.
+
+## Modelo de datos
 
 ```
 Business 1 ── * Category 1 ── * Product
+                    ↑______________|
+              (Product también referencia Business directamente)
 ```
 
-- **Business**: `id`, `name`, `slug`
-- **Category**: `id`, `name`, `businessId`
-- **Product**: `id`, `name`, `description`, `price`, `image`, `tag`,
-  `ingredients` (`string[]`), `modifiers` (`{ remove?: string[], add?: {
-  name, price }[] }`), `categoryId`
+- **Business**: `id`, `name`, `slug`, `active`
+- **Category**: `id`, `name`, `slug`, `businessId`, `active`, `sortOrder`
+- **Product**: `id`, `name`, `description`, `price` (entero, pesos CLP),
+  `imageUrl`, `available`, `active`, `sortOrder`, `businessId`, `categoryId`
 
-`ingredients` and `modifiers` intentionally mirror the shape already used in
-the frontend's `src/data/menu.js`, so a future migration script can import
-the existing menu data close to as-is.
+`price` se guarda como **entero** (ej. `6900`) en vez de decimal: en CLP no
+usamos centavos, así que un entero evita cualquier problema de redondeo de
+punto flotante sin la sobrecarga de un tipo decimal escalado.
 
 ## API
 
-All current endpoints live under `/products`. Request bodies are validated
-(`class-validator`); unknown fields are rejected (`forbidNonWhitelisted`).
+Los bodies se validan con `class-validator`; campos desconocidos se
+rechazan (`forbidNonWhitelisted`).
 
-| Method | Path             | Description                                   |
-| ------ | ---------------- | ---------------------------------------------- |
-| POST   | `/products`      | Create a product (`categoryId` must exist)     |
-| GET    | `/products`      | List products, optional `?categoryId=<uuid>`   |
-| GET    | `/products/:id`  | Get one product                                |
-| PATCH  | `/products/:id`  | Partially update a product                     |
-| DELETE | `/products/:id`  | Delete a product                               |
+| Method | Path             | Descripción                                          |
+| ------ | ---------------- | ----------------------------------------------------- |
+| GET    | `/health`        | `{ "status": "ok" }`                                   |
+| GET    | `/products`      | Lista productos, filtros opcionales `?businessId=` `?categoryId=` |
+| GET    | `/products/:id`  | Un producto                                            |
+| POST   | `/products`      | Crea un producto (valida que `businessId`/`categoryId` existan y que la categoría pertenezca a ese negocio) |
+| PATCH  | `/products/:id`  | Actualiza parcialmente un producto                     |
+| GET    | `/categories`    | Lista categorías, filtro opcional `?businessId=`        |
+| POST   | `/categories`    | Crea una categoría (valida que `businessId` exista)     |
 
-Example — create a category and a product directly against the DB (no
-`/categories` endpoint yet), then exercise the API:
+No hay `DELETE` físico todavía — para "borrar" un producto o categoría se
+usa `PATCH` con `active: false`, conservando el historial.
+
+## Seed de desarrollo
+
+Inserta el negocio Brasa 47, sus 5 categorías base y 3 productos de prueba
+(es idempotente: se puede correr varias veces sin duplicar datos):
 
 ```bash
-# 1. Seed a business + category directly in psql, or via a DB client.
-# 2. Create a product against that category:
-curl -X POST http://localhost:3000/products \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Clásica Brasa",
-    "description": "Carne 180g a la parrilla, queso cheddar, lechuga, tomate, cebolla morada y salsa de la casa.",
-    "price": 6900,
-    "categoryId": "<uuid-of-an-existing-category>",
-    "ingredients": ["Carne 180 g", "Pan brioche", "Queso cheddar", "Lechuga", "Tomate", "Cebolla morada", "Salsa de la casa"],
-    "modifiers": {
-      "remove": ["Queso cheddar", "Lechuga", "Tomate", "Cebolla morada", "Salsa de la casa"],
-      "add": [{ "name": "Queso extra", "price": 1200 }, { "name": "Tocino", "price": 1500 }]
-    }
-  }'
+npm run seed
+```
 
-curl http://localhost:3000/products
+## Prueba end-to-end (POST → GET)
+
+1. Corre el seed (`npm run seed`) para tener un `businessId`/`categoryId`
+   reales, o consíguelos con `GET /categories`.
+2. Crea un producto:
+
+   ```bash
+   curl -X POST http://localhost:3000/products \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "Hamburguesa Clásica",
+       "description": "Hamburguesa de prueba",
+       "price": 7990,
+       "available": true,
+       "businessId": "<uuid del negocio>",
+       "categoryId": "<uuid de una categoría de ese negocio>"
+     }'
+   ```
+
+3. Verifica que quedó guardado:
+
+   ```bash
+   curl http://localhost:3000/products
+   ```
+
+4. Para confirmarlo en Supabase: entra al proyecto → **Table Editor** →
+   tabla `products` → debería aparecer la fila recién creada.
+
+## Migraciones
+
+El CLI de TypeORM ya está listo (`src/config/data-source.ts`), aunque en
+esta fase seguimos usando `synchronize` en desarrollo:
+
+```bash
+npm run migration:generate -- src/migrations/NombreDeLaMigracion
+npm run migration:run
+npm run migration:revert
 ```
 
 ## Scripts
 
 ```bash
-npm run start:dev   # watch mode
-npm run build        # compile to dist/
-npm run lint         # oxlint
-npm test             # vitest unit tests
-npm run test:e2e     # vitest e2e tests
+npm run start:dev        # modo watch
+npm run build             # compila a dist/
+npm run lint               # oxlint
+npm test                   # tests unitarios (vitest)
+npm run test:e2e           # tests e2e (vitest)
+npm run seed                # seed de desarrollo
+npm run migration:generate  # genera una migración a partir de las entidades
+npm run migration:run       # aplica migraciones pendientes
+npm run migration:revert    # revierte la última migración
 ```
 
-## Not in this phase
+## Fuera de esta fase
 
-- No `/businesses` or `/categories` endpoints yet (entities + relations only)
-- No auth/authorization
-- No migrations (schema comes from `synchronize`, dev-only)
-- No wiring from the Vite frontend to this API — the frontend still reads
-  `src/data/menu.js` directly
+- Sin autenticación, roles ni `SuperAdmin`
+- Sin `stock`, `ingredients`/extras complejos, ni relación con pedidos
+- Sin mesas reales, pagos, WebSockets ni estadísticas
+- Sin endpoints de administración de `Business`
+- Sin conexión del frontend a esta API — sigue usando `src/data/menu.js`
+- Sin migraciones aplicadas todavía (se usa `synchronize` en desarrollo)
