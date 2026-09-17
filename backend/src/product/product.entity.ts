@@ -8,8 +8,8 @@ import {
   type Relation,
   UpdateDateColumn,
 } from 'typeorm';
+import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
-import type { ProductModifiers } from './product-modifiers.type.js';
 
 @Entity('products')
 export class Product {
@@ -22,20 +22,32 @@ export class Product {
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ type: 'numeric', precision: 10, scale: 2 })
+  // CLP is handled without cents in this app, so price is a plain integer
+  // (pesos) rather than numeric/decimal — sidesteps float rounding issues
+  // without the overhead of a scaled decimal type.
+  @Column({ type: 'integer' })
   price: number;
 
-  @Column({ nullable: true })
-  image: string | null;
+  @Column({ name: 'image_url', nullable: true })
+  imageUrl: string | null;
 
-  @Column({ nullable: true })
-  tag: string | null;
+  @Column({ default: true })
+  available: boolean;
 
-  @Column({ type: 'jsonb', nullable: true })
-  ingredients: string[] | null;
+  @Column({ default: true })
+  active: boolean;
 
-  @Column({ type: 'jsonb', nullable: true })
-  modifiers: ProductModifiers | null;
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+
+  @ManyToOne(() => Business, (business) => business.products, {
+    onDelete: 'CASCADE',
+  })
+  @JoinColumn({ name: 'business_id' })
+  business: Relation<Business>;
+
+  @Column({ name: 'business_id' })
+  businessId: string;
 
   @ManyToOne(() => Category, (category) => category.products, {
     onDelete: 'CASCADE',

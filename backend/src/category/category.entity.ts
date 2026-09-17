@@ -20,6 +20,15 @@ export class Category {
   @Column()
   name: string;
 
+  @Column()
+  slug: string;
+
+  @Column({ default: true })
+  active: boolean;
+
+  @Column({ name: 'sort_order', default: 0 })
+  sortOrder: number;
+
   @ManyToOne(() => Business, (business) => business.categories, {
     onDelete: 'CASCADE',
   })
