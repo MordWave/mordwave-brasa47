@@ -1,0 +1,51 @@
+import { Module } from '@nestjs/common';
+import { JwtModule, type JwtModuleOptions } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { ThrottlerModule } from '@nestjs/throttler';
+import jwtConfig from '../config/jwt.config.js';
+import { UserModule } from '../user/user.module.js';
+import { AuthController } from './auth.controller.js';
+import { AuthService } from './auth.service.js';
+import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
+import { RolesGuard } from './guards/roles.guard.js';
+import { JwtStrategy } from './strategies/jwt.strategy.js';
+
+// Central home for auth wiring: registers PassportModule once and provides
+// JwtAuthGuard/RolesGuard as shared singletons. Any module that needs to
+// guard a route imports AuthModule (which re-exports PassportModule, so
+// AuthModuleOptions — the piece AuthGuard() needs — resolves correctly) and
+// reuses these same guard instances via @UseGuards(JwtAuthGuard, RolesGuard),
+// instead of each module registering PassportModule for itself.
+@Module({
+  imports: [
+    UserModule,
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    JwtModule.registerAsync({
+      inject: [jwtConfig.KEY],
+      useFactory: (config: ReturnType<typeof jwtConfig>) => ({
+        secret: config.secret,
+        // expiresIn comes from JWT_EXPIRES_IN as a plain string (e.g. '1d');
+        // jsonwebtoken's stricter template-literal type is a type-only
+        // mismatch, not a runtime one, so it's cast to the option's own type.
+        signOptions: {
+          expiresIn: config.expiresIn,
+        } as JwtModuleOptions['signOptions'],
+      }),
+    }),
+    // Scoped to this module and applied only via @UseGuards(ThrottlerGuard)
+    // on AuthController's login route (not registered as a global guard),
+    // so no other endpoint is rate-limited by this. Adjust limit/ttl here
+    // to retune it later.
+    ThrottlerModule.forRoot([
+      {
+        name: 'login',
+        ttl: 60_000, // 1 minute, in ms
+        limit: 5, // max 5 login attempts per IP per minute
+      },
+    ]),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],
+  exports: [PassportModule, JwtAuthGuard, RolesGuard],
+})
+export class AuthModule {}

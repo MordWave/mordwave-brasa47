@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
 import { Product } from '../product/product.entity.js';
+import { User } from '../user/user.entity.js';
 
 // Standalone DataSource for the TypeORM CLI (migrations, seed script) — the
 // CLI runs outside Nest's bootstrap, so env vars are loaded here directly
@@ -23,7 +24,7 @@ export default new DataSource({
         password: process.env.DB_PASSWORD ?? 'postgres',
         database: process.env.DB_NAME ?? 'brasa47',
       }),
-  entities: [Business, Category, Product],
+  entities: [Business, Category, Product, User],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
 });

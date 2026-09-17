@@ -12,7 +12,9 @@ export default registerAs(
         url: databaseUrl,
         ssl: { rejectUnauthorized: false },
         autoLoadEntities: true,
-        synchronize: process.env.NODE_ENV !== 'production',
+        // Schema changes go exclusively through TypeORM migrations from here
+        // on — synchronize never runs, in dev or production.
+        synchronize: false,
       };
     }
 
