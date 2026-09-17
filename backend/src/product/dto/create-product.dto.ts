@@ -29,6 +29,14 @@ export class CreateProductDto {
   @IsBoolean()
   available?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+
   @IsUUID()
   businessId: string;
 
