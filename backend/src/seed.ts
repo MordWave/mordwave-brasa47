@@ -1,7 +1,12 @@
+import bcrypt from 'bcrypt';
 import { Business } from './business/business.entity.js';
 import { Category } from './category/category.entity.js';
 import dataSource from './config/data-source.js';
 import { Product } from './product/product.entity.js';
+import { User } from './user/user.entity.js';
+import { UserRole } from './user/user-role.enum.js';
+
+const BCRYPT_COST = 12;
 
 const CATEGORY_DEFS = [
   { name: 'Hamburguesas', slug: 'hamburguesas', sortOrder: 1 },
@@ -80,8 +85,45 @@ async function seed() {
     }
   }
 
+  await seedAdminUser(business);
+
   await dataSource.destroy();
   console.log('Seed complete.');
+}
+
+// Requires SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD — no default/predictable
+// credentials are ever created. If either is missing, the admin user is
+// simply skipped (never printing the email, password, or hash).
+async function seedAdminUser(business: Business): Promise<void> {
+  const email = process.env.SEED_ADMIN_EMAIL;
+  const password = process.env.SEED_ADMIN_PASSWORD;
+
+  if (!email || !password) {
+    console.warn(
+      'SEED_ADMIN_EMAIL and/or SEED_ADMIN_PASSWORD are not set — skipping dev admin user creation.',
+    );
+    return;
+  }
+
+  const userRepo = dataSource.getRepository(User);
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const existing = await userRepo.findOne({ where: { email: normalizedEmail } });
+  if (existing) {
+    console.log('Dev admin user already exists, skipping.');
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
+  await userRepo.save(
+    userRepo.create({
+      email: normalizedEmail,
+      passwordHash,
+      role: UserRole.ADMIN,
+      businessId: business.id,
+    }),
+  );
+  console.log('Created dev admin user.');
 }
 
 seed().catch((err: unknown) => {
