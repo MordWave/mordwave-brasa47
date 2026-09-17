@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -130,6 +130,57 @@ describe('ProductService', () => {
     expect(businessRepo.findOne).not.toHaveBeenCalled();
     expect(productRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ businessId: 'biz-1', name: 'renamed' }),
+    );
+  });
+
+  it('findAllPublic always filters by active:true', async () => {
+    productRepo.find.mockResolvedValue([]);
+
+    await service.findAllPublic({});
+
+    expect(productRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ active: true }) }),
+    );
+  });
+
+  it('findOnePublic 404s on an inactive product (same as not existing)', async () => {
+    productRepo.findOne.mockResolvedValue(null);
+
+    await expect(service.findOnePublic('p1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(productRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 'p1', active: true }) }),
+    );
+  });
+
+  it('findAllAdmin: ADMIN ignores a foreign businessId from the query and sees only their own', async () => {
+    productRepo.find.mockResolvedValue([]);
+
+    await service.findAllAdmin({ businessId: 'other-biz' }, admin);
+
+    expect(productRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-1' }) }),
+    );
+    // No active filter — admin listing must include inactive products.
+    const callArgs = productRepo.find.mock.calls[0][0];
+    expect(callArgs.where).not.toHaveProperty('active');
+  });
+
+  it('findAllAdmin: SUPER_ADMIN with no businessId gets an unfiltered (all-business) query', async () => {
+    productRepo.find.mockResolvedValue([]);
+
+    await service.findAllAdmin({}, superAdmin);
+
+    const callArgs = productRepo.find.mock.calls[0][0];
+    expect(callArgs.where).not.toHaveProperty('businessId');
+  });
+
+  it('findAllAdmin: SUPER_ADMIN can scope to a specific business', async () => {
+    productRepo.find.mockResolvedValue([]);
+
+    await service.findAllAdmin({ businessId: 'biz-2' }, superAdmin);
+
+    expect(productRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-2' }) }),
     );
   });
 });

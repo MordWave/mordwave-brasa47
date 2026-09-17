@@ -42,4 +42,19 @@ describe('Auth guards (e2e)', () => {
       .send({ name: 'x', slug: 'x', businessId: 'x' })
       .expect(401);
   });
+
+  it('GET /products/admin without a token is rejected with 401', () => {
+    return request(app.getHttpServer()).get('/products/admin').expect(401);
+  });
+
+  it('GET /categories/admin without a token is rejected with 401', () => {
+    return request(app.getHttpServer()).get('/categories/admin').expect(401);
+  });
+
+  it('PATCH /categories/:id without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .patch('/categories/00000000-0000-0000-0000-000000000000')
+      .send({ active: false })
+      .expect(401);
+  });
 });
