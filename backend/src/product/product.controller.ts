@@ -35,14 +35,26 @@ export class ProductController {
     return this.productService.create(dto, user);
   }
 
+  // Must be declared before the ":id" route below, or Nest would try to
+  // parse "admin" as a product id.
+  @Get('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  findAllAdmin(
+    @Query() query: ProductQueryDto,
+    @CurrentUser() user: SafeUser,
+  ): Promise<Product[]> {
+    return this.productService.findAllAdmin(query, user);
+  }
+
   @Get()
   findAll(@Query() query: ProductQueryDto): Promise<Product[]> {
-    return this.productService.findAll(query);
+    return this.productService.findAllPublic(query);
   }
 
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string): Promise<Product> {
-    return this.productService.findOne(id);
+    return this.productService.findOnePublic(id);
   }
 
   @Patch(':id')

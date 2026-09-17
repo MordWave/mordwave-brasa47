@@ -39,3 +39,21 @@ export function resolveBusinessIdForUpdate(
   }
   return user.businessId;
 }
+
+// Admin read (list): an ADMIN always sees only their own business — any
+// businessId in the query is ignored. A SUPER_ADMIN sees whichever business
+// they asked for, or every business (no filter) if they didn't specify one
+// — unlike create/update, an unscoped admin listing is a legitimate
+// cross-tenant view for this role.
+export function resolveBusinessIdForRead(
+  user: SafeUser,
+  requestedBusinessId: string | undefined,
+): string | undefined {
+  if (user.role === UserRole.SUPER_ADMIN) {
+    return requestedBusinessId;
+  }
+  if (!user.businessId) {
+    throw new ForbiddenException('User is not assigned to a business');
+  }
+  return user.businessId;
+}
