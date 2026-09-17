@@ -28,7 +28,7 @@ export class Product {
   @Column({ type: 'integer' })
   price: number;
 
-  @Column({ name: 'image_url', nullable: true })
+  @Column({ type: 'text', name: 'image_url', nullable: true })
   imageUrl: string | null;
 
   @Column({ default: true })
