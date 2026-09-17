@@ -1,124 +1,114 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# BRASA 47 — Backend (Phase 1)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Real backend for the BRASA 47 demo, replacing the frontend's hardcoded
+`src/data/menu.js` over time. Built with [NestJS](https://nestjs.com) and
+[TypeORM](https://typeorm.io) against PostgreSQL.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+This is phase 1: the data model (`Business` → `Category` → `Product`) and a
+full REST API for `Product`. `Business` and `Category` exist as entities so
+the relations and schema are in place, but don't have their own endpoints
+yet — that's expected to land in a later phase, along with auth, orders, and
+wiring the frontend up to this API instead of the static menu file.
 
-## Description
+## Prerequisites
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Node.js 20+ (this was built and tested on Node 24)
+- A running PostgreSQL instance (14+ is fine). Two easy ways to get one
+  locally if you don't already have one:
 
-## Project setup
+  ```bash
+  # Docker
+  docker run --name brasa47-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=brasa47 -p 5432:5432 -d postgres:16
 
-```bash
-$ npm install
-```
+  # Homebrew (macOS)
+  brew install postgresql@16
+  brew services start postgresql@16
+  createdb brasa47
+  ```
 
-## Compile and run the project
+## Setup
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+cd backend
+npm install
+cp .env.example .env   # adjust DB_* values if your Postgres differs from the defaults
+npm run start:dev
 ```
 
-## Run tests
+The API listens on `http://localhost:3000` by default (`PORT` in `.env`).
+
+On boot, outside of `NODE_ENV=production`, TypeORM's `synchronize` option
+creates/updates tables from the entities automatically — there's no
+migration step yet for local development. **Do not rely on `synchronize` in
+production**; a real deploy needs TypeORM migrations instead (not set up
+yet in this phase).
+
+## Data model
+
+```
+Business 1 ── * Category 1 ── * Product
+```
+
+- **Business**: `id`, `name`, `slug`
+- **Category**: `id`, `name`, `businessId`
+- **Product**: `id`, `name`, `description`, `price`, `image`, `tag`,
+  `ingredients` (`string[]`), `modifiers` (`{ remove?: string[], add?: {
+  name, price }[] }`), `categoryId`
+
+`ingredients` and `modifiers` intentionally mirror the shape already used in
+the frontend's `src/data/menu.js`, so a future migration script can import
+the existing menu data close to as-is.
+
+## API
+
+All current endpoints live under `/products`. Request bodies are validated
+(`class-validator`); unknown fields are rejected (`forbidNonWhitelisted`).
+
+| Method | Path             | Description                                   |
+| ------ | ---------------- | ---------------------------------------------- |
+| POST   | `/products`      | Create a product (`categoryId` must exist)     |
+| GET    | `/products`      | List products, optional `?categoryId=<uuid>`   |
+| GET    | `/products/:id`  | Get one product                                |
+| PATCH  | `/products/:id`  | Partially update a product                     |
+| DELETE | `/products/:id`  | Delete a product                               |
+
+Example — create a category and a product directly against the DB (no
+`/categories` endpoint yet), then exercise the API:
 
 ```bash
-# unit tests
-$ npm run test
+# 1. Seed a business + category directly in psql, or via a DB client.
+# 2. Create a product against that category:
+curl -X POST http://localhost:3000/products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Clásica Brasa",
+    "description": "Carne 180g a la parrilla, queso cheddar, lechuga, tomate, cebolla morada y salsa de la casa.",
+    "price": 6900,
+    "categoryId": "<uuid-of-an-existing-category>",
+    "ingredients": ["Carne 180 g", "Pan brioche", "Queso cheddar", "Lechuga", "Tomate", "Cebolla morada", "Salsa de la casa"],
+    "modifiers": {
+      "remove": ["Queso cheddar", "Lechuga", "Tomate", "Cebolla morada", "Salsa de la casa"],
+      "add": [{ "name": "Queso extra", "price": 1200 }, { "name": "Tocino", "price": 1500 }]
+    }
+  }'
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+curl http://localhost:3000/products
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Scripts
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run start:dev   # watch mode
+npm run build        # compile to dist/
+npm run lint         # oxlint
+npm test             # vitest unit tests
+npm run test:e2e     # vitest e2e tests
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Not in this phase
 
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project:
-
-```bash
-$ npm install @nestjs/observe
-```
-
-Then follow the [setup guide](https://docs.nestjs.com/observability/overview) - it takes a single import and an app key.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- No `/businesses` or `/categories` endpoints yet (entities + relations only)
+- No auth/authorization
+- No migrations (schema comes from `synchronize`, dev-only)
+- No wiring from the Vite frontend to this API — the frontend still reads
+  `src/data/menu.js` directly
