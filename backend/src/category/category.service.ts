@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { resolveBusinessIdForCreate } from '../auth/tenant.util.js';
+import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
 import { Category } from './category.entity.js';
 import { CategoryQueryDto } from './dto/category-query.dto.js';
@@ -15,16 +17,22 @@ export class CategoryService {
     private readonly businessRepository: Repository<Business>,
   ) {}
 
-  async create(dto: CreateCategoryDto): Promise<Category> {
+  private async assertBusinessExists(businessId: string): Promise<void> {
     const business = await this.businessRepository.findOne({
-      where: { id: dto.businessId },
+      where: { id: businessId },
     });
     if (!business) {
       throw new NotFoundException(
-        `Business with id "${dto.businessId}" does not exist`,
+        `Business with id "${businessId}" does not exist`,
       );
     }
+  }
+
+  async create(dto: CreateCategoryDto, user: SafeUser): Promise<Category> {
+    const businessId = resolveBusinessIdForCreate(user, dto.businessId);
+    await this.assertBusinessExists(businessId);
     const category = this.categoryRepository.create(dto);
+    category.businessId = businessId;
     return this.categoryRepository.save(category);
   }
 
