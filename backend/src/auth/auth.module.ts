@@ -5,8 +5,16 @@ import jwtConfig from '../config/jwt.config.js';
 import { UserModule } from '../user/user.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
+import { RolesGuard } from './guards/roles.guard.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
 
+// Central home for auth wiring: registers PassportModule once and provides
+// JwtAuthGuard/RolesGuard as shared singletons. Any module that needs to
+// guard a route imports AuthModule (which re-exports PassportModule, so
+// AuthModuleOptions — the piece AuthGuard() needs — resolves correctly) and
+// reuses these same guard instances via @UseGuards(JwtAuthGuard, RolesGuard),
+// instead of each module registering PassportModule for itself.
 @Module({
   imports: [
     UserModule,
@@ -25,6 +33,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],
+  exports: [PassportModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}
