@@ -182,4 +182,15 @@ export class ProductService {
     Object.assign(product, dto, { businessId });
     return this.productRepository.save(product);
   }
+
+  // Soft delete: sets deletedAt instead of removing the row, so it's
+  // excluded from every find/findOne/count going forward (see the
+  // deletedAt column comment on Product) while staying intact for any
+  // future orders table to reference. No extra precondition beyond
+  // ownership — unlike a category, a product has nothing under it.
+  async remove(id: string, user: SafeUser): Promise<void> {
+    const product = await this.findOne(id);
+    resolveBusinessIdForUpdate(user, product.businessId, undefined);
+    await this.productRepository.softDelete(id);
+  }
 }

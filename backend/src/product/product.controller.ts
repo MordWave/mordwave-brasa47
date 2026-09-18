@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -66,5 +69,16 @@ export class ProductController {
     @CurrentUser() user: SafeUser,
   ): Promise<Product> {
     return this.productService.update(id, dto, user);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SafeUser,
+  ): Promise<void> {
+    return this.productService.remove(id, user);
   }
 }

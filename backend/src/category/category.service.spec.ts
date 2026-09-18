@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +16,7 @@ function createRepoMock() {
     findOne: vi.fn(),
     find: vi.fn(),
     count: vi.fn(),
+    softDelete: vi.fn(),
   };
 }
 
@@ -116,10 +117,14 @@ describe('CategoryService', () => {
     categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
     productRepo.count.mockResolvedValue(3);
 
-    await expect(
-      service.update('cat-1', { active: false }, admin),
-    ).rejects.toBeInstanceOf(ConflictException);
+    const error = await service
+      .update('cat-1', { active: false }, admin)
+      .catch((err: unknown) => err);
 
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toEqual(
+      expect.objectContaining({ errorCode: 'CATEGORY_HAS_ACTIVE_PRODUCTS', count: 3 }),
+    );
     expect(productRepo.count).toHaveBeenCalledWith(
       expect.objectContaining({ where: { categoryId: 'cat-1', active: true } }),
     );
@@ -146,5 +151,71 @@ describe('CategoryService', () => {
     expect(categoryRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ active: true }),
     );
+  });
+
+  // Soft delete: TypeORM's @DeleteDateColumn makes every find/findOne/count
+  // on this repository exclude a soft-deleted row automatically (verified
+  // against the installed TypeORM's own source — see category.entity.ts).
+  // These tests simulate that by having findOne resolve null for an id
+  // that's already been soft-deleted, since that's exactly what TypeORM
+  // would return once deletedAt is set.
+  describe('remove', () => {
+    it('soft-deletes via repository.softDelete() when the category has no products', async () => {
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1' });
+      productRepo.count.mockResolvedValue(0);
+
+      await service.remove('cat-1', admin);
+
+      expect(categoryRepo.softDelete).toHaveBeenCalledWith('cat-1');
+    });
+
+    it('blocks deleting a category that still has products (active or not)', async () => {
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1' });
+      productRepo.count.mockResolvedValue(2);
+
+      const error = await service.remove('cat-1', admin).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toEqual(
+        expect.objectContaining({ errorCode: 'CATEGORY_HAS_PRODUCTS', count: 2 }),
+      );
+      // Unlike the deactivate check, this counts every non-deleted product,
+      // not just active:true ones — no `active` key in the where clause.
+      expect(productRepo.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { categoryId: 'cat-1' } }),
+      );
+      expect(categoryRepo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('rejects removing a category belonging to another business', async () => {
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'other-biz' });
+
+      await expect(service.remove('cat-1', admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(categoryRepo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('a second delete attempt 404s instead of deleting again', async () => {
+      categoryRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.remove('cat-1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(categoryRepo.softDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a soft-deleted category cannot be edited afterward (404, same as never existing)', async () => {
+    categoryRepo.findOne.mockResolvedValue(null);
+
+    await expect(service.update('cat-1', { name: 'renamed' }, admin)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('admin listing never opts back into seeing soft-deleted rows (no withDeleted)', async () => {
+    categoryRepo.find.mockResolvedValue([]);
+
+    await service.findAllAdmin({}, admin);
+
+    const callArgs = categoryRepo.find.mock.calls.at(-1)[0];
+    expect(callArgs).not.toHaveProperty('withDeleted');
   });
 });

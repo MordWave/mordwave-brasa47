@@ -88,13 +88,41 @@ export class CategoryService {
         where: { categoryId: id, active: true },
       });
       if (activeProductCount > 0) {
-        throw new ConflictException(
-          `Cannot deactivate category "${id}": it still has ${activeProductCount} active product(s). Deactivate them first.`,
-        );
+        throw new ConflictException({
+          message: `Cannot deactivate category "${id}": it still has ${activeProductCount} active product(s). Deactivate them first.`,
+          errorCode: 'CATEGORY_HAS_ACTIVE_PRODUCTS',
+          count: activeProductCount,
+        });
       }
     }
 
     Object.assign(category, dto);
     return this.categoryRepository.save(category);
+  }
+
+  // Soft delete: sets deletedAt instead of removing the row (see the
+  // deletedAt column comment on Category), so every existing find/findOne/
+  // count already excludes it going forward. Blocked while the category
+  // still has any non-deleted product under it — active or inactive,
+  // unlike the deactivate check above, which only cares about active ones —
+  // since deleting the category out from under a still-existing product
+  // would leave that product pointing at a category that no longer exists
+  // for any normal purpose.
+  async remove(id: string, user: SafeUser): Promise<void> {
+    const category = await this.findOne(id);
+    resolveBusinessIdForUpdate(user, category.businessId, undefined);
+
+    const productCount = await this.productRepository.count({
+      where: { categoryId: id },
+    });
+    if (productCount > 0) {
+      throw new ConflictException({
+        message: `Cannot delete category "${id}": it still has ${productCount} product(s). Delete or move them first.`,
+        errorCode: 'CATEGORY_HAS_PRODUCTS',
+        count: productCount,
+      });
+    }
+
+    await this.categoryRepository.softDelete(id);
   }
 }

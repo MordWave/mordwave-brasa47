@@ -57,4 +57,16 @@ describe('Auth guards (e2e)', () => {
       .send({ active: false })
       .expect(401);
   });
+
+  it('DELETE /products/:id without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .delete('/products/00000000-0000-0000-0000-000000000000')
+      .expect(401);
+  });
+
+  it('DELETE /categories/:id without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .delete('/categories/00000000-0000-0000-0000-000000000000')
+      .expect(401);
+  });
 });

@@ -20,6 +20,7 @@ function createRepoMock() {
     save: vi.fn(async (entity: unknown) => entity),
     findOne: vi.fn(),
     find: vi.fn(),
+    softDelete: vi.fn(),
   };
 }
 
@@ -279,5 +280,54 @@ describe('ProductService', () => {
     expect(productRepo.find).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-2' }) }),
     );
+  });
+
+  // Soft delete: TypeORM's @DeleteDateColumn makes every find/findOne/count
+  // on this repository exclude a soft-deleted row automatically (verified
+  // against the installed TypeORM's own source — see product.entity.ts).
+  // These tests simulate that by having findOne resolve null for an id
+  // that's already been soft-deleted, since that's exactly what TypeORM
+  // would return once deletedAt is set — the service code has no idea
+  // (and shouldn't need to) whether "not found" means "never existed" or
+  // "was deleted".
+  describe('remove', () => {
+    it('soft-deletes via repository.softDelete(), never a real delete', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1' });
+
+      await service.remove('p1', admin);
+
+      expect(productRepo.softDelete).toHaveBeenCalledWith('p1');
+    });
+
+    it('rejects removing a product belonging to another business', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
+
+      await expect(service.remove('p1', admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(productRepo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('a second delete attempt 404s instead of deleting again', async () => {
+      productRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.remove('p1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(productRepo.softDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a soft-deleted product cannot be edited afterward (404, same as never existing)', async () => {
+    productRepo.findOne.mockResolvedValue(null);
+
+    await expect(service.update('p1', { name: 'renamed' }, admin)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('admin listing never opts back into seeing soft-deleted rows (no withDeleted)', async () => {
+    productRepo.find.mockResolvedValue([]);
+
+    await service.findAllAdmin({}, admin);
+
+    const callArgs = productRepo.find.mock.calls.at(-1)[0];
+    expect(callArgs).not.toHaveProperty('withDeleted');
   });
 });

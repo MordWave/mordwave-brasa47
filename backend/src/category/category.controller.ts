@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -61,5 +64,16 @@ export class CategoryController {
     @CurrentUser() user: SafeUser,
   ): Promise<Category> {
     return this.categoryService.update(id, dto, user);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SafeUser,
+  ): Promise<void> {
+    return this.categoryService.remove(id, user);
   }
 }

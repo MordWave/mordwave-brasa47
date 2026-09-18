@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
@@ -63,4 +64,13 @@ export class Product {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  // Soft delete: TypeORM automatically excludes rows with a non-null
+  // deletedAt from every find/findOne/count on this repository unless
+  // { withDeleted: true } is explicitly passed — every existing query
+  // (public and admin) already gets this for free. A real DELETE is never
+  // issued, so the businessId/categoryId FKs' onDelete: CASCADE never
+  // fires — the row stays intact for a future orders table to reference.
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deletedAt: Date | null;
 }
