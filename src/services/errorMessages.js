@@ -4,10 +4,18 @@ import { ApiError } from './api'
 // the generic per-status fallback below, since these can use real data
 // (count) instead of a generic sentence.
 const MESSAGES_BY_CODE = {
-  CATEGORY_HAS_ACTIVE_PRODUCTS: (count) =>
-    `No puedes desactivar esta categoría porque todavía tiene ${count} producto(s) activo(s). Desactívalos o muévelos primero.`,
-  CATEGORY_HAS_PRODUCTS: (count) =>
-    `No puedes eliminar esta categoría porque todavía tiene ${count} producto(s). Elimínalos o muévelos primero.`,
+  CATEGORY_HAS_ACTIVE_PRODUCTS: (count) => {
+    const n = Number(count) || 0
+    const noun = n === 1 ? 'producto activo' : 'productos activos'
+    const verb = n === 1 ? 'Desactívalo o muévelo' : 'Desactívalos o muévelos'
+    return `No puedes desactivar esta categoría porque todavía tiene ${n} ${noun}. ${verb} primero.`
+  },
+  CATEGORY_HAS_PRODUCTS: (count) => {
+    const n = Number(count) || 0
+    const noun = n === 1 ? 'producto' : 'productos'
+    const verb = n === 1 ? 'Elimínalo o muévelo' : 'Elimínalos o muévelos'
+    return `No puedes eliminar esta categoría porque todavía tiene ${n} ${noun}. ${verb} primero.`
+  },
 }
 
 const MESSAGES_BY_STATUS = {

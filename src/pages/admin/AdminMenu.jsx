@@ -210,8 +210,13 @@ export default function AdminMenu() {
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
             <p className="confirm-dialog__text">
               {deleteTarget.type === 'category'
-                ? '¿Eliminar esta categoría? Esta acción la quitará de la administración y del menú.'
-                : '¿Eliminar este producto? Esta acción lo quitará de la administración y del menú.'}
+                ? `¿Eliminar la categoría “${deleteTarget.item.name}”?`
+                : `¿Eliminar el producto “${deleteTarget.item.name}”?`}
+            </p>
+            <p className="confirm-dialog__subtext">
+              {deleteTarget.type === 'category'
+                ? 'Esta acción la quitará de la administración y del menú.'
+                : 'Esta acción lo quitará de la administración y del menú.'}
             </p>
             {deleteError && <p className="admin-menu__form-error">{deleteError}</p>}
             <div className="confirm-dialog__actions">

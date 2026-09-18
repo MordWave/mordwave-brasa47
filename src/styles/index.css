@@ -1792,6 +1792,17 @@ p {
   line-height: 1.4;
 }
 
+/* Pulls up under .confirm-dialog__text's own 18px bottom margin (unchanged,
+   so the single-line dialog in AdminApp.jsx isn't affected) instead of
+   changing that shared margin. */
+.confirm-dialog__subtext {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin: -12px 0 18px;
+  line-height: 1.4;
+}
+
 .confirm-dialog__actions {
   display: flex;
   gap: 10px;
