@@ -1,7 +1,13 @@
+import { AuthProvider } from './context/AuthContext'
+import AdminPanel from './pages/admin/AdminPanel'
 import CustomerApp from './pages/CustomerApp'
-import AdminApp from './pages/AdminApp'
 
 export default function App() {
   const isAdmin = window.location.pathname.replace(/\/+$/, '') === '/admin'
-  return isAdmin ? <AdminApp /> : <CustomerApp />
+  if (!isAdmin) return <CustomerApp />
+  return (
+    <AuthProvider>
+      <AdminPanel />
+    </AuthProvider>
+  )
 }
