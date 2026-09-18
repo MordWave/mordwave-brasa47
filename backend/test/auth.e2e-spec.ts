@@ -69,4 +69,16 @@ describe('Auth guards (e2e)', () => {
       .delete('/categories/00000000-0000-0000-0000-000000000000')
       .expect(401);
   });
+
+  it('POST /products/:id/image without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .post('/products/00000000-0000-0000-0000-000000000000/image')
+      .expect(401);
+  });
+
+  it('DELETE /products/:id/image without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .delete('/products/00000000-0000-0000-0000-000000000000/image')
+      .expect(401);
+  });
 });

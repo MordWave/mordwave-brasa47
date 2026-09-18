@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
 import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
+import { ProductImageService } from './product-image.service.js';
 import { Product } from './product.entity.js';
 import { ProductController } from './product.controller.js';
 import { ProductService } from './product.service.js';
@@ -16,7 +17,7 @@ import { ProductService } from './product.service.js';
     AuthModule,
   ],
   controllers: [ProductController],
-  providers: [ProductService],
+  providers: [ProductService, ProductImageService],
   exports: [TypeOrmModule],
 })
 export class ProductModule {}

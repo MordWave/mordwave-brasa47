@@ -12,6 +12,7 @@ import { Category } from '../category/category.entity.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
+import { ProductImageService, type UploadableFile } from './product-image.service.js';
 import { Product } from './product.entity.js';
 
 @Injectable()
@@ -23,6 +24,7 @@ export class ProductService {
     private readonly categoryRepository: Repository<Category>,
     @InjectRepository(Business)
     private readonly businessRepository: Repository<Business>,
+    private readonly productImageService: ProductImageService,
   ) {}
 
   private async assertBusinessExists(businessId: string): Promise<void> {
@@ -192,5 +194,33 @@ export class ProductService {
     const product = await this.findOne(id);
     resolveBusinessIdForUpdate(user, product.businessId, undefined);
     await this.productRepository.softDelete(id);
+  }
+
+  // Same ownership check as update()/remove() — an ADMIN can only touch the
+  // image of a product in their own business. imageUrl is only written
+  // after ProductImageService confirms the file actually exists in
+  // Storage; if it throws, this never reaches the save().
+  async attachImage(id: string, user: SafeUser, file: UploadableFile): Promise<Product> {
+    const product = await this.findOne(id);
+    const businessId = resolveBusinessIdForUpdate(user, product.businessId, undefined);
+
+    const imageUrl = await this.productImageService.upload(businessId, product.id, file);
+
+    product.imageUrl = imageUrl;
+    return this.productRepository.save(product);
+  }
+
+  // Deliberately different from soft-deleting the product itself: this is
+  // an explicit, standalone action on a still-existing product, so the
+  // Storage object is actually removed (not preserved the way a soft
+  // delete's image is).
+  async removeImage(id: string, user: SafeUser): Promise<Product> {
+    const product = await this.findOne(id);
+    const businessId = resolveBusinessIdForUpdate(user, product.businessId, undefined);
+
+    await this.productImageService.remove(businessId, product.id);
+
+    product.imageUrl = null;
+    return this.productRepository.save(product);
   }
 }

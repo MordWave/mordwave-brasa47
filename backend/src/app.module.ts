@@ -8,6 +8,7 @@ import { BusinessModule } from './business/business.module.js';
 import { CategoryModule } from './category/category.module.js';
 import databaseConfig from './config/typeorm.config.js';
 import jwtConfig from './config/jwt.config.js';
+import supabaseConfig from './config/supabase.config.js';
 import { ProductModule } from './product/product.module.js';
 import { UserModule } from './user/user.module.js';
 
@@ -15,7 +16,7 @@ import { UserModule } from './user/user.module.js';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig],
+      load: [databaseConfig, jwtConfig, supabaseConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [databaseConfig.KEY],

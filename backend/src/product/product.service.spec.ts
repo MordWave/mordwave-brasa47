@@ -11,6 +11,7 @@ import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
+import { ProductImageService } from './product-image.service.js';
 import { Product } from './product.entity.js';
 import { ProductService } from './product.service.js';
 
@@ -24,11 +25,19 @@ function createRepoMock() {
   };
 }
 
+function createProductImageServiceMock() {
+  return {
+    upload: vi.fn(),
+    remove: vi.fn(),
+  };
+}
+
 describe('ProductService', () => {
   let service: ProductService;
   let productRepo: ReturnType<typeof createRepoMock>;
   let categoryRepo: ReturnType<typeof createRepoMock>;
   let businessRepo: ReturnType<typeof createRepoMock>;
+  let productImageService: ReturnType<typeof createProductImageServiceMock>;
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -50,6 +59,7 @@ describe('ProductService', () => {
     productRepo = createRepoMock();
     categoryRepo = createRepoMock();
     businessRepo = createRepoMock();
+    productImageService = createProductImageServiceMock();
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -57,6 +67,7 @@ describe('ProductService', () => {
         { provide: getRepositoryToken(Product), useValue: productRepo },
         { provide: getRepositoryToken(Category), useValue: categoryRepo },
         { provide: getRepositoryToken(Business), useValue: businessRepo },
+        { provide: ProductImageService, useValue: productImageService },
       ],
     }).compile();
 
@@ -329,5 +340,76 @@ describe('ProductService', () => {
 
     const callArgs = productRepo.find.mock.calls.at(-1)[0];
     expect(callArgs).not.toHaveProperty('withDeleted');
+  });
+
+  describe('attachImage', () => {
+    const file = { buffer: Buffer.from('bytes'), size: 100 };
+
+    it('rejects attaching an image to a product belonging to another business', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
+
+      await expect(service.attachImage('p1', admin, file)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(productImageService.upload).not.toHaveBeenCalled();
+    });
+
+    it('updates imageUrl only after the upload succeeds', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageUrl: null });
+      productImageService.upload.mockResolvedValue('https://cdn.example/biz-1/p1/imagen.webp?v=1');
+
+      const result = await service.attachImage('p1', admin, file);
+
+      expect(productImageService.upload).toHaveBeenCalledWith('biz-1', 'p1', file);
+      expect(productRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ imageUrl: 'https://cdn.example/biz-1/p1/imagen.webp?v=1' }),
+      );
+      expect(result.imageUrl).toBe('https://cdn.example/biz-1/p1/imagen.webp?v=1');
+    });
+
+    it('leaves imageUrl untouched when the upload fails', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        imageUrl: 'https://cdn.example/old.webp',
+      });
+      productImageService.upload.mockRejectedValue(new Error('storage down'));
+
+      await expect(service.attachImage('p1', admin, file)).rejects.toThrow('storage down');
+
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeImage', () => {
+    it('rejects removing the image of a product belonging to another business', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
+
+      await expect(service.removeImage('p1', admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(productImageService.remove).not.toHaveBeenCalled();
+    });
+
+    it('clears imageUrl to null after a successful Storage removal', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        imageUrl: 'https://cdn.example/biz-1/p1/imagen.webp?v=1',
+      });
+
+      const result = await service.removeImage('p1', admin);
+
+      expect(productImageService.remove).toHaveBeenCalledWith('biz-1', 'p1');
+      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: null }));
+      expect(result.imageUrl).toBeNull();
+    });
+  });
+
+  it('soft-deleting a product never touches its Storage image (kept for history)', async () => {
+    productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1' });
+
+    await service.remove('p1', admin);
+
+    expect(productImageService.remove).not.toHaveBeenCalled();
+    expect(productRepo.softDelete).toHaveBeenCalledWith('p1');
   });
 });
