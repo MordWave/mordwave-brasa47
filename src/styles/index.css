@@ -2323,3 +2323,41 @@ p {
   font-weight: 600;
   color: var(--text-secondary);
 }
+
+.admin-menu__crop-modal {
+  max-width: 420px;
+}
+
+.admin-menu__crop-area {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg);
+  margin-bottom: 14px;
+}
+
+.admin-menu__crop-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.admin-menu__crop-zoom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.admin-menu__crop-zoom input[type='range'] {
+  flex: 1;
+}

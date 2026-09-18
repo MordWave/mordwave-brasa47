@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { translateApiError } from '../../../services/errorMessages'
+import PhotoCropModal from './PhotoCropModal'
 
 export default function ProductFormModal({
   product,
@@ -27,6 +28,9 @@ export default function ProductFormModal({
   const [pendingFile, setPendingFile] = useState(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageError, setImageError] = useState('')
+  // Object URL of a freshly picked (not yet cropped) file — set while
+  // "Ajustar foto" is open, null otherwise.
+  const [cropSrc, setCropSrc] = useState(null)
 
   // Revokes the previous blob: preview URL whenever it's replaced or the
   // modal unmounts, so selecting several photos in a row doesn't leak them.
@@ -38,24 +42,59 @@ export default function ProductFormModal({
     }
   }, [imagePreviewUrl])
 
+  // Same idea for the raw picked-file URL fed into the cropper: covers
+  // cancel/confirm (both null it out) and an unmount while it's open.
+  useEffect(() => {
+    return () => {
+      if (cropSrc) URL.revokeObjectURL(cropSrc)
+    }
+  }, [cropSrc])
+
   async function handleFileChange(e) {
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-selecting the same file later
     if (!file) return
 
     setImageError('')
-    setImagePreviewUrl(URL.createObjectURL(file))
+    const rawUrl = URL.createObjectURL(file)
+
+    // Some formats (e.g. HEIC on certain browsers) can't be decoded for
+    // preview — check before opening the cropper on a broken source.
+    const canPreview = await new Promise((resolve) => {
+      const probe = new Image()
+      probe.onload = () => resolve(true)
+      probe.onerror = () => resolve(false)
+      probe.src = rawUrl
+    })
+
+    if (!canPreview) {
+      URL.revokeObjectURL(rawUrl)
+      setImageError('No pudimos previsualizar esta foto. Probá con otro formato (JPG o PNG) o sacá la foto de nuevo.')
+      return
+    }
+
+    setCropSrc(rawUrl)
+  }
+
+  function handleCropCancel() {
+    setCropSrc(null)
+  }
+
+  async function handleCropConfirm(blob) {
+    setCropSrc(null)
+    const croppedFile = new File([blob], 'foto.png', { type: 'image/png' })
+    setImagePreviewUrl(URL.createObjectURL(croppedFile))
 
     if (!isEditing) {
       // No product id yet — stage it, handleSubmit uploads it right after
       // create() succeeds. Nothing to send to the server yet.
-      setPendingFile(file)
+      setPendingFile(croppedFile)
       return
     }
 
     setUploadingImage(true)
     try {
-      const updated = await onUploadImage(product.id, file)
+      const updated = await onUploadImage(product.id, croppedFile)
       setImagePreviewUrl(updated.imageUrl)
     } catch (err) {
       setImageError(translateApiError(err))
@@ -210,6 +249,9 @@ export default function ProductFormModal({
           </div>
         </form>
       </div>
+      {cropSrc && (
+        <PhotoCropModal imageSrc={cropSrc} onCancel={handleCropCancel} onConfirm={handleCropConfirm} />
+      )}
     </div>
   )
 }
