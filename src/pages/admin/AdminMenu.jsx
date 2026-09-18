@@ -72,15 +72,55 @@ export default function AdminMenu() {
     }
   }
 
-  async function handleSaveProduct(payload, editingId) {
+  async function handleSaveProduct(payload, editingId, pendingImageFile) {
     const body = editingId ? payload : { ...payload, businessId: user.businessId }
-    await apiFetch(editingId ? `/products/${editingId}` : '/products', {
+    const result = await apiFetch(editingId ? `/products/${editingId}` : '/products', {
       method: editingId ? 'PATCH' : 'POST',
       token,
       body: JSON.stringify(body),
     })
+
+    // New product + a photo was picked before it existed: upload it now,
+    // automatically — no second manual save. If the product was created but
+    // this fails, don't treat the whole save as failed (the product IS
+    // there) — surface it separately instead.
+    if (!editingId && pendingImageFile) {
+      try {
+        const formData = new FormData()
+        formData.append('file', pendingImageFile)
+        await apiFetch(`/products/${result.id}/image`, {
+          method: 'POST',
+          token,
+          body: formData,
+        })
+      } catch (err) {
+        setError(translateApiError(err))
+      }
+    }
+
     setProductModal(null)
     await loadAll()
+  }
+
+  async function handleUploadProductImage(productId, file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const updated = await apiFetch(`/products/${productId}/image`, {
+      method: 'POST',
+      token,
+      body: formData,
+    })
+    await loadAll()
+    return updated
+  }
+
+  async function handleRemoveProductImage(productId) {
+    const updated = await apiFetch(`/products/${productId}/image`, {
+      method: 'DELETE',
+      token,
+    })
+    await loadAll()
+    return updated
   }
 
   async function handleToggleProductActive(product) {
@@ -202,6 +242,8 @@ export default function AdminMenu() {
           categories={categories}
           onClose={() => setProductModal(null)}
           onSave={handleSaveProduct}
+          onUploadImage={handleUploadProductImage}
+          onRemoveImage={handleRemoveProductImage}
         />
       )}
 

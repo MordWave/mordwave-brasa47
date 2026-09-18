@@ -16,6 +16,12 @@ const MESSAGES_BY_CODE = {
     const verb = n === 1 ? 'Elimínalo o muévelo' : 'Elimínalos o muévelos'
     return `No puedes eliminar esta categoría porque todavía tiene ${n} ${noun}. ${verb} primero.`
   },
+  IMAGE_TOO_LARGE: () => 'La imagen es demasiado pesada. El tamaño máximo permitido es 10 MB.',
+  IMAGE_INVALID_FORMAT: () =>
+    'El archivo no es una imagen válida. Usa JPEG, PNG o WebP.',
+  IMAGE_PROCESSING_FAILED: () =>
+    'No se pudo procesar esta imagen. Intenta con otra foto.',
+  IMAGE_UPLOAD_FAILED: () => 'No se pudo subir la imagen. Intenta nuevamente.',
 }
 
 const MESSAGES_BY_STATUS = {

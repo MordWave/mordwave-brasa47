@@ -30,10 +30,16 @@ export function setUnauthorizedHandler(handler) {
 }
 
 export async function apiFetch(path, { token, headers, ...options } = {}) {
+  // A FormData body (image uploads) must never get JSON.stringify'd or a
+  // manual Content-Type — the browser sets the correct
+  // multipart/form-data; boundary=... itself only when it builds the
+  // request body from a FormData instance directly.
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },

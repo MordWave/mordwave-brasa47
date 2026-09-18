@@ -21,6 +21,13 @@ export default function ProductList({
           key={product.id}
           className={`admin-menu__row${product.active ? '' : ' admin-menu__row--inactive'}`}
         >
+          <div className="admin-menu__row-thumb">
+            {product.imageUrl ? (
+              <img src={product.imageUrl} alt="" />
+            ) : (
+              <span className="admin-menu__row-thumb-placeholder">Sin foto</span>
+            )}
+          </div>
           <div className="admin-menu__row-main">
             <span className="admin-menu__row-name">{product.name}</span>
             <span className="admin-menu__row-meta">
