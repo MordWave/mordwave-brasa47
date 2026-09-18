@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { apiFetch } from '../../services/api'
+import { translateApiError } from '../../services/errorMessages'
 import CategoryFormModal from '../../components/admin/menu/CategoryFormModal'
 import CategoryList from '../../components/admin/menu/CategoryList'
 import ProductFormModal from '../../components/admin/menu/ProductFormModal'
@@ -15,6 +16,10 @@ export default function AdminMenu() {
   // null = closed, 'new' = create form, an object = editing that record.
   const [categoryModal, setCategoryModal] = useState(null)
   const [productModal, setProductModal] = useState(null)
+  // null = closed, otherwise { type: 'category' | 'product', item }
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteError, setDeleteError] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -27,7 +32,7 @@ export default function AdminMenu() {
       setCategories(cats)
       setProducts(prods)
     } catch (err) {
-      setError(err.message || 'No se pudo cargar el menú.')
+      setError(translateApiError(err))
     } finally {
       setLoading(false)
     }
@@ -63,7 +68,7 @@ export default function AdminMenu() {
       })
       await loadAll()
     } catch (err) {
-      setError(err.message || 'No se pudo actualizar la categoría.')
+      setError(translateApiError(err))
     }
   }
 
@@ -88,7 +93,7 @@ export default function AdminMenu() {
       })
       await loadAll()
     } catch (err) {
-      setError(err.message || 'No se pudo actualizar el producto.')
+      setError(translateApiError(err))
     }
   }
 
@@ -102,7 +107,38 @@ export default function AdminMenu() {
       })
       await loadAll()
     } catch (err) {
-      setError(err.message || 'No se pudo actualizar el producto.')
+      setError(translateApiError(err))
+    }
+  }
+
+  function requestDeleteCategory(category) {
+    setDeleteError('')
+    setDeleteTarget({ type: 'category', item: category })
+  }
+
+  function requestDeleteProduct(product) {
+    setDeleteError('')
+    setDeleteTarget({ type: 'product', item: product })
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return
+    setDeleteError('')
+    setDeleting(true)
+    try {
+      const path =
+        deleteTarget.type === 'category'
+          ? `/categories/${deleteTarget.item.id}`
+          : `/products/${deleteTarget.item.id}`
+      await apiFetch(path, { method: 'DELETE', token })
+      setDeleteTarget(null)
+      await loadAll()
+    } catch (err) {
+      // Stays open so the admin sees why (e.g. 409 CATEGORY_HAS_PRODUCTS)
+      // instead of the dialog just vanishing.
+      setDeleteError(translateApiError(err))
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -126,6 +162,7 @@ export default function AdminMenu() {
           loading={loading}
           onEdit={setCategoryModal}
           onToggleActive={handleToggleCategoryActive}
+          onDelete={requestDeleteCategory}
         />
       </section>
 
@@ -148,6 +185,7 @@ export default function AdminMenu() {
           onEdit={setProductModal}
           onToggleActive={handleToggleProductActive}
           onToggleAvailable={handleToggleProductAvailable}
+          onDelete={requestDeleteProduct}
         />
       </section>
 
@@ -165,6 +203,36 @@ export default function AdminMenu() {
           onClose={() => setProductModal(null)}
           onSave={handleSaveProduct}
         />
+      )}
+
+      {deleteTarget && (
+        <div className="confirm-backdrop" onClick={() => setDeleteTarget(null)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <p className="confirm-dialog__text">
+              {deleteTarget.type === 'category'
+                ? '¿Eliminar esta categoría? Esta acción la quitará de la administración y del menú.'
+                : '¿Eliminar este producto? Esta acción lo quitará de la administración y del menú.'}
+            </p>
+            {deleteError && <p className="admin-menu__form-error">{deleteError}</p>}
+            <div className="confirm-dialog__actions">
+              <button
+                type="button"
+                className="btn btn--outline btn--small"
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary btn--small"
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Eliminando…' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

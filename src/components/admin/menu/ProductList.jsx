@@ -1,6 +1,14 @@
 import { formatPrice } from '../../../utils/format'
 
-export default function ProductList({ products, categories, loading, onEdit, onToggleActive, onToggleAvailable }) {
+export default function ProductList({
+  products,
+  categories,
+  loading,
+  onEdit,
+  onToggleActive,
+  onToggleAvailable,
+  onDelete,
+}) {
   if (loading) return <p className="empty-state">Cargando productos…</p>
   if (products.length === 0) return <p className="empty-state">No hay productos todavía.</p>
 
@@ -46,6 +54,13 @@ export default function ProductList({ products, categories, loading, onEdit, onT
               onClick={() => onToggleAvailable(product)}
             >
               {product.available ? 'Marcar no disponible' : 'Marcar disponible'}
+            </button>
+            <button
+              type="button"
+              className="btn btn--outline btn--small admin-menu__delete-btn"
+              onClick={() => onDelete(product)}
+            >
+              Eliminar
             </button>
           </div>
         </div>

@@ -2141,6 +2141,11 @@ p {
   width: auto;
 }
 
+.admin-menu__delete-btn {
+  color: var(--primary-dark);
+  border-color: var(--primary);
+}
+
 .admin-menu__status {
   font-size: 11px;
   font-weight: 700;

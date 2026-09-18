@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { translateApiError } from '../../services/errorMessages'
 
 export default function AdminLogin() {
   const { login } = useAuth()
@@ -15,7 +16,7 @@ export default function AdminLogin() {
     try {
       await login(email, password)
     } catch (err) {
-      setError(err.message || 'No se pudo iniciar sesión.')
+      setError(translateApiError(err))
     } finally {
       setSubmitting(false)
     }

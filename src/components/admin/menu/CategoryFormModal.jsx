@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { translateApiError } from '../../../services/errorMessages'
+import { slugify } from '../../../utils/format'
 
 export default function CategoryFormModal({ category, onClose, onSave }) {
   const isEditing = Boolean(category)
   const [name, setName] = useState(category?.name ?? '')
-  const [slug, setSlug] = useState(category?.slug ?? '')
   const [sortOrder, setSortOrder] = useState(category?.sortOrder ?? 0)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -13,9 +14,16 @@ export default function CategoryFormModal({ category, onClose, onSave }) {
     setError('')
     setSubmitting(true)
     try {
-      await onSave({ name, slug, sortOrder: Number(sortOrder) }, category?.id)
+      // The slug is never edited by hand: on create it's derived from the
+      // name automatically; on edit it's simply not sent, so the category
+      // keeps whatever slug it already has.
+      const payload = { name, sortOrder: Number(sortOrder) }
+      if (!isEditing) {
+        payload.slug = slugify(name)
+      }
+      await onSave(payload, category?.id)
     } catch (err) {
-      setError(err.message || 'No se pudo guardar la categoría.')
+      setError(translateApiError(err))
     } finally {
       setSubmitting(false)
     }
@@ -30,11 +38,7 @@ export default function CategoryFormModal({ category, onClose, onSave }) {
         <form onSubmit={handleSubmit} className="admin-menu__form">
           <label>
             <span>Nombre</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} required />
-          </label>
-          <label>
-            <span>Slug</span>
-            <input value={slug} onChange={(e) => setSlug(e.target.value)} required />
+            <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
           </label>
           <label>
             <span>Orden</span>

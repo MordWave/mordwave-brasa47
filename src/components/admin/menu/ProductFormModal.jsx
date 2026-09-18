@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { translateApiError } from '../../../services/errorMessages'
 
 export default function ProductFormModal({ product, categories, onClose, onSave }) {
   const isEditing = Boolean(product)
@@ -30,7 +31,7 @@ export default function ProductFormModal({ product, categories, onClose, onSave 
         product?.id,
       )
     } catch (err) {
-      setError(err.message || 'No se pudo guardar el producto.')
+      setError(translateApiError(err))
     } finally {
       setSubmitting(false)
     }

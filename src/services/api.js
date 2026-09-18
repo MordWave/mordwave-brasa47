@@ -1,10 +1,16 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, { code, count } = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    // Structured data from the backend's error body (e.g. errorCode:
+    // 'CATEGORY_HAS_PRODUCTS', count: 3), when present — lets the UI build
+    // a real message instead of showing `message` (technical, in English)
+    // directly. See src/services/errorMessages.js.
+    this.code = code
+    this.count = count
   }
 }
 
@@ -39,7 +45,10 @@ export async function apiFetch(path, { token, headers, ...options } = {}) {
     if (res.status === 401 && onUnauthorized) {
       onUnauthorized()
     }
-    throw new ApiError(res.status, extractMessage(body, `Error ${res.status}`))
+    throw new ApiError(res.status, extractMessage(body, `Error ${res.status}`), {
+      code: body?.errorCode,
+      count: body?.count,
+    })
   }
 
   return body

@@ -1,4 +1,4 @@
-export default function CategoryList({ categories, loading, onEdit, onToggleActive }) {
+export default function CategoryList({ categories, loading, onEdit, onToggleActive, onDelete }) {
   if (loading) return <p className="empty-state">Cargando categorías…</p>
   if (categories.length === 0) return <p className="empty-state">No hay categorías todavía.</p>
 
@@ -30,6 +30,13 @@ export default function CategoryList({ categories, loading, onEdit, onToggleActi
               onClick={() => onToggleActive(category)}
             >
               {category.active ? 'Desactivar' : 'Activar'}
+            </button>
+            <button
+              type="button"
+              className="btn btn--outline btn--small admin-menu__delete-btn"
+              onClick={() => onDelete(category)}
+            >
+              Eliminar
             </button>
           </div>
         </div>
