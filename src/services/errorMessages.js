@@ -22,6 +22,7 @@ const MESSAGES_BY_CODE = {
   IMAGE_PROCESSING_FAILED: () =>
     'No se pudo procesar esta imagen. Intenta con otra foto.',
   IMAGE_UPLOAD_FAILED: () => 'No se pudo subir la imagen. Intenta nuevamente.',
+  BUSINESS_NOT_FOUND: () => 'No pudimos cargar el menú. Intenta nuevamente más tarde.',
 }
 
 const MESSAGES_BY_STATUS = {

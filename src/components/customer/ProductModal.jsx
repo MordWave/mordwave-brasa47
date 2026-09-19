@@ -13,6 +13,7 @@ export default function ProductModal({ product, onClose, onAdded }) {
   const [quantity, setQuantity] = useState(1)
   const [removed, setRemoved] = useState([])
   const [added, setAdded] = useState([])
+  const unavailable = product.available === false
 
   const removeOptions = product.modifiers?.remove || []
   const addOptions = product.modifiers?.add || []
@@ -54,11 +55,21 @@ export default function ProductModal({ product, onClose, onAdded }) {
         </button>
 
         <div className="sheet__media">
-          <img src={product.image} alt="" loading="lazy" />
+          {product.image ? (
+            <img src={product.image} alt="" loading="lazy" />
+          ) : (
+            <div className="sheet__media-placeholder" aria-hidden="true">
+              Sin foto
+            </div>
+          )}
         </div>
 
         <div className="sheet__content">
-          {product.tag && <p className="sheet__eyebrow">{product.tag}</p>}
+          {unavailable ? (
+            <p className="sheet__eyebrow sheet__eyebrow--unavailable">No disponible hoy</p>
+          ) : (
+            product.tag && <p className="sheet__eyebrow">{product.tag}</p>
+          )}
           <h2 className="sheet__title">{product.name}</h2>
           <p className="sheet__desc">{product.description}</p>
           <p className="sheet__price">{formatPrice(product.price)}</p>
@@ -140,8 +151,13 @@ export default function ProductModal({ product, onClose, onAdded }) {
         </div>
 
         <div className="sheet__footer">
-          <button className="btn btn--primary sheet__submit" type="button" onClick={handleAdd}>
-            Agregar al carrito · {formatPrice(unitPrice * quantity)}
+          <button
+            className="btn btn--primary sheet__submit"
+            type="button"
+            onClick={handleAdd}
+            disabled={unavailable}
+          >
+            {unavailable ? 'No disponible hoy' : `Agregar al carrito · ${formatPrice(unitPrice * quantity)}`}
           </button>
         </div>
       </div>
