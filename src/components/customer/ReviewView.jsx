@@ -1,15 +1,16 @@
-import { useState } from 'react'
 import { formatPrice } from '../../utils/format'
 import { useCart } from '../../context/CartContext'
 
-export default function ReviewView({ table, allowChangeTable, onBack, onConfirm, onChangeTable }) {
+export default function ReviewView({
+  table,
+  allowChangeTable,
+  onBack,
+  onConfirm,
+  onChangeTable,
+  submitting,
+  error,
+}) {
   const { items, total, orderNote } = useCart()
-  const [submitting, setSubmitting] = useState(false)
-
-  function handleConfirm() {
-    setSubmitting(true)
-    setTimeout(() => onConfirm(), 500)
-  }
 
   return (
     <div className="screen">
@@ -72,10 +73,11 @@ export default function ReviewView({ table, allowChangeTable, onBack, onConfirm,
       </div>
 
       <div className="screen__footer">
+        {error && <p className="screen__error">{error}</p>}
         <button
           className="btn btn--primary"
           type="button"
-          onClick={handleConfirm}
+          onClick={onConfirm}
           disabled={submitting}
         >
           {submitting ? 'Enviando pedido…' : 'Confirmar y enviar pedido'}

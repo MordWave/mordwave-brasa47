@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useAuth } from '../context/AuthContext'
+import { apiFetch } from '../services/api'
+import { translateApiError } from '../services/errorMessages'
 import OrderCard from '../components/admin/OrderCard'
 import PrintTicket from '../components/admin/PrintTicket'
-import { getOrders, updateOrderStatus, deleteOrder, clearDeliveredOrders } from '../utils/orders'
 import { getActiveSessions, closeTableSession, buildDemoQrUrl } from '../utils/tableSession'
 
-const COLUMNS = ['Nuevo', 'Preparando', 'Listo', 'Entregado']
+const NEW_POLL_MS = 5000
+const DELIVERED_POLL_MS = 60000
+const HISTORY_LIMIT = 50
 
 function QrDemoTool() {
   const [tableInput, setTableInput] = useState('1')
@@ -51,17 +55,56 @@ function QrDemoTool() {
 }
 
 export default function AdminApp() {
-  const [orders, setOrders] = useState(getOrders)
+  const { token } = useAuth()
+  const [newOrders, setNewOrders] = useState([])
+  const [deliveredOrders, setDeliveredOrders] = useState([])
+  const [cancelledOrders, setCancelledOrders] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [cancelledOpen, setCancelledOpen] = useState(false)
+  const [cancelTarget, setCancelTarget] = useState(null)
   const [sessions, setSessions] = useState(getActiveSessions)
   const [printOrder, setPrintOrder] = useState(null)
-  const [confirmClearOpen, setConfirmClearOpen] = useState(false)
   const [tablesOpen, setTablesOpen] = useState(false)
 
-  useEffect(() => {
-    const refresh = () => {
-      setOrders(getOrders())
-      setSessions(getActiveSessions())
+  const loadNew = useCallback(async () => {
+    try {
+      const data = await apiFetch('/orders/admin?status=NEW', { token })
+      setNewOrders(data)
+    } catch (err) {
+      setError(translateApiError(err))
+    } finally {
+      setLoading(false)
     }
+  }, [token])
+
+  const loadDelivered = useCallback(async () => {
+    try {
+      const data = await apiFetch(`/orders/admin?status=DELIVERED&limit=${HISTORY_LIMIT}`, { token })
+      setDeliveredOrders(data)
+    } catch (err) {
+      setError(translateApiError(err))
+    }
+  }, [token])
+
+  // Nuevos: cola activa, se refresca seguido. Entregados: se carga al
+  // montar y se refresca cada bastante más — ya no se borran, así que solo
+  // crece, y no hace falta verlo cambiar en tiempo real.
+  useEffect(() => {
+    loadNew()
+    const interval = setInterval(loadNew, NEW_POLL_MS)
+    return () => clearInterval(interval)
+  }, [loadNew])
+
+  useEffect(() => {
+    loadDelivered()
+    const interval = setInterval(loadDelivered, DELIVERED_POLL_MS)
+    return () => clearInterval(interval)
+  }, [loadDelivered])
+
+  // Mesas demo: sigue siendo localStorage, sin cambios.
+  useEffect(() => {
+    const refresh = () => setSessions(getActiveSessions())
     const interval = setInterval(refresh, 2000)
     window.addEventListener('storage', refresh)
     return () => {
@@ -70,8 +113,49 @@ export default function AdminApp() {
     }
   }, [])
 
-  function handleAdvanceStatus(orderId, status) {
-    setOrders(updateOrderStatus(orderId, status))
+  async function handleDeliver(order) {
+    setError('')
+    try {
+      const updated = await apiFetch(`/orders/${order.id}/status`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ status: 'DELIVERED' }),
+      })
+      setNewOrders((prev) => prev.filter((o) => o.id !== order.id))
+      setDeliveredOrders((prev) => [updated, ...prev])
+    } catch (err) {
+      setError(translateApiError(err))
+    }
+  }
+
+  async function handleConfirmCancel() {
+    if (!cancelTarget) return
+    setError('')
+    const target = cancelTarget
+    setCancelTarget(null)
+    try {
+      const updated = await apiFetch(`/orders/${target.id}/status`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ status: 'CANCELLED' }),
+      })
+      setNewOrders((prev) => prev.filter((o) => o.id !== target.id))
+      setCancelledOrders((prev) => [updated, ...prev])
+    } catch (err) {
+      setError(translateApiError(err))
+    }
+  }
+
+  async function handleToggleCancelled() {
+    const opening = !cancelledOpen
+    setCancelledOpen(opening)
+    if (!opening) return
+    try {
+      const data = await apiFetch(`/orders/admin?status=CANCELLED&limit=${HISTORY_LIMIT}`, { token })
+      setCancelledOrders(data)
+    } catch (err) {
+      setError(translateApiError(err))
+    }
   }
 
   function handlePrint(order) {
@@ -82,18 +166,14 @@ export default function AdminApp() {
     }, 50)
   }
 
-  function handleDeleteOrder(orderId) {
-    setOrders(deleteOrder(orderId))
-  }
-
-  function handleClearDelivered() {
-    setOrders(clearDeliveredOrders())
-    setConfirmClearOpen(false)
-  }
-
   function handleCloseSession(table) {
     setSessions(closeTableSession(table))
   }
+
+  const COLUMNS = [
+    { status: 'nuevo', label: 'Nuevos', orders: newOrders },
+    { status: 'entregado', label: 'Entregados', orders: deliveredOrders },
+  ]
 
   return (
     <div className="admin">
@@ -102,8 +182,10 @@ export default function AdminApp() {
           <p className="admin__eyebrow">BRASA 47</p>
           <h1 className="admin__title">Panel de pedidos</h1>
         </div>
-        <span className="admin__badge">{orders.length} pedidos hoy</span>
+        <span className="admin__badge">{newOrders.length} nuevos</span>
       </header>
+
+      {error && <p className="admin-menu__error">{error}</p>}
 
       <section className="admin__tables">
         <button
@@ -163,63 +245,85 @@ export default function AdminApp() {
       </section>
 
       <div className="admin__board">
-        {COLUMNS.map((status) => {
-          const columnOrders = orders
-            .filter((o) => o.status === status)
-            .sort((a, b) => b.createdAt - a.createdAt)
-          return (
-            <section key={status} className={`admin__column admin__column--${status.toLowerCase()}`}>
+        {loading ? (
+          <p className="empty-state">Cargando pedidos…</p>
+        ) : (
+          COLUMNS.map(({ status, label, orders }) => (
+            <section key={status} className={`admin__column admin__column--${status}`}>
               <div className="admin__column-head">
                 <h2 className="admin__column-title">
-                  {status} <span>{columnOrders.length}</span>
+                  {label} <span>{orders.length}</span>
                 </h2>
-                {status === 'Entregado' && columnOrders.length > 0 && (
-                  <button
-                    type="button"
-                    className="admin__column-clear"
-                    onClick={() => setConfirmClearOpen(true)}
-                  >
-                    Limpiar entregados
-                  </button>
-                )}
               </div>
               <div className="admin__column-list">
-                {columnOrders.length === 0 && <p className="empty-state">Sin pedidos</p>}
-                {columnOrders.map((order) => (
+                {orders.length === 0 && <p className="empty-state">Sin pedidos</p>}
+                {orders.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
-                    onAdvanceStatus={handleAdvanceStatus}
+                    onDeliver={handleDeliver}
+                    onCancel={setCancelTarget}
                     onPrint={handlePrint}
-                    onDelete={handleDeleteOrder}
                   />
                 ))}
               </div>
             </section>
-          )
-        })}
+          ))
+        )}
       </div>
+
+      <section className="admin__cancelled">
+        <button
+          type="button"
+          className="admin__cancelled-toggle"
+          onClick={handleToggleCancelled}
+          aria-expanded={cancelledOpen}
+        >
+          <span>Cancelados ({cancelledOrders.length})</span>
+          <span
+            className={`admin__cancelled-chevron${cancelledOpen ? ' admin__cancelled-chevron--open' : ''}`}
+            aria-hidden="true"
+          >
+            ⌄
+          </span>
+        </button>
+
+        {cancelledOpen && (
+          <div className="admin__cancelled-body">
+            {cancelledOrders.length === 0 ? (
+              <p className="empty-state">No hay pedidos cancelados.</p>
+            ) : (
+              <div className="admin__cancelled-list">
+                {cancelledOrders.map((order) => (
+                  <OrderCard key={order.id} order={order} onPrint={handlePrint} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <PrintTicket order={printOrder} />
 
-      {confirmClearOpen && (
-        <div className="confirm-backdrop" onClick={() => setConfirmClearOpen(false)}>
+      {cancelTarget && (
+        <div className="confirm-backdrop" onClick={() => setCancelTarget(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <p className="confirm-dialog__text">¿Eliminar todos los pedidos entregados?</p>
+            <p className="confirm-dialog__text">¿Cancelar el pedido #{cancelTarget.orderNumber}?</p>
+            <p className="confirm-dialog__subtext">Esta acción no se puede deshacer.</p>
             <div className="confirm-dialog__actions">
               <button
                 type="button"
                 className="btn btn--outline btn--small"
-                onClick={() => setConfirmClearOpen(false)}
+                onClick={() => setCancelTarget(null)}
               >
-                Cancelar
+                Volver
               </button>
               <button
                 type="button"
                 className="btn btn--primary btn--small"
-                onClick={handleClearDelivered}
+                onClick={handleConfirmCancel}
               >
-                Eliminar
+                Cancelar pedido
               </button>
             </div>
           </div>

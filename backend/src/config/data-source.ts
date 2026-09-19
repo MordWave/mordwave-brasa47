@@ -3,6 +3,8 @@ import { config as loadEnv } from 'dotenv';
 import { DataSource } from 'typeorm';
 import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
+import { OrderItem } from '../order/order-item.entity.js';
+import { Order } from '../order/order.entity.js';
 import { Product } from '../product/product.entity.js';
 import { User } from '../user/user.entity.js';
 
@@ -24,7 +26,7 @@ export default new DataSource({
         password: process.env.DB_PASSWORD ?? 'postgres',
         database: process.env.DB_NAME ?? 'brasa47',
       }),
-  entities: [Business, Category, Product, User],
+  entities: [Business, Category, Product, User, Order, OrderItem],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
 });

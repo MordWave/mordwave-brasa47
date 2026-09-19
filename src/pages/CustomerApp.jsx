@@ -7,7 +7,8 @@ import CartBar from '../components/customer/CartBar'
 import CartView from '../components/customer/CartView'
 import ReviewView from '../components/customer/ReviewView'
 import SuccessView from '../components/customer/SuccessView'
-import { generateOrderNumber, saveOrder } from '../utils/orders'
+import { createOrder } from '../services/orderApi'
+import { translateApiError } from '../services/errorMessages'
 import {
   getActiveTablePointer,
   getTableSession,
@@ -48,10 +49,31 @@ function resolveSession() {
   return { status: 'none' }
 }
 
+// Identifies one concrete checkout attempt (see handleConfirmOrder): the
+// backend uses it to make a retry of the exact same order a no-op instead
+// of creating a duplicate.
+function buildCheckoutFingerprint(table, note, items) {
+  return JSON.stringify({
+    table,
+    note,
+    items: items.map((it) => ({
+      productId: it.productId,
+      quantity: it.quantity,
+      removed: it.removed,
+      added: it.added,
+    })),
+  })
+}
+
+const EMPTY_CHECKOUT = { clientRequestId: null, fingerprint: null }
+
 function CustomerFlow() {
   const [session, setSession] = useState(resolveSession)
   const [step, setStep] = useState('home')
   const [lastOrder, setLastOrder] = useState(null)
+  const [checkout, setCheckout] = useState(EMPTY_CHECKOUT)
+  const [submittingOrder, setSubmittingOrder] = useState(false)
+  const [orderError, setOrderError] = useState('')
   const { items, total, orderNote, clearCart } = useCart()
 
   // Keep watching for the admin closing this table mid-session (polling +
@@ -77,40 +99,57 @@ function CustomerFlow() {
     setStep('menu')
   }
 
-  function handleConfirmOrder() {
+  async function handleConfirmOrder() {
     // Defensive re-check: the admin may have closed this table in the brief
     // window between opening the review screen and tapping confirm.
     if (!isActiveTableSessionValid()) {
       setSession({ status: 'closed', table: session.table })
       return
     }
+    if (submittingOrder) return // already in flight — the button is also disabled, this just guards a stray double-call
 
-    const orderNumber = generateOrderNumber()
-    const order = {
-      id: `order-${Date.now()}`,
-      orderNumber,
-      table: session.table,
-      sessionMode: session.mode,
-      status: 'Nuevo',
-      note: orderNote,
-      total,
-      createdAt: Date.now(),
-      items: items.map((it) => ({
-        name: it.name,
-        quantity: it.quantity,
-        unitPrice: it.unitPrice,
-        removed: it.removed,
-        added: it.added,
-      })),
+    // Reuse the same clientRequestId only if it's for this exact order (a
+    // retry after a failed/slow submit) — table, note, or cart contents
+    // changing since the id was minted means it's really a different order,
+    // so it gets a fresh id instead of silently reusing a stale one.
+    const fingerprint = buildCheckoutFingerprint(session.table, orderNote, items)
+    const clientRequestId =
+      checkout.fingerprint === fingerprint && checkout.clientRequestId
+        ? checkout.clientRequestId
+        : crypto.randomUUID()
+    if (checkout.clientRequestId !== clientRequestId) {
+      setCheckout({ clientRequestId, fingerprint })
     }
-    saveOrder(order)
-    setLastOrder(order)
-    setStep('success')
+
+    setSubmittingOrder(true)
+    setOrderError('')
+    try {
+      const order = await createOrder({
+        clientRequestId,
+        table: session.table,
+        note: orderNote,
+        items: items.map((it) => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          removed: it.removed,
+          added: it.added,
+        })),
+      })
+      setLastOrder(order)
+      setCheckout(EMPTY_CHECKOUT) // next checkout starts with a fresh id
+      setStep('success')
+    } catch (err) {
+      setOrderError(translateApiError(err))
+    } finally {
+      setSubmittingOrder(false)
+    }
   }
 
   function handleNewOrder() {
     clearCart()
     setLastOrder(null)
+    setCheckout(EMPTY_CHECKOUT)
+    setOrderError('')
     setStep('menu')
   }
 
@@ -142,6 +181,8 @@ function CustomerFlow() {
         allowChangeTable={session.mode === 'manual'}
         onBack={() => setStep('cart')}
         onConfirm={handleConfirmOrder}
+        submitting={submittingOrder}
+        error={orderError}
         onChangeTable={() => {
           clearActiveTablePointer()
           setSession({ status: 'none' })

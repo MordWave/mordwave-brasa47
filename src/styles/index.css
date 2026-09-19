@@ -1040,6 +1040,14 @@ p {
   background: var(--surface);
 }
 
+.screen__error {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  margin: 0 0 10px;
+  text-align: center;
+}
+
 .totals-row {
   display: flex;
   justify-content: space-between;
@@ -1610,21 +1618,6 @@ p {
   gap: 8px;
 }
 
-.admin__column-clear {
-  background: none;
-  border: none;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  text-decoration: underline;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.admin__column-clear:hover {
-  color: var(--primary);
-}
-
 .admin__column-title::before {
   content: '';
   width: 8px;
@@ -1635,14 +1628,6 @@ p {
 
 .admin__column--nuevo .admin__column-title::before {
   background: var(--primary);
-}
-
-.admin__column--preparando .admin__column-title::before {
-  background: var(--accent);
-}
-
-.admin__column--listo .admin__column-title::before {
-  background: var(--success);
 }
 
 .admin__column-title span {
@@ -1667,21 +1652,18 @@ p {
   padding: 12px;
 }
 
-.order-card--nuevo {
+.order-card--new {
   border-left-color: var(--primary);
 }
 
-.order-card--preparando {
-  border-left-color: var(--accent);
-}
-
-.order-card--listo {
-  border-left-color: var(--success);
-}
-
-.order-card--entregado {
+.order-card--delivered {
   border-left-color: var(--border);
   opacity: 0.7;
+}
+
+.order-card--cancelled {
+  border-left-color: var(--border);
+  opacity: 0.6;
 }
 
 .order-card__header {
@@ -1718,22 +1700,6 @@ p {
   color: var(--text-secondary);
   margin-left: auto;
   white-space: nowrap;
-}
-
-.order-card__delete {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  padding: 2px;
-  opacity: 0.6;
-  flex-shrink: 0;
-}
-
-.order-card__delete:hover {
-  color: var(--primary);
-  opacity: 1;
 }
 
 .order-card__items {
@@ -1814,6 +1780,66 @@ p {
   font-size: 12px;
   font-weight: 700;
   text-decoration: underline;
+}
+
+.order-card__cancel {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-align: center;
+}
+
+.order-card__cancel:hover {
+  color: var(--primary-dark);
+}
+
+/* ============ Cancelled orders (collapsible) ============ */
+.admin__cancelled {
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.admin__cancelled-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.admin__cancelled-chevron {
+  display: inline-block;
+  color: var(--text-secondary);
+  transition: transform 0.15s ease;
+}
+
+.admin__cancelled-chevron--open {
+  transform: rotate(180deg);
+}
+
+.admin__cancelled-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.admin__cancelled-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 /* ============ Confirm dialog ============ */
@@ -1973,7 +1999,7 @@ p {
   }
 
   .admin__board {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 0;
     background: var(--bg);
     border: 1px solid var(--border);
