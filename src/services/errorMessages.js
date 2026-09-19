@@ -1,17 +1,18 @@
 import { ApiError } from './api'
 
 // Messages keyed by the backend's structured errorCode — takes priority over
-// the generic per-status fallback below, since these can use real data
-// (count) instead of a generic sentence.
+// the generic per-status fallback below, since these can use real data from
+// the error body (count, productName) instead of a generic sentence. Each
+// handler receives the full ApiError so it can pick whatever field it needs.
 const MESSAGES_BY_CODE = {
-  CATEGORY_HAS_ACTIVE_PRODUCTS: (count) => {
-    const n = Number(count) || 0
+  CATEGORY_HAS_ACTIVE_PRODUCTS: (error) => {
+    const n = Number(error.count) || 0
     const noun = n === 1 ? 'producto activo' : 'productos activos'
     const verb = n === 1 ? 'Desactívalo o muévelo' : 'Desactívalos o muévelos'
     return `No puedes desactivar esta categoría porque todavía tiene ${n} ${noun}. ${verb} primero.`
   },
-  CATEGORY_HAS_PRODUCTS: (count) => {
-    const n = Number(count) || 0
+  CATEGORY_HAS_PRODUCTS: (error) => {
+    const n = Number(error.count) || 0
     const noun = n === 1 ? 'producto' : 'productos'
     const verb = n === 1 ? 'Elimínalo o muévelo' : 'Elimínalos o muévelos'
     return `No puedes eliminar esta categoría porque todavía tiene ${n} ${noun}. ${verb} primero.`
@@ -23,6 +24,14 @@ const MESSAGES_BY_CODE = {
     'No se pudo procesar esta imagen. Intenta con otra foto.',
   IMAGE_UPLOAD_FAILED: () => 'No se pudo subir la imagen. Intenta nuevamente.',
   BUSINESS_NOT_FOUND: () => 'No pudimos cargar el menú. Intenta nuevamente más tarde.',
+  PRODUCT_UNAVAILABLE: (error) =>
+    error.productName
+      ? `${error.productName} ya no está disponible.`
+      : 'Uno de los productos de tu pedido ya no está disponible. Revisa tu carrito e intenta nuevamente.',
+  PRODUCT_NOT_FOUND: (error) =>
+    error.productName
+      ? `${error.productName} ya no existe en el menú.`
+      : 'Uno de los productos de tu pedido ya no existe en el menú. Revisa tu carrito e intenta nuevamente.',
 }
 
 const MESSAGES_BY_STATUS = {
@@ -44,7 +53,7 @@ export function translateApiError(error) {
   }
 
   if (error.code && MESSAGES_BY_CODE[error.code]) {
-    return MESSAGES_BY_CODE[error.code](error.count ?? 0)
+    return MESSAGES_BY_CODE[error.code](error)
   }
 
   return MESSAGES_BY_STATUS[error.status] ?? 'No se pudo completar la acción. Intenta nuevamente.'

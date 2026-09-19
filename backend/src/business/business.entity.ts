@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Category } from '../category/category.entity.js';
+import { Order } from '../order/order.entity.js';
 import { Product } from '../product/product.entity.js';
 
 @Entity('businesses')
@@ -29,6 +30,9 @@ export class Business {
 
   @OneToMany(() => Product, (product) => product.business)
   products: Relation<Product>[];
+
+  @OneToMany(() => Order, (order) => order.business)
+  orders: Relation<Order>[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
