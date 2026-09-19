@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { apiFetch } from '../../services/api'
 import { translateApiError } from '../../services/errorMessages'
+import CategoryFilterBar from '../../components/admin/menu/CategoryFilterBar'
 import CategoryFormModal from '../../components/admin/menu/CategoryFormModal'
 import CategoryList from '../../components/admin/menu/CategoryList'
 import ProductFormModal from '../../components/admin/menu/ProductFormModal'
@@ -20,6 +21,12 @@ export default function AdminMenu() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [productCategoryFilter, setProductCategoryFilter] = useState('all')
+  // Closed by default on every fresh /admin load — plain component state
+  // (no persistence) is exactly what gives that for free. Once the admin
+  // opens it (e.g. to create a category), it's free to stay open for the
+  // rest of the session; nothing here ever closes it automatically.
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -41,6 +48,16 @@ export default function AdminMenu() {
   useEffect(() => {
     loadAll()
   }, [loadAll])
+
+  // The filter bar only offers active categories — if the one currently
+  // selected gets deactivated or deleted (from the Categorías section
+  // above), fall back to "Todos" instead of silently filtering by a
+  // category that's no longer a valid option.
+  useEffect(() => {
+    if (productCategoryFilter === 'all') return
+    const stillActive = categories.some((c) => c.id === productCategoryFilter && c.active)
+    if (!stillActive) setProductCategoryFilter('all')
+  }, [categories, productCategoryFilter])
 
   // businessId is required by the backend DTO but is only ever read from
   // the caller's own token server-side for an ADMIN — sending the admin's
@@ -182,29 +199,14 @@ export default function AdminMenu() {
     }
   }
 
+  const filteredProducts =
+    productCategoryFilter === 'all'
+      ? products
+      : products.filter((p) => p.categoryId === productCategoryFilter)
+
   return (
     <div className="admin-menu">
       {error && <p className="admin-menu__error">{error}</p>}
-
-      <section className="admin-menu__section">
-        <div className="admin-menu__section-head">
-          <h2>Categorías</h2>
-          <button
-            type="button"
-            className="btn btn--primary btn--small"
-            onClick={() => setCategoryModal('new')}
-          >
-            + Nueva categoría
-          </button>
-        </div>
-        <CategoryList
-          categories={categories}
-          loading={loading}
-          onEdit={setCategoryModal}
-          onToggleActive={handleToggleCategoryActive}
-          onDelete={requestDeleteCategory}
-        />
-      </section>
 
       <section className="admin-menu__section">
         <div className="admin-menu__section-head">
@@ -218,15 +220,64 @@ export default function AdminMenu() {
             + Nuevo producto
           </button>
         </div>
-        <ProductList
-          products={products}
-          categories={categories}
-          loading={loading}
-          onEdit={setProductModal}
-          onToggleActive={handleToggleProductActive}
-          onToggleAvailable={handleToggleProductAvailable}
-          onDelete={requestDeleteProduct}
-        />
+        {!loading && (
+          <CategoryFilterBar
+            categories={categories}
+            products={products}
+            activeId={productCategoryFilter}
+            onSelect={setProductCategoryFilter}
+          />
+        )}
+        {!loading && productCategoryFilter !== 'all' && filteredProducts.length === 0 ? (
+          <p className="empty-state">No hay productos en esta categoría.</p>
+        ) : (
+          <ProductList
+            products={filteredProducts}
+            categories={categories}
+            loading={loading}
+            onEdit={setProductModal}
+            onToggleActive={handleToggleProductActive}
+            onToggleAvailable={handleToggleProductAvailable}
+            onDelete={requestDeleteProduct}
+          />
+        )}
+      </section>
+
+      <section className="admin-menu__section">
+        <button
+          type="button"
+          className="admin-menu__collapsible-toggle"
+          onClick={() => setCategoriesOpen((open) => !open)}
+          aria-expanded={categoriesOpen}
+        >
+          <h2>Gestionar categorías ({categories.length})</h2>
+          <span
+            className={`admin-menu__collapsible-chevron${categoriesOpen ? ' admin-menu__collapsible-chevron--open' : ''}`}
+            aria-hidden="true"
+          >
+            ▾
+          </span>
+        </button>
+        {categoriesOpen && (
+          <>
+            <div className="admin-menu__section-head admin-menu__section-head--collapsible">
+              <button
+                type="button"
+                className="btn btn--primary btn--small"
+                onClick={() => setCategoryModal('new')}
+              >
+                + Nueva categoría
+              </button>
+            </div>
+            <CategoryList
+              categories={categories}
+              loading={loading}
+              onEdit={setCategoryModal}
+              onToggleActive={handleToggleCategoryActive}
+              onDelete={requestDeleteCategory}
+            />
+          </>
+        )}
       </section>
 
       {categoryModal && (
