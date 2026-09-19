@@ -8,10 +8,12 @@ import {
 } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
+import { ProductImageService, type UploadableFile } from './product-image.service.js';
 import { Product } from './product.entity.js';
 
 @Injectable()
@@ -23,6 +25,8 @@ export class ProductService {
     private readonly categoryRepository: Repository<Category>,
     @InjectRepository(Business)
     private readonly businessRepository: Repository<Business>,
+    private readonly productImageService: ProductImageService,
+    private readonly publicBusinessResolver: PublicBusinessResolverService,
   ) {}
 
   private async assertBusinessExists(businessId: string): Promise<void> {
@@ -75,9 +79,8 @@ export class ProductService {
     return this.productRepository.save(product);
   }
 
-  private async findActiveCategoryIds(businessId?: string, categoryId?: string): Promise<string[]> {
-    const where: { active: boolean; businessId?: string; id?: string } = { active: true };
-    if (businessId) where.businessId = businessId;
+  private async findActiveCategoryIds(businessId: string, categoryId?: string): Promise<string[]> {
+    const where: { active: boolean; businessId: string; id?: string } = { active: true, businessId };
     if (categoryId) where.id = categoryId;
     const categories = await this.categoryRepository.find({ where, select: { id: true } });
     return categories.map((category) => category.id);
@@ -87,28 +90,29 @@ export class ProductService {
   // neither do products whose category is itself inactive (a product can't
   // be "in" a category the menu no longer shows). `available` is left
   // untouched: an unavailable-but-active product still appears (e.g. "sold
-  // out today"), it's just flagged as unavailable.
+  // out today"), it's just flagged as unavailable. Always scoped to exactly
+  // one business (see PublicBusinessResolverService) — an unscoped public
+  // read would otherwise mix every tenant's menu together.
   async findAllPublic(query: ProductQueryDto): Promise<Product[]> {
-    const activeCategoryIds = await this.findActiveCategoryIds(query.businessId, query.categoryId);
+    const businessId = await this.publicBusinessResolver.resolve(query);
+    const activeCategoryIds = await this.findActiveCategoryIds(businessId, query.categoryId);
     if (activeCategoryIds.length === 0) {
       return [];
     }
 
-    const where: { active: boolean; categoryId: ReturnType<typeof In>; businessId?: string } = {
-      active: true,
-      categoryId: In(activeCategoryIds),
-    };
-    if (query.businessId) where.businessId = query.businessId;
-
     return this.productRepository.find({
-      where,
+      where: { active: true, categoryId: In(activeCategoryIds), businessId },
       order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
   }
 
-  async findOnePublic(id: string): Promise<Product> {
+  // Same tenant scoping as findAllPublic: a product id from another
+  // business 404s exactly like one that doesn't exist, instead of leaking
+  // cross-tenant data to whoever guesses/finds a UUID.
+  async findOnePublic(id: string, query: ProductQueryDto): Promise<Product> {
+    const businessId = await this.publicBusinessResolver.resolve(query);
     const product = await this.productRepository.findOne({
-      where: { id, active: true },
+      where: { id, active: true, businessId },
     });
     if (!product) {
       throw new NotFoundException(`Product with id "${id}" not found`);
@@ -180,6 +184,45 @@ export class ProductService {
     }
 
     Object.assign(product, dto, { businessId });
+    return this.productRepository.save(product);
+  }
+
+  // Soft delete: sets deletedAt instead of removing the row, so it's
+  // excluded from every find/findOne/count going forward (see the
+  // deletedAt column comment on Product) while staying intact for any
+  // future orders table to reference. No extra precondition beyond
+  // ownership — unlike a category, a product has nothing under it.
+  async remove(id: string, user: SafeUser): Promise<void> {
+    const product = await this.findOne(id);
+    resolveBusinessIdForUpdate(user, product.businessId, undefined);
+    await this.productRepository.softDelete(id);
+  }
+
+  // Same ownership check as update()/remove() — an ADMIN can only touch the
+  // image of a product in their own business. imageUrl is only written
+  // after ProductImageService confirms the file actually exists in
+  // Storage; if it throws, this never reaches the save().
+  async attachImage(id: string, user: SafeUser, file: UploadableFile): Promise<Product> {
+    const product = await this.findOne(id);
+    const businessId = resolveBusinessIdForUpdate(user, product.businessId, undefined);
+
+    const imageUrl = await this.productImageService.upload(businessId, product.id, file);
+
+    product.imageUrl = imageUrl;
+    return this.productRepository.save(product);
+  }
+
+  // Deliberately different from soft-deleting the product itself: this is
+  // an explicit, standalone action on a still-existing product, so the
+  // Storage object is actually removed (not preserved the way a soft
+  // delete's image is).
+  async removeImage(id: string, user: SafeUser): Promise<Product> {
+    const product = await this.findOne(id);
+    const businessId = resolveBusinessIdForUpdate(user, product.businessId, undefined);
+
+    await this.productImageService.remove(businessId, product.id);
+
+    product.imageUrl = null;
     return this.productRepository.save(product);
   }
 }

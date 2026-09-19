@@ -9,8 +9,10 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
+import { ProductImageService } from './product-image.service.js';
 import { Product } from './product.entity.js';
 import { ProductService } from './product.service.js';
 
@@ -20,7 +22,19 @@ function createRepoMock() {
     save: vi.fn(async (entity: unknown) => entity),
     findOne: vi.fn(),
     find: vi.fn(),
+    softDelete: vi.fn(),
   };
+}
+
+function createProductImageServiceMock() {
+  return {
+    upload: vi.fn(),
+    remove: vi.fn(),
+  };
+}
+
+function createPublicBusinessResolverMock() {
+  return { resolve: vi.fn() };
 }
 
 describe('ProductService', () => {
@@ -28,6 +42,8 @@ describe('ProductService', () => {
   let productRepo: ReturnType<typeof createRepoMock>;
   let categoryRepo: ReturnType<typeof createRepoMock>;
   let businessRepo: ReturnType<typeof createRepoMock>;
+  let productImageService: ReturnType<typeof createProductImageServiceMock>;
+  let publicBusinessResolver: ReturnType<typeof createPublicBusinessResolverMock>;
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -49,6 +65,8 @@ describe('ProductService', () => {
     productRepo = createRepoMock();
     categoryRepo = createRepoMock();
     businessRepo = createRepoMock();
+    productImageService = createProductImageServiceMock();
+    publicBusinessResolver = createPublicBusinessResolverMock();
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -56,6 +74,8 @@ describe('ProductService', () => {
         { provide: getRepositoryToken(Product), useValue: productRepo },
         { provide: getRepositoryToken(Category), useValue: categoryRepo },
         { provide: getRepositoryToken(Business), useValue: businessRepo },
+        { provide: ProductImageService, useValue: productImageService },
+        { provide: PublicBusinessResolverService, useValue: publicBusinessResolver },
       ],
     }).compile();
 
@@ -207,45 +227,80 @@ describe('ProductService', () => {
     );
   });
 
-  it('findAllPublic only includes products whose category is active', async () => {
+  it('findAllPublic resolves the business first, then only includes products whose category is active', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     categoryRepo.find.mockResolvedValue([{ id: 'cat-1' }, { id: 'cat-2' }]);
     productRepo.find.mockResolvedValue([]);
 
-    await service.findAllPublic({});
+    await service.findAllPublic({ businessSlug: 'brasa-47' });
 
+    expect(publicBusinessResolver.resolve).toHaveBeenCalledWith({ businessSlug: 'brasa-47' });
     expect(categoryRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ active: true }) }),
+      expect.objectContaining({ where: expect.objectContaining({ active: true, businessId: 'biz-1' }) }),
     );
     const callArgs = productRepo.find.mock.calls[0][0];
     expect(callArgs.where.active).toBe(true);
+    expect(callArgs.where.businessId).toBe('biz-1');
     expect(callArgs.where.categoryId).toEqual(expect.objectContaining({ _type: 'in' }));
   });
 
   it('findAllPublic skips the product query entirely when no category is active', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     categoryRepo.find.mockResolvedValue([]);
 
-    const result = await service.findAllPublic({});
+    const result = await service.findAllPublic({ businessId: 'biz-1' });
 
     expect(result).toEqual([]);
     expect(productRepo.find).not.toHaveBeenCalled();
   });
 
+  it('findAllPublic never queries the database when the business cannot be resolved', async () => {
+    publicBusinessResolver.resolve.mockRejectedValue(new BadRequestException());
+
+    await expect(service.findAllPublic({})).rejects.toBeInstanceOf(BadRequestException);
+    expect(categoryRepo.find).not.toHaveBeenCalled();
+    expect(productRepo.find).not.toHaveBeenCalled();
+  });
+
   it('findOnePublic 404s on an inactive product (same as not existing)', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     productRepo.findOne.mockResolvedValue(null);
 
-    await expect(service.findOnePublic('p1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.findOnePublic('p1', { businessId: 'biz-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(productRepo.findOne).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: 'p1', active: true }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'p1', active: true, businessId: 'biz-1' }),
+      }),
     );
   });
 
   it('findOnePublic 404s when the product is active but its category is not', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     productRepo.findOne.mockResolvedValue({ id: 'p1', categoryId: 'cat-1', active: true });
     categoryRepo.findOne.mockResolvedValue(null);
 
-    await expect(service.findOnePublic('p1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.findOnePublic('p1', { businessId: 'biz-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(categoryRepo.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ id: 'cat-1', active: true }) }),
+    );
+  });
+
+  it('findOnePublic 404s a product that belongs to a different business (tenant-scoped lookup)', async () => {
+    // The businessId filter is baked into the findOne() call itself — a
+    // product from another business simply doesn't match, same as an
+    // unknown id.
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
+    productRepo.findOne.mockResolvedValue(null);
+
+    await expect(
+      service.findOnePublic('p-from-other-biz', { businessId: 'biz-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(productRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-1' }) }),
     );
   });
 
@@ -279,5 +334,125 @@ describe('ProductService', () => {
     expect(productRepo.find).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-2' }) }),
     );
+  });
+
+  // Soft delete: TypeORM's @DeleteDateColumn makes every find/findOne/count
+  // on this repository exclude a soft-deleted row automatically (verified
+  // against the installed TypeORM's own source — see product.entity.ts).
+  // These tests simulate that by having findOne resolve null for an id
+  // that's already been soft-deleted, since that's exactly what TypeORM
+  // would return once deletedAt is set — the service code has no idea
+  // (and shouldn't need to) whether "not found" means "never existed" or
+  // "was deleted".
+  describe('remove', () => {
+    it('soft-deletes via repository.softDelete(), never a real delete', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1' });
+
+      await service.remove('p1', admin);
+
+      expect(productRepo.softDelete).toHaveBeenCalledWith('p1');
+    });
+
+    it('rejects removing a product belonging to another business', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
+
+      await expect(service.remove('p1', admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(productRepo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('a second delete attempt 404s instead of deleting again', async () => {
+      productRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.remove('p1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(productRepo.softDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a soft-deleted product cannot be edited afterward (404, same as never existing)', async () => {
+    productRepo.findOne.mockResolvedValue(null);
+
+    await expect(service.update('p1', { name: 'renamed' }, admin)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('admin listing never opts back into seeing soft-deleted rows (no withDeleted)', async () => {
+    productRepo.find.mockResolvedValue([]);
+
+    await service.findAllAdmin({}, admin);
+
+    const callArgs = productRepo.find.mock.calls.at(-1)[0];
+    expect(callArgs).not.toHaveProperty('withDeleted');
+  });
+
+  describe('attachImage', () => {
+    const file = { buffer: Buffer.from('bytes'), size: 100 };
+
+    it('rejects attaching an image to a product belonging to another business', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
+
+      await expect(service.attachImage('p1', admin, file)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(productImageService.upload).not.toHaveBeenCalled();
+    });
+
+    it('updates imageUrl only after the upload succeeds', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageUrl: null });
+      productImageService.upload.mockResolvedValue('https://cdn.example/biz-1/p1/imagen.webp?v=1');
+
+      const result = await service.attachImage('p1', admin, file);
+
+      expect(productImageService.upload).toHaveBeenCalledWith('biz-1', 'p1', file);
+      expect(productRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ imageUrl: 'https://cdn.example/biz-1/p1/imagen.webp?v=1' }),
+      );
+      expect(result.imageUrl).toBe('https://cdn.example/biz-1/p1/imagen.webp?v=1');
+    });
+
+    it('leaves imageUrl untouched when the upload fails', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        imageUrl: 'https://cdn.example/old.webp',
+      });
+      productImageService.upload.mockRejectedValue(new Error('storage down'));
+
+      await expect(service.attachImage('p1', admin, file)).rejects.toThrow('storage down');
+
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeImage', () => {
+    it('rejects removing the image of a product belonging to another business', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
+
+      await expect(service.removeImage('p1', admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(productImageService.remove).not.toHaveBeenCalled();
+    });
+
+    it('clears imageUrl to null after a successful Storage removal', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        imageUrl: 'https://cdn.example/biz-1/p1/imagen.webp?v=1',
+      });
+
+      const result = await service.removeImage('p1', admin);
+
+      expect(productImageService.remove).toHaveBeenCalledWith('biz-1', 'p1');
+      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: null }));
+      expect(result.imageUrl).toBeNull();
+    });
+  });
+
+  it('soft-deleting a product never touches its Storage image (kept for history)', async () => {
+    productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1' });
+
+    await service.remove('p1', admin);
+
+    expect(productImageService.remove).not.toHaveBeenCalled();
+    expect(productRepo.softDelete).toHaveBeenCalledWith('p1');
   });
 });

@@ -1,9 +1,15 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Product } from '../product/product.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { Category } from './category.entity.js';
@@ -16,6 +22,7 @@ function createRepoMock() {
     findOne: vi.fn(),
     find: vi.fn(),
     count: vi.fn(),
+    softDelete: vi.fn(),
   };
 }
 
@@ -24,6 +31,7 @@ describe('CategoryService', () => {
   let categoryRepo: ReturnType<typeof createRepoMock>;
   let businessRepo: ReturnType<typeof createRepoMock>;
   let productRepo: ReturnType<typeof createRepoMock>;
+  let publicBusinessResolver: { resolve: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -45,6 +53,7 @@ describe('CategoryService', () => {
     categoryRepo = createRepoMock();
     businessRepo = createRepoMock();
     productRepo = createRepoMock();
+    publicBusinessResolver = { resolve: vi.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -52,6 +61,7 @@ describe('CategoryService', () => {
         { provide: getRepositoryToken(Category), useValue: categoryRepo },
         { provide: getRepositoryToken(Business), useValue: businessRepo },
         { provide: getRepositoryToken(Product), useValue: productRepo },
+        { provide: PublicBusinessResolverService, useValue: publicBusinessResolver },
       ],
     }).compile();
 
@@ -76,14 +86,23 @@ describe('CategoryService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('findAllPublic always filters by active:true', async () => {
+  it('findAllPublic resolves the business first, then filters by active:true and that business', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     categoryRepo.find.mockResolvedValue([]);
 
-    await service.findAllPublic({});
+    await service.findAllPublic({ businessSlug: 'brasa-47' });
 
+    expect(publicBusinessResolver.resolve).toHaveBeenCalledWith({ businessSlug: 'brasa-47' });
     expect(categoryRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ active: true }) }),
+      expect.objectContaining({ where: { businessId: 'biz-1', active: true } }),
     );
+  });
+
+  it('findAllPublic never queries the database when the business cannot be resolved', async () => {
+    publicBusinessResolver.resolve.mockRejectedValue(new BadRequestException());
+
+    await expect(service.findAllPublic({})).rejects.toBeInstanceOf(BadRequestException);
+    expect(categoryRepo.find).not.toHaveBeenCalled();
   });
 
   it('findAllAdmin: ADMIN ignores a foreign businessId from the query and sees only their own', async () => {
@@ -116,10 +135,14 @@ describe('CategoryService', () => {
     categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
     productRepo.count.mockResolvedValue(3);
 
-    await expect(
-      service.update('cat-1', { active: false }, admin),
-    ).rejects.toBeInstanceOf(ConflictException);
+    const error = await service
+      .update('cat-1', { active: false }, admin)
+      .catch((err: unknown) => err);
 
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toEqual(
+      expect.objectContaining({ errorCode: 'CATEGORY_HAS_ACTIVE_PRODUCTS', count: 3 }),
+    );
     expect(productRepo.count).toHaveBeenCalledWith(
       expect.objectContaining({ where: { categoryId: 'cat-1', active: true } }),
     );
@@ -146,5 +169,71 @@ describe('CategoryService', () => {
     expect(categoryRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ active: true }),
     );
+  });
+
+  // Soft delete: TypeORM's @DeleteDateColumn makes every find/findOne/count
+  // on this repository exclude a soft-deleted row automatically (verified
+  // against the installed TypeORM's own source — see category.entity.ts).
+  // These tests simulate that by having findOne resolve null for an id
+  // that's already been soft-deleted, since that's exactly what TypeORM
+  // would return once deletedAt is set.
+  describe('remove', () => {
+    it('soft-deletes via repository.softDelete() when the category has no products', async () => {
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1' });
+      productRepo.count.mockResolvedValue(0);
+
+      await service.remove('cat-1', admin);
+
+      expect(categoryRepo.softDelete).toHaveBeenCalledWith('cat-1');
+    });
+
+    it('blocks deleting a category that still has products (active or not)', async () => {
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1' });
+      productRepo.count.mockResolvedValue(2);
+
+      const error = await service.remove('cat-1', admin).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toEqual(
+        expect.objectContaining({ errorCode: 'CATEGORY_HAS_PRODUCTS', count: 2 }),
+      );
+      // Unlike the deactivate check, this counts every non-deleted product,
+      // not just active:true ones — no `active` key in the where clause.
+      expect(productRepo.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { categoryId: 'cat-1' } }),
+      );
+      expect(categoryRepo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('rejects removing a category belonging to another business', async () => {
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'other-biz' });
+
+      await expect(service.remove('cat-1', admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(categoryRepo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('a second delete attempt 404s instead of deleting again', async () => {
+      categoryRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.remove('cat-1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(categoryRepo.softDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a soft-deleted category cannot be edited afterward (404, same as never existing)', async () => {
+    categoryRepo.findOne.mockResolvedValue(null);
+
+    await expect(service.update('cat-1', { name: 'renamed' }, admin)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('admin listing never opts back into seeing soft-deleted rows (no withDeleted)', async () => {
+    categoryRepo.find.mockResolvedValue([]);
+
+    await service.findAllAdmin({}, admin);
+
+    const callArgs = categoryRepo.find.mock.calls.at(-1)[0];
+    expect(callArgs).not.toHaveProperty('withDeleted');
   });
 });

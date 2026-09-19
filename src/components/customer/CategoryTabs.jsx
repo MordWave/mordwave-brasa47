@@ -1,3 +1,4 @@
+import { getCategoryIcon } from '../../utils/categoryIcons'
 import { CategoryIcon } from './Icons'
 
 export default function CategoryTabs({ categories, activeId, onSelect }) {
@@ -10,7 +11,7 @@ export default function CategoryTabs({ categories, activeId, onSelect }) {
           onClick={() => onSelect(cat.id)}
           type="button"
         >
-          <CategoryIcon name={cat.icon} size={15} />
+          <CategoryIcon name={getCategoryIcon(cat.slug)} size={15} />
           <span>{cat.name}</span>
         </button>
       ))}

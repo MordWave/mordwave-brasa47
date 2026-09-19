@@ -1,14 +1,22 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -20,6 +28,11 @@ import { ProductQueryDto } from './dto/product-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { Product } from './product.entity.js';
 import { ProductService } from './product.service.js';
+
+// Pure infrastructure-level ceiling (protects the process from buffering an
+// absurdly large upload at all) — the real, user-facing 10 MB business rule
+// is enforced with a proper structured error inside ProductImageService.
+const MULTER_HARD_LIMIT_BYTES = 20 * 1024 * 1024;
 
 @Controller('products')
 export class ProductController {
@@ -53,8 +66,11 @@ export class ProductController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<Product> {
-    return this.productService.findOnePublic(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ProductQueryDto,
+  ): Promise<Product> {
+    return this.productService.findOnePublic(id, query);
   }
 
   @Patch(':id')
@@ -66,5 +82,49 @@ export class ProductController {
     @CurrentUser() user: SafeUser,
   ): Promise<Product> {
     return this.productService.update(id, dto, user);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SafeUser,
+  ): Promise<void> {
+    return this.productService.remove(id, user);
+  }
+
+  @Post(':id/image')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: MULTER_HARD_LIMIT_BYTES },
+    }),
+  )
+  uploadImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: SafeUser,
+  ): Promise<Product> {
+    if (!file) {
+      throw new BadRequestException({
+        message: 'No file uploaded',
+        errorCode: 'IMAGE_INVALID_FORMAT',
+      });
+    }
+    return this.productService.attachImage(id, user, file);
+  }
+
+  @Delete(':id/image')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  removeImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SafeUser,
+  ): Promise<Product> {
+    return this.productService.removeImage(id, user);
   }
 }

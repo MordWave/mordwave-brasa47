@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
@@ -46,4 +47,10 @@ export class Category {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  // See Product.deletedAt for why this is safe with the existing
+  // ManyToOne(onDelete: 'CASCADE') relations — softDelete() never issues a
+  // real DELETE, so those never fire.
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deletedAt: Date | null;
 }
