@@ -9,6 +9,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { ProductImageService } from './product-image.service.js';
@@ -32,12 +33,17 @@ function createProductImageServiceMock() {
   };
 }
 
+function createPublicBusinessResolverMock() {
+  return { resolve: vi.fn() };
+}
+
 describe('ProductService', () => {
   let service: ProductService;
   let productRepo: ReturnType<typeof createRepoMock>;
   let categoryRepo: ReturnType<typeof createRepoMock>;
   let businessRepo: ReturnType<typeof createRepoMock>;
   let productImageService: ReturnType<typeof createProductImageServiceMock>;
+  let publicBusinessResolver: ReturnType<typeof createPublicBusinessResolverMock>;
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -60,6 +66,7 @@ describe('ProductService', () => {
     categoryRepo = createRepoMock();
     businessRepo = createRepoMock();
     productImageService = createProductImageServiceMock();
+    publicBusinessResolver = createPublicBusinessResolverMock();
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -68,6 +75,7 @@ describe('ProductService', () => {
         { provide: getRepositoryToken(Category), useValue: categoryRepo },
         { provide: getRepositoryToken(Business), useValue: businessRepo },
         { provide: ProductImageService, useValue: productImageService },
+        { provide: PublicBusinessResolverService, useValue: publicBusinessResolver },
       ],
     }).compile();
 
@@ -219,45 +227,80 @@ describe('ProductService', () => {
     );
   });
 
-  it('findAllPublic only includes products whose category is active', async () => {
+  it('findAllPublic resolves the business first, then only includes products whose category is active', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     categoryRepo.find.mockResolvedValue([{ id: 'cat-1' }, { id: 'cat-2' }]);
     productRepo.find.mockResolvedValue([]);
 
-    await service.findAllPublic({});
+    await service.findAllPublic({ businessSlug: 'brasa-47' });
 
+    expect(publicBusinessResolver.resolve).toHaveBeenCalledWith({ businessSlug: 'brasa-47' });
     expect(categoryRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ active: true }) }),
+      expect.objectContaining({ where: expect.objectContaining({ active: true, businessId: 'biz-1' }) }),
     );
     const callArgs = productRepo.find.mock.calls[0][0];
     expect(callArgs.where.active).toBe(true);
+    expect(callArgs.where.businessId).toBe('biz-1');
     expect(callArgs.where.categoryId).toEqual(expect.objectContaining({ _type: 'in' }));
   });
 
   it('findAllPublic skips the product query entirely when no category is active', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     categoryRepo.find.mockResolvedValue([]);
 
-    const result = await service.findAllPublic({});
+    const result = await service.findAllPublic({ businessId: 'biz-1' });
 
     expect(result).toEqual([]);
     expect(productRepo.find).not.toHaveBeenCalled();
   });
 
+  it('findAllPublic never queries the database when the business cannot be resolved', async () => {
+    publicBusinessResolver.resolve.mockRejectedValue(new BadRequestException());
+
+    await expect(service.findAllPublic({})).rejects.toBeInstanceOf(BadRequestException);
+    expect(categoryRepo.find).not.toHaveBeenCalled();
+    expect(productRepo.find).not.toHaveBeenCalled();
+  });
+
   it('findOnePublic 404s on an inactive product (same as not existing)', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     productRepo.findOne.mockResolvedValue(null);
 
-    await expect(service.findOnePublic('p1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.findOnePublic('p1', { businessId: 'biz-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(productRepo.findOne).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: 'p1', active: true }) }),
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'p1', active: true, businessId: 'biz-1' }),
+      }),
     );
   });
 
   it('findOnePublic 404s when the product is active but its category is not', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     productRepo.findOne.mockResolvedValue({ id: 'p1', categoryId: 'cat-1', active: true });
     categoryRepo.findOne.mockResolvedValue(null);
 
-    await expect(service.findOnePublic('p1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.findOnePublic('p1', { businessId: 'biz-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(categoryRepo.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ id: 'cat-1', active: true }) }),
+    );
+  });
+
+  it('findOnePublic 404s a product that belongs to a different business (tenant-scoped lookup)', async () => {
+    // The businessId filter is baked into the findOne() call itself — a
+    // product from another business simply doesn't match, same as an
+    // unknown id.
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
+    productRepo.findOne.mockResolvedValue(null);
+
+    await expect(
+      service.findOnePublic('p-from-other-biz', { businessId: 'biz-1' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(productRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-1' }) }),
     );
   });
 

@@ -66,8 +66,11 @@ export class ProductController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<Product> {
-    return this.productService.findOnePublic(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ProductQueryDto,
+  ): Promise<Product> {
+    return this.productService.findOnePublic(id, query);
   }
 
   @Patch(':id')

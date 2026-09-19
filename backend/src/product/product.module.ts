@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessModule } from '../business/business.module.js';
 import { Category } from '../category/category.entity.js';
 import { ProductImageService } from './product-image.service.js';
 import { Product } from './product.entity.js';
@@ -15,6 +16,9 @@ import { ProductService } from './product.service.js';
     // via its re-export of PassportModule, the AuthModuleOptions those
     // guards need) without registering PassportModule here again.
     AuthModule,
+    // Gives access to PublicBusinessResolverService (businessId/businessSlug
+    // resolution for the public, unauthenticated GET endpoints).
+    BusinessModule,
   ],
   controllers: [ProductController],
   providers: [ProductService, ProductImageService],

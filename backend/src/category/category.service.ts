@@ -8,6 +8,7 @@ import {
 } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Product } from '../product/product.entity.js';
 import { Category } from './category.entity.js';
 import { CategoryQueryDto } from './dto/category-query.dto.js';
@@ -23,6 +24,7 @@ export class CategoryService {
     private readonly businessRepository: Repository<Business>,
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    private readonly publicBusinessResolver: PublicBusinessResolverService,
   ) {}
 
   private async assertBusinessExists(businessId: string): Promise<void> {
@@ -44,12 +46,13 @@ export class CategoryService {
     return this.categoryRepository.save(category);
   }
 
-  // Public menu read — active:false categories never show up here.
+  // Public menu read — active:false categories never show up here. Always
+  // scoped to exactly one business (see PublicBusinessResolverService) — an
+  // unscoped public read would otherwise mix every tenant's menu together.
   async findAllPublic(query: CategoryQueryDto): Promise<Category[]> {
+    const businessId = await this.publicBusinessResolver.resolve(query);
     return this.categoryRepository.find({
-      where: query.businessId
-        ? { businessId: query.businessId, active: true }
-        : { active: true },
+      where: { businessId, active: true },
       order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
   }

@@ -8,6 +8,7 @@ import {
 } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
@@ -25,6 +26,7 @@ export class ProductService {
     @InjectRepository(Business)
     private readonly businessRepository: Repository<Business>,
     private readonly productImageService: ProductImageService,
+    private readonly publicBusinessResolver: PublicBusinessResolverService,
   ) {}
 
   private async assertBusinessExists(businessId: string): Promise<void> {
@@ -77,9 +79,8 @@ export class ProductService {
     return this.productRepository.save(product);
   }
 
-  private async findActiveCategoryIds(businessId?: string, categoryId?: string): Promise<string[]> {
-    const where: { active: boolean; businessId?: string; id?: string } = { active: true };
-    if (businessId) where.businessId = businessId;
+  private async findActiveCategoryIds(businessId: string, categoryId?: string): Promise<string[]> {
+    const where: { active: boolean; businessId: string; id?: string } = { active: true, businessId };
     if (categoryId) where.id = categoryId;
     const categories = await this.categoryRepository.find({ where, select: { id: true } });
     return categories.map((category) => category.id);
@@ -89,28 +90,29 @@ export class ProductService {
   // neither do products whose category is itself inactive (a product can't
   // be "in" a category the menu no longer shows). `available` is left
   // untouched: an unavailable-but-active product still appears (e.g. "sold
-  // out today"), it's just flagged as unavailable.
+  // out today"), it's just flagged as unavailable. Always scoped to exactly
+  // one business (see PublicBusinessResolverService) — an unscoped public
+  // read would otherwise mix every tenant's menu together.
   async findAllPublic(query: ProductQueryDto): Promise<Product[]> {
-    const activeCategoryIds = await this.findActiveCategoryIds(query.businessId, query.categoryId);
+    const businessId = await this.publicBusinessResolver.resolve(query);
+    const activeCategoryIds = await this.findActiveCategoryIds(businessId, query.categoryId);
     if (activeCategoryIds.length === 0) {
       return [];
     }
 
-    const where: { active: boolean; categoryId: ReturnType<typeof In>; businessId?: string } = {
-      active: true,
-      categoryId: In(activeCategoryIds),
-    };
-    if (query.businessId) where.businessId = query.businessId;
-
     return this.productRepository.find({
-      where,
+      where: { active: true, categoryId: In(activeCategoryIds), businessId },
       order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
   }
 
-  async findOnePublic(id: string): Promise<Product> {
+  // Same tenant scoping as findAllPublic: a product id from another
+  // business 404s exactly like one that doesn't exist, instead of leaking
+  // cross-tenant data to whoever guesses/finds a UUID.
+  async findOnePublic(id: string, query: ProductQueryDto): Promise<Product> {
+    const businessId = await this.publicBusinessResolver.resolve(query);
     const product = await this.productRepository.findOne({
-      where: { id, active: true },
+      where: { id, active: true, businessId },
     });
     if (!product) {
       throw new NotFoundException(`Product with id "${id}" not found`);

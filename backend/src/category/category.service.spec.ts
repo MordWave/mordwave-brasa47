@@ -1,9 +1,15 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Product } from '../product/product.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { Category } from './category.entity.js';
@@ -25,6 +31,7 @@ describe('CategoryService', () => {
   let categoryRepo: ReturnType<typeof createRepoMock>;
   let businessRepo: ReturnType<typeof createRepoMock>;
   let productRepo: ReturnType<typeof createRepoMock>;
+  let publicBusinessResolver: { resolve: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -46,6 +53,7 @@ describe('CategoryService', () => {
     categoryRepo = createRepoMock();
     businessRepo = createRepoMock();
     productRepo = createRepoMock();
+    publicBusinessResolver = { resolve: vi.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -53,6 +61,7 @@ describe('CategoryService', () => {
         { provide: getRepositoryToken(Category), useValue: categoryRepo },
         { provide: getRepositoryToken(Business), useValue: businessRepo },
         { provide: getRepositoryToken(Product), useValue: productRepo },
+        { provide: PublicBusinessResolverService, useValue: publicBusinessResolver },
       ],
     }).compile();
 
@@ -77,14 +86,23 @@ describe('CategoryService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('findAllPublic always filters by active:true', async () => {
+  it('findAllPublic resolves the business first, then filters by active:true and that business', async () => {
+    publicBusinessResolver.resolve.mockResolvedValue('biz-1');
     categoryRepo.find.mockResolvedValue([]);
 
-    await service.findAllPublic({});
+    await service.findAllPublic({ businessSlug: 'brasa-47' });
 
+    expect(publicBusinessResolver.resolve).toHaveBeenCalledWith({ businessSlug: 'brasa-47' });
     expect(categoryRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ active: true }) }),
+      expect.objectContaining({ where: { businessId: 'biz-1', active: true } }),
     );
+  });
+
+  it('findAllPublic never queries the database when the business cannot be resolved', async () => {
+    publicBusinessResolver.resolve.mockRejectedValue(new BadRequestException());
+
+    await expect(service.findAllPublic({})).rejects.toBeInstanceOf(BadRequestException);
+    expect(categoryRepo.find).not.toHaveBeenCalled();
   });
 
   it('findAllAdmin: ADMIN ignores a foreign businessId from the query and sees only their own', async () => {
