@@ -11,6 +11,7 @@ import jwtConfig from './config/jwt.config.js';
 import supabaseConfig from './config/supabase.config.js';
 import { OrderModule } from './order/order.module.js';
 import { ProductModule } from './product/product.module.js';
+import { TableModule } from './table/table.module.js';
 import { UserModule } from './user/user.module.js';
 
 @Module({
@@ -27,6 +28,7 @@ import { UserModule } from './user/user.module.js';
     CategoryModule,
     ProductModule,
     OrderModule,
+    TableModule,
     UserModule,
     AuthModule,
   ],

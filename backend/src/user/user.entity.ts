@@ -40,9 +40,12 @@ export class User {
   @Column({ default: true })
   active: boolean;
 
-  @CreateDateColumn({ name: 'created_at' })
+  // Explicit timestamptz — see Order.createdAt for why (TypeORM's Postgres
+  // default here is a naive `timestamp`, which node-postgres misreads using
+  // the server's local time zone instead of UTC).
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

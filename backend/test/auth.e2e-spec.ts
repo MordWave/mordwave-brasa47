@@ -81,4 +81,52 @@ describe('Auth guards (e2e)', () => {
       .delete('/products/00000000-0000-0000-0000-000000000000/image')
       .expect(401);
   });
+
+  it('POST /tables without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .post('/tables')
+      .send({ name: 'Mesa 1', businessId: 'x' })
+      .expect(401);
+  });
+
+  it('GET /tables/admin without a token is rejected with 401', () => {
+    return request(app.getHttpServer()).get('/tables/admin').expect(401);
+  });
+
+  it('PATCH /tables/:id without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .patch('/tables/00000000-0000-0000-0000-000000000000')
+      .send({ name: 'x' })
+      .expect(401);
+  });
+
+  it('POST /tables/:id/sessions without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .post('/tables/00000000-0000-0000-0000-000000000000/sessions')
+      .expect(401);
+  });
+
+  it('PATCH /tables/:id/sessions/current without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .patch('/tables/00000000-0000-0000-0000-000000000000/sessions/current')
+      .expect(401);
+  });
+
+  it('GET /tables/:id/qr without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .get('/tables/00000000-0000-0000-0000-000000000000/qr')
+      .expect(401);
+  });
+
+  it('POST /tables/:id/qr/rotate without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .post('/tables/00000000-0000-0000-0000-000000000000/qr/rotate')
+      .expect(401);
+  });
+
+  it('DELETE /tables/:id without a token is rejected with 401', () => {
+    return request(app.getHttpServer())
+      .delete('/tables/00000000-0000-0000-0000-000000000000')
+      .expect(401);
+  });
 });

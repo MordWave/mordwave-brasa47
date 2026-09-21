@@ -42,15 +42,18 @@ export class Category {
   @OneToMany(() => Product, (product) => product.category)
   products: Relation<Product>[];
 
-  @CreateDateColumn({ name: 'created_at' })
+  // Explicit timestamptz — see Order.createdAt for why (TypeORM's Postgres
+  // default here is a naive `timestamp`, which node-postgres misreads using
+  // the server's local time zone instead of UTC).
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   // See Product.deletedAt for why this is safe with the existing
   // ManyToOne(onDelete: 'CASCADE') relations — softDelete() never issues a
   // real DELETE, so those never fire.
-  @DeleteDateColumn({ name: 'deleted_at' })
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 }

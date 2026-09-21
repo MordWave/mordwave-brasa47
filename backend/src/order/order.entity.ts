@@ -11,16 +11,10 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Business } from '../business/business.entity.js';
+import { TableSession } from '../table/table-session.entity.js';
 import { OrderItem } from './order-item.entity.js';
 import { OrderStatus } from './order-status.enum.js';
 
-// SECURITY NOTE — same caveat as the frontend's tableSession.js: `table` is
-// unauthenticated free text from the client. There is no real table/QR
-// session validated server-side (that's explicitly out of scope for this
-// phase), so anything reaching this public API can create an order under
-// any table number for a resolved business. Acceptable for a sales demo
-// with no real payment/fulfillment on the line — do NOT treat this flow as
-// production-ready until real table sessions exist.
 @Entity('orders')
 @Unique(['businessId', 'clientRequestId'])
 export class Order {
@@ -41,8 +35,19 @@ export class Order {
   @Column({ name: 'client_request_id' })
   clientRequestId: string;
 
-  @Column({ type: 'varchar', length: 20 })
+  // Historical snapshot of RestaurantTable.name at creation time, resolved
+  // server-side from sessionToken's TableSession (see OrderService.create)
+  // — never client-supplied. Length matches CreateTableDto/UpdateTableDto's
+  // @MaxLength(40) so no valid table name is ever truncated.
+  @Column({ type: 'varchar', length: 40 })
   table: string;
+
+  @ManyToOne(() => TableSession, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'table_session_id' })
+  tableSession: Relation<TableSession> | null;
+
+  @Column({ name: 'table_session_id', type: 'uuid', nullable: true })
+  tableSessionId: string | null;
 
   @Column({ name: 'order_number', generated: 'increment', type: 'integer' })
   orderNumber: number;
@@ -61,9 +66,14 @@ export class Order {
   @OneToMany(() => OrderItem, (item) => item.order, { cascade: true })
   items: Relation<OrderItem>[];
 
-  @CreateDateColumn({ name: 'created_at' })
+  // Explicit timestamptz — TypeORM's Postgres default for these decorators
+  // is plain `timestamp` (no time zone), which node-postgres hydrates using
+  // the Node process's local time zone instead of UTC, silently shifting
+  // every stored instant. timestamptz stores/returns an unambiguous UTC
+  // instant regardless of session or server time zone.
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 }

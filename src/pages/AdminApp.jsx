@@ -3,56 +3,15 @@ import { useAuth } from '../context/AuthContext'
 import { apiFetch } from '../services/api'
 import { translateApiError } from '../services/errorMessages'
 import OrderCard from '../components/admin/OrderCard'
+import OrderHistoryModal from '../components/admin/OrderHistoryModal'
 import PrintTicket from '../components/admin/PrintTicket'
-import { getActiveSessions, closeTableSession, buildDemoQrUrl } from '../utils/tableSession'
 
 const NEW_POLL_MS = 5000
 const DELIVERED_POLL_MS = 60000
-const HISTORY_LIMIT = 50
-
-function QrDemoTool() {
-  const [tableInput, setTableInput] = useState('1')
-  const [copied, setCopied] = useState(false)
-  const trimmed = tableInput.trim()
-  const url = trimmed ? buildDemoQrUrl(trimmed) : ''
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Clipboard API unavailable — the link is still shown below to copy by hand.
-    }
-  }
-
-  return (
-    <section className="admin__qr-tool">
-      <p className="admin__qr-tool-title">
-        Generar QR de mesa <span>(solo demo)</span>
-      </p>
-      <div className="admin__qr-tool-row">
-        <input
-          className="admin__qr-tool-input"
-          type="text"
-          inputMode="numeric"
-          value={tableInput}
-          onChange={(e) => setTableInput(e.target.value)}
-          aria-label="Número de mesa"
-        />
-        {url && (
-          <a className="admin__qr-tool-link" href={url} target="_blank" rel="noreferrer">
-            Abrir
-          </a>
-        )}
-        <button type="button" className="admin__qr-tool-copy" onClick={handleCopy} disabled={!url}>
-          {copied ? 'Copiado' : 'Copiar link'}
-        </button>
-      </div>
-      {url && <code className="admin__qr-tool-url">{url}</code>}
-    </section>
-  )
-}
+// The board only ever shows a recent slice — the full log lives in
+// OrderHistoryModal, paginated and fetched on demand, never polled.
+const DELIVERED_RECENT_LIMIT = 8
+const CANCELLED_RECENT_LIMIT = 10
 
 export default function AdminApp() {
   const { token } = useAuth()
@@ -63,9 +22,8 @@ export default function AdminApp() {
   const [error, setError] = useState('')
   const [cancelledOpen, setCancelledOpen] = useState(false)
   const [cancelTarget, setCancelTarget] = useState(null)
-  const [sessions, setSessions] = useState(getActiveSessions)
   const [printOrder, setPrintOrder] = useState(null)
-  const [tablesOpen, setTablesOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const loadNew = useCallback(async () => {
     try {
@@ -80,7 +38,7 @@ export default function AdminApp() {
 
   const loadDelivered = useCallback(async () => {
     try {
-      const data = await apiFetch(`/orders/admin?status=DELIVERED&limit=${HISTORY_LIMIT}`, { token })
+      const data = await apiFetch(`/orders/admin?status=DELIVERED&limit=${DELIVERED_RECENT_LIMIT}`, { token })
       setDeliveredOrders(data)
     } catch (err) {
       setError(translateApiError(err))
@@ -102,17 +60,6 @@ export default function AdminApp() {
     return () => clearInterval(interval)
   }, [loadDelivered])
 
-  // Mesas demo: sigue siendo localStorage, sin cambios.
-  useEffect(() => {
-    const refresh = () => setSessions(getActiveSessions())
-    const interval = setInterval(refresh, 2000)
-    window.addEventListener('storage', refresh)
-    return () => {
-      clearInterval(interval)
-      window.removeEventListener('storage', refresh)
-    }
-  }, [])
-
   async function handleDeliver(order) {
     setError('')
     try {
@@ -122,7 +69,7 @@ export default function AdminApp() {
         body: JSON.stringify({ status: 'DELIVERED' }),
       })
       setNewOrders((prev) => prev.filter((o) => o.id !== order.id))
-      setDeliveredOrders((prev) => [updated, ...prev])
+      setDeliveredOrders((prev) => [updated, ...prev].slice(0, DELIVERED_RECENT_LIMIT))
     } catch (err) {
       setError(translateApiError(err))
     }
@@ -140,7 +87,7 @@ export default function AdminApp() {
         body: JSON.stringify({ status: 'CANCELLED' }),
       })
       setNewOrders((prev) => prev.filter((o) => o.id !== target.id))
-      setCancelledOrders((prev) => [updated, ...prev])
+      setCancelledOrders((prev) => [updated, ...prev].slice(0, CANCELLED_RECENT_LIMIT))
     } catch (err) {
       setError(translateApiError(err))
     }
@@ -151,7 +98,7 @@ export default function AdminApp() {
     setCancelledOpen(opening)
     if (!opening) return
     try {
-      const data = await apiFetch(`/orders/admin?status=CANCELLED&limit=${HISTORY_LIMIT}`, { token })
+      const data = await apiFetch(`/orders/admin?status=CANCELLED&limit=${CANCELLED_RECENT_LIMIT}`, { token })
       setCancelledOrders(data)
     } catch (err) {
       setError(translateApiError(err))
@@ -166,13 +113,9 @@ export default function AdminApp() {
     }, 50)
   }
 
-  function handleCloseSession(table) {
-    setSessions(closeTableSession(table))
-  }
-
   const COLUMNS = [
     { status: 'nuevo', label: 'Nuevos', orders: newOrders },
-    { status: 'entregado', label: 'Entregados', orders: deliveredOrders },
+    { status: 'entregado', label: 'Últimos entregados', orders: deliveredOrders },
   ]
 
   return (
@@ -187,63 +130,6 @@ export default function AdminApp() {
 
       {error && <p className="admin-menu__error">{error}</p>}
 
-      <section className="admin__tables">
-        <button
-          type="button"
-          className="admin__tables-toggle"
-          onClick={() => setTablesOpen((open) => !open)}
-          aria-expanded={tablesOpen}
-        >
-          <span>Gestión de mesas</span>
-          <span className="admin__tables-toggle-meta">
-            {sessions.length > 0 && (
-              <span className="admin__tables-count">
-                {sessions.length} activa{sessions.length !== 1 ? 's' : ''}
-              </span>
-            )}
-            <span
-              className={`admin__tables-chevron${tablesOpen ? ' admin__tables-chevron--open' : ''}`}
-              aria-hidden="true"
-            >
-              ⌄
-            </span>
-          </span>
-        </button>
-
-        {tablesOpen && (
-          <div className="admin__tables-body">
-            {sessions.length > 0 ? (
-              <div className="admin__sessions">
-                <h3 className="admin__sessions-title">Mesas activas</h3>
-                <div className="admin__sessions-list">
-                  {sessions.map((s) => (
-                    <div key={s.table} className="session-chip">
-                      <div className="session-chip__info">
-                        <span className="session-chip__table">Mesa {s.table}</span>
-                        <span className="session-chip__meta">
-                          {s.mode === 'qr' ? 'QR' : 'Demo manual'} · Código {s.sessionCode}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className="session-chip__close"
-                        onClick={() => handleCloseSession(s.table)}
-                      >
-                        Cerrar mesa
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="empty-state">No hay mesas activas en este momento.</p>
-            )}
-
-            <QrDemoTool />
-          </div>
-        )}
-      </section>
-
       <div className="admin__board">
         {loading ? (
           <p className="empty-state">Cargando pedidos…</p>
@@ -254,6 +140,15 @@ export default function AdminApp() {
                 <h2 className="admin__column-title">
                   {label} <span>{orders.length}</span>
                 </h2>
+                {status === 'entregado' && (
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--small"
+                    onClick={() => setHistoryOpen(true)}
+                  >
+                    Ver historial
+                  </button>
+                )}
               </div>
               <div className="admin__column-list">
                 {orders.length === 0 && <p className="empty-state">Sin pedidos</p>}
@@ -279,7 +174,7 @@ export default function AdminApp() {
           onClick={handleToggleCancelled}
           aria-expanded={cancelledOpen}
         >
-          <span>Cancelados ({cancelledOrders.length})</span>
+          <span>Cancelados recientes ({cancelledOrders.length})</span>
           <span
             className={`admin__cancelled-chevron${cancelledOpen ? ' admin__cancelled-chevron--open' : ''}`}
             aria-hidden="true"
@@ -304,6 +199,10 @@ export default function AdminApp() {
       </section>
 
       <PrintTicket order={printOrder} />
+
+      {historyOpen && (
+        <OrderHistoryModal token={token} onClose={() => setHistoryOpen(false)} onPrint={handlePrint} />
+      )}
 
       {cancelTarget && (
         <div className="confirm-backdrop" onClick={() => setCancelTarget(null)}>

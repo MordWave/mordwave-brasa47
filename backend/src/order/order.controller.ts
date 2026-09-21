@@ -7,10 +7,11 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
+import { OrderHistoryQueryDto } from './dto/order-history-query.dto.js';
 import { OrderQueryDto } from './dto/order-query.dto.js';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto.js';
 import { Order } from './order.entity.js';
-import { OrderService } from './order.service.js';
+import { OrderHistoryPage, OrderService } from './order.service.js';
 
 @Controller('orders')
 export class OrderController {
@@ -34,6 +35,16 @@ export class OrderController {
     @CurrentUser() user: SafeUser,
   ): Promise<Order[]> {
     return this.orderService.findAllAdmin(query, user);
+  }
+
+  @Get('admin/history')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  findHistoryAdmin(
+    @Query() query: OrderHistoryQueryDto,
+    @CurrentUser() user: SafeUser,
+  ): Promise<OrderHistoryPage> {
+    return this.orderService.findHistoryAdmin(query, user);
   }
 
   @Patch(':id/status')

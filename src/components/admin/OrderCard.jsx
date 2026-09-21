@@ -14,7 +14,7 @@ export default function OrderCard({ order, onDeliver, onCancel, onPrint }) {
     <article className={`order-card order-card--${order.status.toLowerCase()}`}>
       <header className="order-card__header">
         <span className="order-card__number">#{order.orderNumber}</span>
-        <span className="order-card__table">Mesa {order.table}</span>
+        <span className="order-card__table">{order.table}</span>
         <span className="order-card__time">{timeAgo(order.createdAt)}</span>
       </header>
 

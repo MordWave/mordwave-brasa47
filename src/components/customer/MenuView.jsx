@@ -6,7 +6,7 @@ import CategoryTabs from './CategoryTabs'
 import ProductTile from './ProductTile'
 import ProductModal from './ProductModal'
 
-export default function MenuView({ table }) {
+export default function MenuView({ tableName, businessSlug }) {
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -23,7 +23,10 @@ export default function MenuView({ table }) {
     setLoading(true)
     setError('')
     try {
-      const [cats, prods] = await Promise.all([fetchPublicCategories(), fetchPublicProducts()])
+      const [cats, prods] = await Promise.all([
+        fetchPublicCategories(businessSlug),
+        fetchPublicProducts(businessSlug),
+      ])
       const sortedCategories = [...cats].sort((a, b) => a.sortOrder - b.sortOrder)
       const sortedProducts = [...prods]
         .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -36,7 +39,7 @@ export default function MenuView({ table }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [businessSlug])
 
   useEffect(() => {
     loadMenu()
@@ -93,7 +96,7 @@ export default function MenuView({ table }) {
           <p className="menu__eyebrow">BRASA 47</p>
           <h1 className="menu__title">Menú</h1>
         </div>
-        <span className="menu__mesa">Mesa {table}</span>
+        <span className="menu__mesa">{tableName}</span>
       </header>
 
       {loading && <p className="empty-state">Cargando el menú…</p>}

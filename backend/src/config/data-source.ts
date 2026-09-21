@@ -6,6 +6,8 @@ import { Category } from '../category/category.entity.js';
 import { OrderItem } from '../order/order-item.entity.js';
 import { Order } from '../order/order.entity.js';
 import { Product } from '../product/product.entity.js';
+import { TableSession } from '../table/table-session.entity.js';
+import { RestaurantTable } from '../table/table.entity.js';
 import { User } from '../user/user.entity.js';
 
 // Standalone DataSource for the TypeORM CLI (migrations, seed script) — the
@@ -26,7 +28,7 @@ export default new DataSource({
         password: process.env.DB_PASSWORD ?? 'postgres',
         database: process.env.DB_NAME ?? 'brasa47',
       }),
-  entities: [Business, Category, Product, User, Order, OrderItem],
+  entities: [Business, Category, Product, User, Order, OrderItem, RestaurantTable, TableSession],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
 });

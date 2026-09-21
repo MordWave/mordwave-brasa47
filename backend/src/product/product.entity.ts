@@ -59,10 +59,13 @@ export class Product {
   @Column({ name: 'category_id' })
   categoryId: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  // Explicit timestamptz — see Order.createdAt for why (TypeORM's Postgres
+  // default here is a naive `timestamp`, which node-postgres misreads using
+  // the server's local time zone instead of UTC).
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   // Soft delete: TypeORM automatically excludes rows with a non-null
@@ -71,6 +74,6 @@ export class Product {
   // (public and admin) already gets this for free. A real DELETE is never
   // issued, so the businessId/categoryId FKs' onDelete: CASCADE never
   // fires — the row stays intact for a future orders table to reference.
-  @DeleteDateColumn({ name: 'deleted_at' })
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 }
