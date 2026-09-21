@@ -1,4 +1,4 @@
-export default function SuccessView({ orderNumber, table, onNewOrder }) {
+export default function SuccessView({ orderNumber, tableName, onNewOrder }) {
   return (
     <div className="success">
       <div className="success__badge">✓</div>
@@ -14,7 +14,7 @@ export default function SuccessView({ orderNumber, table, onNewOrder }) {
         </div>
         <div className="success__row">
           <span>Mesa</span>
-          <strong>{table}</strong>
+          <strong>{tableName}</strong>
         </div>
       </div>
 

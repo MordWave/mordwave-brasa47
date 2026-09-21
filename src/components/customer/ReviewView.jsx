@@ -1,15 +1,7 @@
 import { formatPrice } from '../../utils/format'
 import { useCart } from '../../context/CartContext'
 
-export default function ReviewView({
-  table,
-  allowChangeTable,
-  onBack,
-  onConfirm,
-  onChangeTable,
-  submitting,
-  error,
-}) {
+export default function ReviewView({ tableName, onBack, onConfirm, submitting, error }) {
   const { items, total, orderNote } = useCart()
 
   return (
@@ -27,12 +19,7 @@ export default function ReviewView({
           <div className="ticket__row--mesa">
             <span className="review-card__label">Mesa</span>
             <div className="review-card__table">
-              <span className="review-card__table-number">Mesa {table}</span>
-              {allowChangeTable && (
-                <button type="button" className="link-btn" onClick={onChangeTable}>
-                  Cambiar
-                </button>
-              )}
+              <span className="review-card__table-number">{tableName}</span>
             </div>
           </div>
 

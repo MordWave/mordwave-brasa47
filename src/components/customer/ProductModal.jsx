@@ -1,12 +1,7 @@
 import { useMemo, useState } from 'react'
 import { formatPrice } from '../../utils/format'
 import { useCart } from '../../context/CartContext'
-
-function makeId() {
-  return typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `item-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
+import { generateUuid } from '../../utils/uuid'
 
 export default function ProductModal({ product, onClose, onAdded }) {
   const { addItem } = useCart()
@@ -31,7 +26,7 @@ export default function ProductModal({ product, onClose, onAdded }) {
 
   function handleAdd() {
     addItem({
-      cartItemId: makeId(),
+      cartItemId: generateUuid(),
       productId: product.id,
       name: product.name,
       image: product.image,

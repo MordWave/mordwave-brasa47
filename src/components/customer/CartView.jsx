@@ -2,7 +2,7 @@ import { formatPrice } from '../../utils/format'
 import { useCart } from '../../context/CartContext'
 import CartLineItem from './CartLineItem'
 
-export default function CartView({ table, onBack, onContinue }) {
+export default function CartView({ tableName, onBack, onContinue }) {
   const { items, total, orderNote, setOrderNote } = useCart()
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
 
@@ -13,7 +13,7 @@ export default function CartView({ table, onBack, onContinue }) {
           ←
         </button>
         <h1 className="screen__title">Tu pedido</h1>
-        <span className="screen__table">Mesa {table}</span>
+        <span className="screen__table">{tableName}</span>
       </header>
 
       <div className="screen__body">

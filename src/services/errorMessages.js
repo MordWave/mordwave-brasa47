@@ -32,6 +32,17 @@ const MESSAGES_BY_CODE = {
     error.productName
       ? `${error.productName} ya no existe en el menú.`
       : 'Uno de los productos de tu pedido ya no existe en el menú. Revisa tu carrito e intenta nuevamente.',
+  TABLE_HAS_OPEN_SESSION: () => 'Cierra la sesión de esta mesa antes de desactivarla.',
+  TABLE_SESSION_ALREADY_OPEN: () => 'Esta mesa ya tiene una sesión activa.',
+  TABLE_INACTIVE: () => 'No puedes abrir una sesión en una mesa inactiva.',
+  TABLE_SESSION_NOT_OPEN: () => 'Esta mesa no tiene una sesión activa para cerrar.',
+  // Customer-facing — covers an invalid QR, an inactive/deleted table, and
+  // a closed session identically (the backend deliberately never reveals
+  // which one applies). CustomerApp treats this specially when it comes
+  // back from POST /orders mid-session (table closed between two polls),
+  // not just as a generic form error — see its own handling.
+  TABLE_SESSION_UNAVAILABLE: () =>
+    'Esta mesa no tiene una sesión activa. Solicita al personal que habilite la mesa.',
 }
 
 const MESSAGES_BY_STATUS = {
