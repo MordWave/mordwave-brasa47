@@ -14,16 +14,12 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
 // The token is never returned from the admin-facing surface (open/close) —
 // same reasoning as PublicTable hiding qrToken. The admin only needs to
 // know a session exists and since when; the token itself only ever reaches
-// a customer's browser via the public resolve/join endpoints below.
+// a customer's browser via the public join endpoint below.
 export type PublicTableSession = Omit<TableSession, 'sessionToken'>;
 
 function toPublicTableSession(session: TableSession): PublicTableSession {
   const { sessionToken: _sessionToken, ...rest } = session;
   return rest;
-}
-
-export interface ResolveResult {
-  tableName: string;
 }
 
 export interface JoinResult {
@@ -80,8 +76,8 @@ export class TableSessionService {
     });
   }
 
-  // Shared by resolve/join's initial check — table exists + active + has
-  // some session currently OPEN.
+  // join's initial check — table exists + active + has some session
+  // currently OPEN.
   private async resolveOpenSession(
     qrToken: string,
   ): Promise<{ table: RestaurantTable; session: TableSession }> {
@@ -96,13 +92,6 @@ export class TableSessionService {
       throw this.unavailableError();
     }
     return { table, session };
-  }
-
-  // Public — never returns a token, only enough to confirm the table/QR is
-  // currently usable before the client asks to join.
-  async resolve(qrToken: string): Promise<ResolveResult> {
-    const { table } = await this.resolveOpenSession(qrToken);
-    return { tableName: table.name };
   }
 
   // Public, read-only — no transaction needed: every device joining this

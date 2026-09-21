@@ -399,17 +399,26 @@ describe('OrderService', () => {
       );
     });
 
-    it('filters by an inclusive from/to date range', async () => {
+    it('filters by an inclusive from/to instant range, passed through as-is', async () => {
       orderRepo.find.mockResolvedValue([]);
 
-      await service.findHistoryAdmin({ from: '2026-01-10', to: '2026-01-12' }, admin);
+      // The service no longer does its own day-boundary math — from/to
+      // arrive as full ISO instants already representing the caller's
+      // intended [from, to) range (see OrderHistoryModal's
+      // localDayStartIso/localDayAfterIso on the frontend), so this test
+      // uses instants a non-UTC caller would actually send rather than
+      // UTC-midnight date-only strings.
+      await service.findHistoryAdmin(
+        { from: '2026-01-10T03:00:00.000Z', to: '2026-01-13T03:00:00.000Z' },
+        admin,
+      );
 
       expect(orderRepo.find).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             createdAt: And(
-              MoreThanOrEqual(new Date('2026-01-10')),
-              LessThan(new Date('2026-01-13')), // exclusive: the day after `to`
+              MoreThanOrEqual(new Date('2026-01-10T03:00:00.000Z')),
+              LessThan(new Date('2026-01-13T03:00:00.000Z')),
             ),
           }),
         }),

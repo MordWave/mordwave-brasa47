@@ -206,14 +206,17 @@ export class OrderService {
     if (query.table) where.table = ILike(`%${query.table}%`);
 
     if (query.from || query.to) {
-      // Inclusive on both ends — `to` is a calendar day, so the exclusive
-      // upper bound is the start of the following day.
+      // query.from/query.to are already full ISO instants computed
+      // client-side from the admin's LOCAL calendar day (see
+      // OrderHistoryModal's localDayStartIso/localDayAfterIso) — `to`
+      // already IS the exclusive upper bound (start of the day after the
+      // selected one, in the browser's own time zone), so this just parses
+      // them as-is. Deliberately does not add a day or otherwise touch the
+      // boundary here: doing that against a UTC-parsed date-only string is
+      // exactly the bug this replaced (a "day" computed in UTC doesn't
+      // match the admin's actual local calendar day).
       const lower = query.from ? new Date(query.from) : undefined;
-      let upper: Date | undefined;
-      if (query.to) {
-        upper = new Date(query.to);
-        upper.setDate(upper.getDate() + 1);
-      }
+      const upper = query.to ? new Date(query.to) : undefined;
       if (lower && upper) where.createdAt = And(MoreThanOrEqual(lower), LessThan(upper));
       else if (lower) where.createdAt = And(MoreThanOrEqual(lower));
       else if (upper) where.createdAt = And(LessThan(upper));

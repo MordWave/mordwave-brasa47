@@ -1,9 +1,29 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { apiFetch } from '../../services/api'
 import { translateApiError } from '../../services/errorMessages'
 import OrderCard from './OrderCard'
 
 const PAGE_LIMIT = 20
+
+// <input type="date"> gives "YYYY-MM-DD" in the browser's own local
+// calendar day. `new Date("YYYY-MM-DD")` (the string-parsing form) reads
+// that as UTC midnight, not local midnight — several hours off for any
+// non-UTC admin. The multi-arg constructor below instead builds the Date
+// from local wall-clock components, so toISOString() gives the real start
+// of that local day. Wall-clock arithmetic (not a fixed 24h add) also
+// keeps this correct across a DST transition.
+function localDayStartIso(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toISOString()
+}
+
+// Exclusive upper bound: start of the local day AFTER dateStr. Date
+// normalizes day overflow on its own (e.g. day 32 of a 31-day month rolls
+// into the next month).
+function localDayAfterIso(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d + 1).toISOString()
+}
 
 // A dedicated, filterable, paginated log — deliberately never on a polling
 // timer (see AdminApp: only the live board polls). Fetches once per
@@ -20,29 +40,37 @@ export default function OrderHistoryModal({ token, onClose, onPrint }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const load = useCallback(async () => {
+  // `cancelled` guards against a slow, now-stale request (e.g. the previous
+  // filter) resolving after a newer one and overwriting its results — same
+  // pattern already used by TableQrModal's and CustomerApp's fetch effects.
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
     setError('')
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_LIMIT) })
-      if (status) params.set('status', status)
-      if (from) params.set('from', from)
-      if (to) params.set('to', to)
-      if (table.trim()) params.set('table', table.trim())
 
-      const result = await apiFetch(`/orders/admin/history?${params.toString()}`, { token })
-      setItems(result.items)
-      setHasMore(result.hasMore)
-    } catch (err) {
-      setError(translateApiError(err))
-    } finally {
-      setLoading(false)
+    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_LIMIT) })
+    if (status) params.set('status', status)
+    if (from) params.set('from', localDayStartIso(from))
+    if (to) params.set('to', localDayAfterIso(to))
+    if (table.trim()) params.set('table', table.trim())
+
+    apiFetch(`/orders/admin/history?${params.toString()}`, { token })
+      .then((result) => {
+        if (cancelled) return
+        setItems(result.items)
+        setHasMore(result.hasMore)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(translateApiError(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
     }
   }, [token, status, from, to, table, page])
-
-  useEffect(() => {
-    load()
-  }, [load])
 
   function updateFilter(setter) {
     return (value) => {

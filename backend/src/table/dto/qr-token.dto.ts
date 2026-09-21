@@ -1,7 +1,6 @@
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
-// Shared by resolve and join — both only ever need the physical QR's own
-// token.
+// join's own body — only ever needs the physical QR's own token.
 export class QrTokenDto {
   @IsString()
   @IsNotEmpty()

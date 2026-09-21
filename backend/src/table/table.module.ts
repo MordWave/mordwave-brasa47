@@ -16,16 +16,21 @@ import { TableService } from './table.service.js';
     // Gives access to AuthModule's exported JwtAuthGuard/RolesGuard.
     AuthModule,
     // Scoped to this module, applied only via @UseGuards(ThrottlerGuard) on
-    // the three public table-sessions/* routes — resolve/join are one-shot,
-    // but status gets polled periodically by every device at a table, all
-    // sharing one IP if they're on the same Wi-Fi, so this stays generous.
-    // Same isolated mechanism as AuthModule's and OrderModule's own
-    // throttlers, with its own limit.
+    // the two public table-sessions/* routes. `join` is one-shot per visit,
+    // so it keeps this default limit. `status`, in contrast, is polled by
+    // every device at a table roughly every 12s (see CustomerApp's
+    // STATUS_POLL_MS) — and in a real venue, many customer phones often
+    // share one public IP via the venue's own Wi-Fi NAT, so a limit sized
+    // for one device would starve a full table. TableSessionController
+    // overrides this throttler's limit specifically for `status` via
+    // @Throttle(...) rather than raising it here, which would also loosen
+    // `join`. Same isolated mechanism as AuthModule's and OrderModule's own
+    // throttlers.
     ThrottlerModule.forRoot([
       {
         name: 'table-sessions',
         ttl: 60_000, // 1 minute, in ms
-        limit: 60, // per IP per minute, shared across resolve/join/status
+        limit: 60, // per IP per minute — applies to `join`; `status` overrides this, see above
       },
     ]),
   ],

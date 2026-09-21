@@ -88,7 +88,7 @@ describe('TableSessionService', () => {
       expect(result.status).toBe(TableSessionStatus.OPEN);
     });
 
-    it('never returns sessionToken — reserved for the public resolve/join endpoints', async () => {
+    it('never returns sessionToken — reserved for the public join endpoint', async () => {
       tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', active: true });
 
       const result = await service.open('t1', admin);
@@ -214,27 +214,14 @@ describe('TableSessionService', () => {
     });
   });
 
-  describe('resolve', () => {
-    it('returns only tableName — never a token', async () => {
-      tableRepo.findOne.mockResolvedValue({ id: 't1', name: 'Mesa 1', active: true });
-      sessionRepo.findOne.mockResolvedValue({
-        id: 's1',
-        tableId: 't1',
-        status: TableSessionStatus.OPEN,
-      });
-
-      const result = await service.resolve('qr-abc');
-
-      expect(result).toEqual({ tableName: 'Mesa 1' });
-      expect(tableRepo.findOne).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { qrToken: 'qr-abc', active: true } }),
-      );
-    });
-
+  describe('join', () => {
+    // These two cover resolveOpenSession's shared vagueness guarantee
+    // (previously exercised via the now-removed public `resolve` endpoint —
+    // join is its only remaining caller).
     it('never reveals which of "table missing" / "inactive" / "no open session" applies', async () => {
       tableRepo.findOne.mockResolvedValue(null);
 
-      const error = await service.resolve('unknown-token').catch((err: unknown) => err);
+      const error = await service.join('unknown-token').catch((err: unknown) => err);
 
       expect(error).toBeInstanceOf(NotFoundException);
       expect(getErrorBody(error)).toEqual(
@@ -246,15 +233,13 @@ describe('TableSessionService', () => {
       tableRepo.findOne.mockResolvedValue({ id: 't1', name: 'Mesa 1', active: true });
       sessionRepo.findOne.mockResolvedValue(null);
 
-      const error = await service.resolve('qr-abc').catch((err: unknown) => err);
+      const error = await service.join('qr-abc').catch((err: unknown) => err);
 
       expect(getErrorBody(error)).toEqual(
         expect.objectContaining({ errorCode: 'TABLE_SESSION_UNAVAILABLE' }),
       );
     });
-  });
 
-  describe('join', () => {
     it('returns the existing sessionToken, tableName and businessSlug without writing anything', async () => {
       tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
       sessionRepo.findOne.mockResolvedValue({

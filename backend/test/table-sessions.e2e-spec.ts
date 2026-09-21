@@ -31,18 +31,6 @@ describe('Public table sessions (e2e)', () => {
     await app.close();
   });
 
-  it('POST /table-sessions/resolve with an unknown qrToken is rejected with 404 TABLE_SESSION_UNAVAILABLE', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/table-sessions/resolve')
-      .send({ qrToken: UNKNOWN_QR_TOKEN })
-      .expect(404);
-    expect(res.body.errorCode).toBe('TABLE_SESSION_UNAVAILABLE');
-  });
-
-  it('POST /table-sessions/resolve without a qrToken is rejected with 400', () => {
-    return request(app.getHttpServer()).post('/table-sessions/resolve').send({}).expect(400);
-  });
-
   it('POST /table-sessions/join with an unknown qrToken is rejected with 404 TABLE_SESSION_UNAVAILABLE', async () => {
     const res = await request(app.getHttpServer())
       .post('/table-sessions/join')

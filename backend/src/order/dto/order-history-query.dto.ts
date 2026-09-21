@@ -15,9 +15,14 @@ export class OrderHistoryQueryDto {
   @IsIn(HISTORY_STATUSES)
   status?: OrderStatus;
 
-  // Plain "YYYY-MM-DD" from a date input — @IsISO8601 (non-strict) accepts
-  // a date-only string. Inclusive on both ends; see the service for how
-  // the day boundary is computed.
+  // Full ISO instants, not date-only strings — the frontend converts the
+  // admin's local-calendar-day date inputs into UTC instants before
+  // sending them (see OrderHistoryModal's localDayStartIso/
+  // localDayAfterIso), so a "day" here always means the admin's own local
+  // day, not a UTC one. `to` is already the exclusive upper bound. @IsISO8601
+  // (non-strict) accepts both this and a bare date-only string, but the
+  // service no longer does its own day-boundary math, so a bare date-only
+  // string would be treated as UTC midnight — always send a full instant.
   @IsOptional()
   @IsISO8601()
   from?: string;

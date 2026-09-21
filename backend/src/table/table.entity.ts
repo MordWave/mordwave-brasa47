@@ -51,9 +51,9 @@ export class RestaurantTable {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
-  // Soft delete for consistency with Product/Category — no delete endpoint
-  // is exposed yet (not asked for in this phase), but a table with order
-  // history should never be hard-deleted if that's ever added later.
+  // Soft delete for consistency with Product/Category — DELETE /tables/:id
+  // (TableService.remove) only ever sets this, never issues a real DELETE,
+  // so a table with order history is never hard-deleted.
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 }
