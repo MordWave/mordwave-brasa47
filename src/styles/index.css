@@ -2431,6 +2431,30 @@ p {
   color: var(--primary-dark);
 }
 
+.admin-menu__form-success {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.admin-business__color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-business__color-swatch {
+  width: 44px;
+  height: 36px;
+  padding: 2px !important;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.admin-business__color-hex {
+  flex: 0 0 110px;
+}
+
 .admin-menu__field-group {
   display: flex;
   flex-direction: column;

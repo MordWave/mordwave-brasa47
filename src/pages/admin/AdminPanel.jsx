@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import AdminApp from '../AdminApp'
+import AdminBusiness from './AdminBusiness'
 import AdminLogin from './AdminLogin'
 import AdminMenu from './AdminMenu'
 import AdminTables from './AdminTables'
@@ -9,6 +10,7 @@ const TABS = [
   { key: 'pedidos', label: 'Pedidos' },
   { key: 'menu', label: 'Menú' },
   { key: 'mesas', label: 'Mesas' },
+  { key: 'negocio', label: 'Negocio' },
 ]
 
 export default function AdminPanel() {
@@ -54,6 +56,7 @@ export default function AdminPanel() {
       {tab === 'pedidos' && <AdminApp />}
       {tab === 'menu' && <AdminMenu />}
       {tab === 'mesas' && <AdminTables />}
+      {tab === 'negocio' && <AdminBusiness />}
     </div>
   )
 }
