@@ -1,4 +1,8 @@
-export default function HomeScreen({ tableName, onContinue }) {
+const FALLBACK_NAME = 'Nuestro restaurante'
+
+export default function HomeScreen({ tableName, businessName, logoUrl, onContinue }) {
+  const displayName = businessName || FALLBACK_NAME
+
   return (
     <div className="home">
       <section className="home__hero">
@@ -14,14 +18,18 @@ export default function HomeScreen({ tableName, onContinue }) {
         <div className="home__vignette" aria-hidden="true" />
 
         <div className="home__hero-top">
-          <span className="home__mark">47</span>
-          <h1 className="home__brand">BRASA 47</h1>
+          {logoUrl ? (
+            <img className="home__logo" src={logoUrl} alt="" />
+          ) : (
+            <span className="home__mark">47</span>
+          )}
+          <h1 className="home__brand">{displayName}</h1>
           <p className="home__tagline">Burger · Pizza · Bar</p>
         </div>
 
         <div className="home__hero-bottom">
           <div className="home__hero-mid">
-            <h2 className="home__title">Bienvenidos a Brasa&nbsp;47</h2>
+            <h2 className="home__title">Bienvenidos a {displayName}</h2>
             <p className="home__desc">Pide desde tu mesa de forma rápida y simple.</p>
           </div>
 

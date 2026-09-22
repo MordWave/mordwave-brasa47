@@ -4,12 +4,12 @@ function timeLabel(timestamp) {
   return new Date(timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
 }
 
-export default function PrintTicket({ order }) {
+export default function PrintTicket({ order, businessName }) {
   if (!order) return null
 
   return (
     <div className="print-ticket">
-      <h2>BRASA 47</h2>
+      <h2>{businessName}</h2>
       <p className="print-ticket__meta">Comanda de cocina</p>
 
       <div className="print-ticket__divider" />

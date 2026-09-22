@@ -47,7 +47,7 @@ function validate({ name, address, phone, hours, primaryColor, accentColor }) {
   return null
 }
 
-export default function AdminBusiness() {
+export default function AdminBusiness({ onBusinessSaved }) {
   const { token } = useAuth()
   const [business, setBusiness] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -161,6 +161,7 @@ export default function AdminBusiness() {
       setHours(updated.hours ?? '')
       setPrimaryColor(updated.primaryColor ?? '')
       setAccentColor(updated.accentColor ?? '')
+      onBusinessSaved?.(updated)
       setSavedAt(Date.now())
       clearTimeout(successTimeout.current)
       successTimeout.current = setTimeout(() => setSavedAt(null), SUCCESS_MESSAGE_MS)
@@ -221,6 +222,7 @@ export default function AdminBusiness() {
       // (saved or not) is left completely untouched.
       setBusiness((prev) => (prev ? { ...prev, logoUrl: updated.logoUrl } : prev))
       setLogoUrl(updated.logoUrl)
+      onBusinessSaved?.(updated)
     } catch (err) {
       setLogoError(translateApiError(err))
     } finally {

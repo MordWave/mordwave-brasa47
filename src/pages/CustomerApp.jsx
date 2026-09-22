@@ -73,6 +73,13 @@ function CustomerFlow() {
             sessionToken: result.sessionToken,
             tableName: result.tableName,
             businessSlug: result.businessSlug,
+            // Display-only branding, resolved from this table's QR — never
+            // an identifier, never used to scope any request (menu reads
+            // still key off businessSlug above). See TableSessionService.join.
+            businessName: result.businessName,
+            logoUrl: result.logoUrl,
+            primaryColor: result.primaryColor,
+            accentColor: result.accentColor,
             qrToken: urlQrToken,
           }
           writeStoredSession(fresh)
@@ -203,18 +210,31 @@ function CustomerFlow() {
     return <SessionClosedView tableName={session.tableName} reason="closed" />
   }
 
-  if (step === 'home') {
-    return <HomeScreen tableName={session.tableName} onContinue={() => setStep('menu')} />
-  }
+  // Real per-tenant colors, applied only once a business is actually
+  // resolved (see the states above — none of them reach here without an
+  // active session). null/unset falls straight through to the app's own
+  // default palette, since these custom properties then simply aren't
+  // overridden on this subtree.
+  const brandingStyle = {}
+  if (session.primaryColor) brandingStyle['--primary'] = session.primaryColor
+  if (session.accentColor) brandingStyle['--accent'] = session.accentColor
 
-  if (step === 'success' && lastOrder) {
-    return (
+  let content
+  if (step === 'home') {
+    content = (
+      <HomeScreen
+        tableName={session.tableName}
+        businessName={session.businessName}
+        logoUrl={session.logoUrl}
+        onContinue={() => setStep('menu')}
+      />
+    )
+  } else if (step === 'success' && lastOrder) {
+    content = (
       <SuccessView orderNumber={lastOrder.orderNumber} tableName={session.tableName} onNewOrder={handleNewOrder} />
     )
-  }
-
-  if (step === 'review') {
-    return (
+  } else if (step === 'review') {
+    content = (
       <ReviewView
         tableName={session.tableName}
         onBack={() => setStep('cart')}
@@ -223,17 +243,23 @@ function CustomerFlow() {
         error={orderError}
       />
     )
-  }
-
-  if (step === 'cart') {
-    return <CartView tableName={session.tableName} onBack={() => setStep('menu')} onContinue={() => setStep('review')} />
+  } else if (step === 'cart') {
+    content = (
+      <CartView tableName={session.tableName} onBack={() => setStep('menu')} onContinue={() => setStep('review')} />
+    )
+  } else {
+    content = (
+      <>
+        <MenuView tableName={session.tableName} businessSlug={session.businessSlug} businessName={session.businessName} />
+        <CartBar onOpenCart={() => setStep('cart')} />
+      </>
+    )
   }
 
   return (
-    <>
-      <MenuView tableName={session.tableName} businessSlug={session.businessSlug} />
-      <CartBar onOpenCart={() => setStep('cart')} />
-    </>
+    <div className="customer-app" style={brandingStyle}>
+      {content}
+    </div>
   )
 }
 

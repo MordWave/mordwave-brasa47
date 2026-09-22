@@ -211,6 +211,16 @@ p {
   backdrop-filter: blur(6px);
 }
 
+.home__logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 241, 232, 0.4);
+  object-fit: cover;
+  margin-bottom: 10px;
+  backdrop-filter: blur(6px);
+}
+
 .home__brand {
   font-family: var(--font-display);
   font-size: clamp(26px, 6vh, 34px);

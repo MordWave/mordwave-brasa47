@@ -13,7 +13,7 @@ const DELIVERED_POLL_MS = 60000
 const DELIVERED_RECENT_LIMIT = 8
 const CANCELLED_RECENT_LIMIT = 10
 
-export default function AdminApp() {
+export default function AdminApp({ businessName }) {
   const { token } = useAuth()
   const [newOrders, setNewOrders] = useState([])
   const [deliveredOrders, setDeliveredOrders] = useState([])
@@ -122,7 +122,7 @@ export default function AdminApp() {
     <div className="admin">
       <header className="admin__header">
         <div>
-          <p className="admin__eyebrow">BRASA 47</p>
+          <p className="admin__eyebrow">{businessName}</p>
           <h1 className="admin__title">Panel de pedidos</h1>
         </div>
         <span className="admin__badge">{newOrders.length} nuevos</span>
@@ -198,7 +198,7 @@ export default function AdminApp() {
         )}
       </section>
 
-      <PrintTicket order={printOrder} />
+      <PrintTicket order={printOrder} businessName={businessName} />
 
       {historyOpen && (
         <OrderHistoryModal token={token} onClose={() => setHistoryOpen(false)} onPrint={handlePrint} />
