@@ -125,7 +125,7 @@ describe('OrderService', () => {
 
     it('creates an order for a valid, currently-open sessionToken — businessId/table/tableSessionId all come from the session', async () => {
       mockHappyPathLookups();
-      productRepo.findOne.mockResolvedValue(validProduct);
+      productRepo.find.mockResolvedValue([validProduct]);
 
       await service.create(baseDto);
 
@@ -143,7 +143,7 @@ describe('OrderService', () => {
       tableSessionRepo.findOne.mockResolvedValue(openSession);
       tableRepo.findOne.mockResolvedValue(activeTable);
       orderRepo.findOne.mockResolvedValue(null);
-      productRepo.findOne.mockResolvedValue(validProduct);
+      productRepo.find.mockResolvedValue([validProduct]);
 
       await service.create({ ...baseDto, clientRequestId: 'req-device-a' });
       await service.create({ ...baseDto, clientRequestId: 'req-device-b' });
@@ -197,7 +197,7 @@ describe('OrderService', () => {
 
     it('locks RestaurantTable strictly before TableSession (lock ordering)', async () => {
       mockHappyPathLookups();
-      productRepo.findOne.mockResolvedValue(validProduct);
+      productRepo.find.mockResolvedValue([validProduct]);
 
       await service.create(baseDto);
 
@@ -253,21 +253,21 @@ describe('OrderService', () => {
 
     it('rejects an item whose product does not exist (or belongs to another business), using the session\'s businessId', async () => {
       mockHappyPathLookups();
-      productRepo.findOne.mockResolvedValue(null);
+      productRepo.find.mockResolvedValue([]); // batched lookup: id not found among the returned rows
 
       const error = await service.create(baseDto).catch((err: unknown) => err);
 
       expect(error).toBeInstanceOf(BadRequestException);
       expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'PRODUCT_NOT_FOUND' }));
-      expect(productRepo.findOne).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-1' }) }),
+      expect(productRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-1', id: In(['p1']) }) }),
       );
       expect(orderRepo.save).not.toHaveBeenCalled();
     });
 
     it('rejects an item whose product is not available', async () => {
       mockHappyPathLookups();
-      productRepo.findOne.mockResolvedValue({ ...validProduct, available: false });
+      productRepo.find.mockResolvedValue([{ ...validProduct, available: false }]);
 
       const error = await service.create(baseDto).catch((err: unknown) => err);
 
@@ -280,7 +280,7 @@ describe('OrderService', () => {
 
     it('computes the total from the real Product price, ignoring anything price-related the client could have sent', async () => {
       mockHappyPathLookups();
-      productRepo.findOne.mockResolvedValue(validProduct);
+      productRepo.find.mockResolvedValue([validProduct]);
 
       await service.create(baseDto);
 
@@ -301,10 +301,83 @@ describe('OrderService', () => {
       );
     });
 
+    // The optimization this segment exists to verify: what used to be one
+    // findOne() per cart line is now exactly one batched find() — each
+    // extra sequential round trip here paid the full Railway↔Supabase
+    // network cost in production (measured ~120ms/query), multiplied by
+    // cart size.
+    it('resolves several different products with a single batched query', async () => {
+      const product2 = { id: 'p2', businessId: 'biz-1', name: 'Pizza Napolitana', price: 8900, active: true, available: true };
+      const product3 = { id: 'p3', businessId: 'biz-1', name: 'Coca Cola', price: 1900, active: true, available: true };
+      mockHappyPathLookups();
+      productRepo.find.mockResolvedValue([validProduct, product2, product3]);
+
+      const dto = {
+        ...baseDto,
+        items: [
+          { productId: 'p1', quantity: 1 },
+          { productId: 'p2', quantity: 2 },
+          { productId: 'p3', quantity: 3 },
+        ],
+      };
+
+      await service.create(dto);
+
+      expect(productRepo.find).toHaveBeenCalledTimes(1);
+      expect(productRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ businessId: 'biz-1', id: In(['p1', 'p2', 'p3']) }),
+        }),
+      );
+      expect(orderRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: 6900 * 1 + 8900 * 2 + 1900 * 3,
+          items: [
+            expect.objectContaining({ productId: 'p1', quantity: 1 }),
+            expect.objectContaining({ productId: 'p2', quantity: 2 }),
+            expect.objectContaining({ productId: 'p3', quantity: 3 }),
+          ],
+        }),
+      );
+    });
+
+    // The DTO never enforces uniqueness on items[] — the same product can
+    // legitimately appear as two separate cart lines (e.g. the same burger
+    // customized two different ways). The batched query must dedupe the id
+    // for the query itself, but still resolve both lines correctly.
+    it('resolves the same productId appearing on more than one cart line, still with a single query', async () => {
+      mockHappyPathLookups();
+      productRepo.find.mockResolvedValue([validProduct]);
+
+      const dto = {
+        ...baseDto,
+        items: [
+          { productId: 'p1', quantity: 1, removed: ['Cebolla'] },
+          { productId: 'p1', quantity: 2, added: ['Tocino'] },
+        ],
+      };
+
+      await service.create(dto);
+
+      expect(productRepo.find).toHaveBeenCalledTimes(1);
+      expect(productRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: In(['p1']) }) }),
+      );
+      expect(orderRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          total: 6900 * 1 + 6900 * 2,
+          items: [
+            expect.objectContaining({ productId: 'p1', quantity: 1, removed: ['Cebolla'] }),
+            expect.objectContaining({ productId: 'p1', quantity: 2, added: ['Tocino'] }),
+          ],
+        }),
+      );
+    });
+
     it('recovers from a racing duplicate submit (unique violation) by returning the order the other request created', async () => {
       const raced = { id: 'order-1', businessId: 'biz-1', clientRequestId: 'req-1' };
       mockHappyPathLookups();
-      productRepo.findOne.mockResolvedValue(validProduct);
+      productRepo.find.mockResolvedValue([validProduct]);
       orderRepo.save.mockRejectedValueOnce(Object.assign(new Error('duplicate'), { code: '23505' }));
       orderRepo.findOne.mockResolvedValueOnce(raced); // post-violation recovery lookup
 
@@ -315,7 +388,7 @@ describe('OrderService', () => {
 
     it('does not swallow unrelated save failures', async () => {
       mockHappyPathLookups();
-      productRepo.findOne.mockResolvedValue(validProduct);
+      productRepo.find.mockResolvedValue([validProduct]);
       orderRepo.save.mockRejectedValueOnce(new Error('storage down'));
 
       await expect(service.create(baseDto)).rejects.toThrow('storage down');
