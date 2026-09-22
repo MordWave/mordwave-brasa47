@@ -96,14 +96,25 @@ export class OrderService {
         });
         if (existing) return existing;
 
+        // One batched lookup instead of one findOne() per cart line — each
+        // extra sequential round trip here paid the full Railway↔Supabase
+        // network cost (measured ~120ms/query in production), which used
+        // to multiply by cart size. Deduplicated ids: the same product can
+        // legitimately appear as more than one cart line (e.g. two
+        // differently-customized orders of the same burger), and fetching
+        // it twice would be wasted work for no extra correctness.
         const productRepo = manager.getRepository(Product);
+        const uniqueProductIds = [...new Set(dto.items.map((itemDto) => itemDto.productId))];
+        const products = await productRepo.find({
+          where: { id: In(uniqueProductIds), businessId, active: true },
+        });
+        const productById = new Map(products.map((product) => [product.id, product]));
+
         const items: OrderItem[] = [];
         let total = 0;
 
         for (const itemDto of dto.items) {
-          const product = await productRepo.findOne({
-            where: { id: itemDto.productId, businessId, active: true },
-          });
+          const product = productById.get(itemDto.productId);
           if (!product) {
             throw new BadRequestException({
               message: `Product "${itemDto.productId}" not found`,

@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Business } from './business.entity.js';
 import { PublicBusinessResolverService } from './public-business-resolver.service.js';
 
@@ -86,6 +86,59 @@ describe('PublicBusinessResolverService', () => {
     );
     expect(businessRepo.findOne).toHaveBeenCalledWith({
       where: { slug: 'brasa-47', active: true },
+    });
+  });
+
+  describe('caching', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('resolves the same slug twice within the TTL with a single query to Business', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1', slug: 'brasa-47', active: true });
+
+      const first = await service.resolve({ businessSlug: 'brasa-47' });
+      const second = await service.resolve({ businessSlug: 'brasa-47' });
+
+      expect(first).toBe('biz-1');
+      expect(second).toBe('biz-1');
+      expect(businessRepo.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves different slugs with independent queries', async () => {
+      businessRepo.findOne.mockImplementation(async ({ where }: { where: { slug?: string } }) =>
+        where.slug === 'brasa-47' ? { id: 'biz-1', slug: 'brasa-47', active: true } : { id: 'biz-2', slug: 'otro-negocio', active: true },
+      );
+
+      const a = await service.resolve({ businessSlug: 'brasa-47' });
+      const b = await service.resolve({ businessSlug: 'otro-negocio' });
+
+      expect(a).toBe('biz-1');
+      expect(b).toBe('biz-2');
+      expect(businessRepo.findOne).toHaveBeenCalledTimes(2);
+    });
+
+    it('never caches a nonexistent slug — a second lookup still hits the database', async () => {
+      businessRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.resolve({ businessSlug: 'no-existe' })).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.resolve({ businessSlug: 'no-existe' })).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(businessRepo.findOne).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-queries once the TTL has expired', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1', slug: 'brasa-47', active: true });
+
+      await service.resolve({ businessSlug: 'brasa-47' });
+      vi.advanceTimersByTime(30_001); // just past the 30s TTL
+      await service.resolve({ businessSlug: 'brasa-47' });
+
+      expect(businessRepo.findOne).toHaveBeenCalledTimes(2);
     });
   });
 });
