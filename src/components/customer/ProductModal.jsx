@@ -10,8 +10,8 @@ export default function ProductModal({ product, onClose, onAdded }) {
   const [added, setAdded] = useState([])
   const unavailable = product.available === false
 
-  const removeOptions = product.modifiers?.remove || []
-  const addOptions = product.modifiers?.add || []
+  const removeOptions = product.removableIngredients || []
+  const addOptions = product.addOns || []
 
   const unitPrice = useMemo(() => {
     const extras = addOptions

@@ -1,4 +1,4 @@
-import { formatPrice } from '../../utils/format'
+import { formatPrice, formatAddOn } from '../../utils/format'
 
 function timeLabel(timestamp) {
   return new Date(timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
@@ -39,7 +39,7 @@ export default function PrintTicket({ order }) {
               <small>
                 {(item.removed || []).map((r) => `Sin ${r}`).join(', ')}
                 {item.removed?.length > 0 && item.added?.length > 0 ? ' / ' : ''}
-                {(item.added || []).map((a) => `+ ${a}`).join(', ')}
+                {(item.added || []).map(formatAddOn).join(', ')}
               </small>
             )}
           </li>

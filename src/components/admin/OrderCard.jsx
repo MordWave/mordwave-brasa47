@@ -1,4 +1,4 @@
-import { formatPrice } from '../../utils/format'
+import { formatPrice, formatAddOn } from '../../utils/format'
 
 function timeAgo(timestamp) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 60000))
@@ -29,7 +29,7 @@ export default function OrderCard({ order, onDeliver, onCancel, onPrint }) {
               <p className="order-card__item-mods">
                 {(item.removed || []).map((r) => `Sin ${r}`).join(' · ')}
                 {item.removed?.length > 0 && item.added?.length > 0 ? ' · ' : ''}
-                {(item.added || []).map((a) => `+ ${a}`).join(' · ')}
+                {(item.added || []).map(formatAddOn).join(' · ')}
               </p>
             )}
           </li>

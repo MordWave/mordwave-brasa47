@@ -2431,6 +2431,55 @@ p {
   color: var(--primary-dark);
 }
 
+.admin-menu__field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-menu__field-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.admin-menu__ingredient-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.admin-menu__addons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-menu__addon-row {
+  display: grid;
+  grid-template-columns: 1fr 90px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-menu__addon-row input {
+  width: 100%;
+}
+
+.admin-menu__addon-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.admin-menu__addon-remove:hover {
+  color: var(--primary-dark);
+}
+
 .admin-menu__image-field {
   display: flex;
   flex-direction: column;
