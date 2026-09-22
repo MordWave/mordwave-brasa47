@@ -45,7 +45,14 @@ describe('TableSessionService', () => {
     tableRepo = createRepoMock();
     sessionRepo = createRepoMock();
     businessRepo = createRepoMock();
-    businessRepo.findOne.mockResolvedValue({ id: 'biz-1', slug: 'brasa-47' });
+    businessRepo.findOne.mockResolvedValue({
+      id: 'biz-1',
+      slug: 'brasa-47',
+      name: 'Brasa 47',
+      logoUrl: null,
+      primaryColor: null,
+      accentColor: null,
+    });
 
     // Runs the transaction callback for real against a fake EntityManager,
     // same approach as OrderService's own spec — manager.getRepository()
@@ -240,7 +247,7 @@ describe('TableSessionService', () => {
       );
     });
 
-    it('returns the existing sessionToken, tableName and businessSlug without writing anything', async () => {
+    it('returns the existing sessionToken, tableName, businessSlug and branding without writing anything', async () => {
       tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
       sessionRepo.findOne.mockResolvedValue({
         id: 's1',
@@ -255,12 +262,45 @@ describe('TableSessionService', () => {
         sessionToken: 'session-xyz',
         tableName: 'Mesa 1',
         businessSlug: 'brasa-47',
+        businessName: 'Brasa 47',
+        logoUrl: null,
+        primaryColor: null,
+        accentColor: null,
       });
       expect(sessionRepo.save).not.toHaveBeenCalled();
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
-    it('never returns businessId, tableId or sessionId — only the public slug', async () => {
+    it('includes the real businessName/logoUrl/primaryColor/accentColor when the business has set them', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
+      sessionRepo.findOne.mockResolvedValue({
+        id: 's1',
+        tableId: 't1',
+        status: TableSessionStatus.OPEN,
+        sessionToken: 'session-xyz',
+      });
+      businessRepo.findOne.mockResolvedValue({
+        id: 'biz-1',
+        slug: 'brasa-47',
+        name: 'Brasa 47',
+        logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=1',
+        primaryColor: '#D94A2B',
+        accentColor: '#E9B44C',
+      });
+
+      const result = await service.join('qr-abc');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          businessName: 'Brasa 47',
+          logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=1',
+          primaryColor: '#D94A2B',
+          accentColor: '#E9B44C',
+        }),
+      );
+    });
+
+    it('never returns businessId, tableId or sessionId — only the public slug and branding', async () => {
       tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
       sessionRepo.findOne.mockResolvedValue({
         id: 's1',

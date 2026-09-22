@@ -67,7 +67,15 @@ export class PublicBusinessResolverService {
       return cached.businessId;
     }
 
+    // select: {id:true} makes the real contract explicit — this resolver
+    // only ever reads business.id below, never name/slug/active/anything
+    // else from the row. Also keeps this frequent public query independent
+    // of columns Business doesn't have yet in every environment (e.g. a
+    // migration not yet run against a given database) — a side effect,
+    // not the reason for the change, since the query would be correctly
+    // scoped either way (where: still filters on id/slug + active).
     const business = await this.businessRepository.findOne({
+      select: { id: true },
       where: businessId
         ? { id: businessId, active: true }
         : { slug: businessSlug, active: true },

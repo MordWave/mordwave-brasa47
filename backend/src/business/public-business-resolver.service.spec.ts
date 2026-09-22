@@ -41,6 +41,7 @@ describe('PublicBusinessResolverService', () => {
 
     expect(result).toBe('biz-1');
     expect(businessRepo.findOne).toHaveBeenCalledWith({
+      select: { id: true },
       where: { id: 'biz-1', active: true },
     });
   });
@@ -52,8 +53,19 @@ describe('PublicBusinessResolverService', () => {
 
     expect(result).toBe('biz-1');
     expect(businessRepo.findOne).toHaveBeenCalledWith({
+      select: { id: true },
       where: { slug: 'brasa-47', active: true },
     });
+  });
+
+  it('only ever selects id — never name/slug/active/anything else from the row', async () => {
+    businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+
+    await service.resolve({ businessSlug: 'brasa-47' });
+
+    expect(businessRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ select: { id: true } }),
+    );
   });
 
   it('404s with BUSINESS_NOT_FOUND when businessId matches nothing', async () => {
@@ -85,6 +97,7 @@ describe('PublicBusinessResolverService', () => {
       NotFoundException,
     );
     expect(businessRepo.findOne).toHaveBeenCalledWith({
+      select: { id: true },
       where: { slug: 'brasa-47', active: true },
     });
   });

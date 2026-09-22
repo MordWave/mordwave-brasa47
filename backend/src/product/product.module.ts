@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { Business } from '../business/business.entity.js';
 import { BusinessModule } from '../business/business.module.js';
 import { Category } from '../category/category.entity.js';
+import { StorageModule } from '../storage/storage.module.js';
 import { ProductImageService } from './product-image.service.js';
 import { Product } from './product.entity.js';
 import { ProductController } from './product.controller.js';
@@ -19,6 +20,8 @@ import { ProductService } from './product.service.js';
     // Gives access to PublicBusinessResolverService (businessId/businessSlug
     // resolution for the public, unauthenticated GET endpoints).
     BusinessModule,
+    // Gives ProductImageService access to the shared ImageStorageService.
+    StorageModule,
   ],
   controllers: [ProductController],
   providers: [ProductService, ProductImageService],
