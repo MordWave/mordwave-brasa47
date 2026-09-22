@@ -336,6 +336,215 @@ describe('ProductService', () => {
     );
   });
 
+  describe('persists tag/ingredients/removableIngredients/addOns', () => {
+    it('create() persists all four fields exactly as given', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+      await service.create(
+        {
+          name: 'Clásica Brasa',
+          price: 6900,
+          businessId: 'biz-1',
+          categoryId: 'cat-1',
+          tag: 'Más pedido',
+          ingredients: ['Carne', 'Pan', 'Queso'],
+          removableIngredients: ['Queso'],
+          addOns: [{ name: 'Queso extra', price: 1200 }],
+        },
+        admin,
+      );
+
+      expect(productRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tag: 'Más pedido',
+          ingredients: ['Carne', 'Pan', 'Queso'],
+          removableIngredients: ['Queso'],
+          addOns: [{ name: 'Queso extra', price: 1200 }],
+        }),
+      );
+    });
+
+    it('update() persists a change to tag and addOns onto an existing product', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        categoryId: 'cat-1',
+        active: true,
+        tag: null,
+        ingredients: [],
+        removableIngredients: [],
+        addOns: [],
+      });
+
+      await service.update(
+        'p1',
+        { tag: 'Nuevo', addOns: [{ name: 'Tocino', price: 1500 }] },
+        admin,
+      );
+
+      expect(productRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tag: 'Nuevo',
+          addOns: [{ name: 'Tocino', price: 1500 }],
+        }),
+      );
+    });
+
+    it('update() persists a change to ingredients and removableIngredients together', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        categoryId: 'cat-1',
+        active: true,
+        tag: null,
+        ingredients: ['Carne', 'Pan'],
+        removableIngredients: [],
+        addOns: [],
+      });
+
+      await service.update(
+        'p1',
+        { ingredients: ['Carne', 'Pan', 'Queso'], removableIngredients: ['Queso'] },
+        admin,
+      );
+
+      expect(productRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ingredients: ['Carne', 'Pan', 'Queso'],
+          removableIngredients: ['Queso'],
+        }),
+      );
+    });
+  });
+
+  describe('removableIngredients must be a subset of ingredients', () => {
+    it('create() accepts a valid subset', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+      await service.create(
+        {
+          name: 'Clásica Brasa',
+          price: 6900,
+          businessId: 'biz-1',
+          categoryId: 'cat-1',
+          ingredients: ['Carne', 'Pan', 'Queso'],
+          removableIngredients: ['Queso'],
+        },
+        admin,
+      );
+
+      expect(productRepo.save).toHaveBeenCalled();
+    });
+
+    it('create() rejects a removableIngredients entry not present in ingredients', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+      const error = await service
+        .create(
+          {
+            name: 'Clásica Brasa',
+            price: 6900,
+            businessId: 'biz-1',
+            categoryId: 'cat-1',
+            ingredients: ['Carne', 'Pan'],
+            removableIngredients: ['Queso'], // not in ingredients
+          },
+          admin,
+        )
+        .catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toEqual(
+        expect.objectContaining({ errorCode: 'REMOVABLE_INGREDIENTS_NOT_SUBSET' }),
+      );
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('update() rejects a PATCH that only changes removableIngredients, validated against the EXISTING ingredients', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        categoryId: 'cat-1',
+        active: true,
+        ingredients: ['Carne', 'Pan'],
+        removableIngredients: [],
+      });
+
+      const error = await service
+        .update('p1', { removableIngredients: ['Queso'] }, admin) // "Queso" isn't in the existing ingredients
+        .catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toEqual(
+        expect.objectContaining({ errorCode: 'REMOVABLE_INGREDIENTS_NOT_SUBSET' }),
+      );
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('update() rejects a PATCH that only changes ingredients, orphaning an entry the EXISTING removableIngredients still references', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        categoryId: 'cat-1',
+        active: true,
+        ingredients: ['Carne', 'Pan', 'Queso'],
+        removableIngredients: ['Queso'],
+      });
+
+      // Renaming/dropping "Queso" from ingredients without also updating
+      // removableIngredients must be rejected, not silently leave a
+      // removableIngredients entry that no longer matches anything.
+      const error = await service
+        .update('p1', { ingredients: ['Carne', 'Pan'] }, admin)
+        .catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toEqual(
+        expect.objectContaining({ errorCode: 'REMOVABLE_INGREDIENTS_NOT_SUBSET' }),
+      );
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('update() accepts changing both fields together consistently', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        categoryId: 'cat-1',
+        active: true,
+        ingredients: ['Carne', 'Pan', 'Queso'],
+        removableIngredients: ['Queso'],
+      });
+
+      await service.update(
+        'p1',
+        { ingredients: ['Carne', 'Pan'], removableIngredients: [] },
+        admin,
+      );
+
+      expect(productRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ ingredients: ['Carne', 'Pan'], removableIngredients: [] }),
+      );
+    });
+
+    it('update() leaves an already-consistent product alone on an unrelated edit', async () => {
+      productRepo.findOne.mockResolvedValue({
+        id: 'p1',
+        businessId: 'biz-1',
+        categoryId: 'cat-1',
+        active: true,
+        ingredients: ['Carne', 'Pan', 'Queso'],
+        removableIngredients: ['Queso'],
+      });
+
+      await service.update('p1', { name: 'renamed' }, admin);
+
+      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ name: 'renamed' }));
+    });
+  });
+
   // Soft delete: TypeORM's @DeleteDateColumn makes every find/findOne/count
   // on this repository exclude a soft-deleted row automatically (verified
   // against the installed TypeORM's own source — see product.entity.ts).

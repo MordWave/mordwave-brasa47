@@ -68,12 +68,32 @@ export class ProductService {
     }
   }
 
+  // removableIngredients must always be a subset of ingredients — checked
+  // here, against whatever the FINAL combined state will be, never against
+  // just the fields present in one particular request. A partial PATCH
+  // that only sends removableIngredients (leaving ingredients untouched),
+  // or only sends ingredients (silently orphaning an entry the existing
+  // removableIngredients still references), must be rejected exactly the
+  // same as sending both at once inconsistently — never silently
+  // corrected by dropping the offending entries.
+  private assertRemovableIngredientsSubset(ingredients: string[], removableIngredients: string[]): void {
+    const invalid = removableIngredients.filter((item) => !ingredients.includes(item));
+    if (invalid.length > 0) {
+      throw new BadRequestException({
+        message: `removableIngredients must be a subset of ingredients — not found in ingredients: ${invalid.join(', ')}`,
+        errorCode: 'REMOVABLE_INGREDIENTS_NOT_SUBSET',
+        invalidIngredients: invalid,
+      });
+    }
+  }
+
   async create(dto: CreateProductDto, user: SafeUser): Promise<Product> {
     const businessId = resolveBusinessIdForCreate(user, dto.businessId);
     await this.assertBusinessExists(businessId);
     const category = await this.getCategoryOrThrow(dto.categoryId);
     this.assertCategoryBelongsToBusiness(category, businessId);
     this.assertCategoryIsActive(category);
+    this.assertRemovableIngredientsSubset(dto.ingredients ?? [], dto.removableIngredients ?? []);
     const product = this.productRepository.create(dto);
     product.businessId = businessId;
     return this.productRepository.save(product);
@@ -182,6 +202,18 @@ export class ProductService {
       this.assertCategoryBelongsToBusiness(category, businessId);
       this.assertCategoryIsActive(category);
     }
+
+    // Validated against the FINAL combined state (whatever this PATCH
+    // changes, merged onto whatever it leaves untouched) — never against
+    // only the fields this particular request happens to include. The
+    // `?? []` fallback only matters for a product row loaded before either
+    // column existed in memory (e.g. a stale cache) — a real row always
+    // has both as real arrays, never null/undefined, thanks to the
+    // column's own DB-level default.
+    this.assertRemovableIngredientsSubset(
+      dto.ingredients ?? product.ingredients ?? [],
+      dto.removableIngredients ?? product.removableIngredients ?? [],
+    );
 
     Object.assign(product, dto, { businessId });
     return this.productRepository.save(product);

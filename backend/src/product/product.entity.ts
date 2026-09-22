@@ -12,6 +12,14 @@ import {
 import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
 
+// A customer-selectable extra, with its own price (CLP integer, no cents —
+// same convention as Product.price). Resolved and priced server-side at
+// order time (see OrderService.create), never trusted from the client.
+export interface ProductAddOn {
+  name: string;
+  price: number;
+}
+
 @Entity('products')
 export class Product {
   @PrimaryGeneratedColumn('uuid')
@@ -40,6 +48,31 @@ export class Product {
 
   @Column({ name: 'sort_order', default: 0 })
   sortOrder: number;
+
+  // Short badge shown on the menu tile ("Más pedido", "Nuevo") — purely
+  // cosmetic, no business logic reads this.
+  @Column({ type: 'text', nullable: true })
+  tag: string | null;
+
+  // Informational — shown on the product detail sheet. Not all of these
+  // are removable; see removableIngredients below for the subset that is.
+  @Column('text', { array: true, default: () => 'ARRAY[]::text[]' })
+  ingredients: string[];
+
+  // Always a subset of `ingredients` — enforced in ProductService
+  // (create/update), never at the DB level (Postgres has no simple
+  // constraint for "this array is a subset of that other array on the
+  // same row"). Removing one of these from a cart line never affects
+  // price — see CreateOrderItemDto/OrderItem for the ones that do.
+  @Column({ name: 'removable_ingredients', type: 'text', array: true, default: () => 'ARRAY[]::text[]' })
+  removableIngredients: string[];
+
+  // Customer-selectable extras, each with its own price. jsonb rather than
+  // a separate table: every product's add-ons are its own (no reuse across
+  // products in practice), so a per-row array matches the real shape of
+  // the data without a join for something this small.
+  @Column({ name: 'add_ons', type: 'jsonb', default: () => "'[]'" })
+  addOns: ProductAddOn[];
 
   @ManyToOne(() => Business, (business) => business.products, {
     onDelete: 'CASCADE',
