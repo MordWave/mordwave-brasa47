@@ -1,5 +1,16 @@
 const FALLBACK_NAME = 'Nuestro restaurante'
 
+// Shown in the round mark only when there's no logo yet — derived from the
+// real business name so it's never a specific tenant's own identity (no
+// "47" baked in). Falls back to "MW" (MordWave) only in the extreme case
+// of an empty/missing name.
+function getInitials(name) {
+  const words = (name ?? '').trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return 'MW'
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return (words[0][0] + words[1][0]).toUpperCase()
+}
+
 export default function HomeScreen({ tableName, businessName, logoUrl, onContinue }) {
   const displayName = businessName || FALLBACK_NAME
 
@@ -21,10 +32,10 @@ export default function HomeScreen({ tableName, businessName, logoUrl, onContinu
           {logoUrl ? (
             <img className="home__logo" src={logoUrl} alt="" />
           ) : (
-            <span className="home__mark">47</span>
+            <span className="home__mark">{getInitials(businessName)}</span>
           )}
           <h1 className="home__brand">{displayName}</h1>
-          <p className="home__tagline">Burger · Pizza · Bar</p>
+          <p className="home__tagline">Menú digital</p>
         </div>
 
         <div className="home__hero-bottom">

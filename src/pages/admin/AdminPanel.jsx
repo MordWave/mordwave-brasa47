@@ -43,6 +43,14 @@ export default function AdminPanel() {
     if (isAuthenticated) loadBusiness()
   }, [isAuthenticated, loadBusiness])
 
+  // Without this, a logout followed by a different admin (different
+  // business) logging in on the same tab would briefly show the PREVIOUS
+  // tenant's name in the header until the new fetch resolves.
+  function handleLogout() {
+    setBusiness(null)
+    logout()
+  }
+
   if (checking) {
     return <div className="admin-panel__loading">Cargando…</div>
   }
@@ -60,7 +68,7 @@ export default function AdminPanel() {
         </div>
         <div className="admin-panel__user">
           <span className="admin-panel__user-email">{user.email}</span>
-          <button type="button" className="btn btn--outline btn--small" onClick={logout}>
+          <button type="button" className="btn btn--outline btn--small" onClick={handleLogout}>
             Cerrar sesión
           </button>
         </div>
