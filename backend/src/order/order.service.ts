@@ -3,11 +3,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { And, DataSource, FindOptionsWhere, ILike, In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { resolveBusinessIdForRead, resolveBusinessIdForUpdate } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
-import { Product } from '../product/product.entity.js';
+import { Product, type ProductAddOn } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
 import { TableSession } from '../table/table-session.entity.js';
 import { TableSessionStatus } from '../table/table-session-status.enum.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
+import type { CreateOrderItemDto } from './dto/create-order-item.dto.js';
 import { OrderHistoryQueryDto } from './dto/order-history-query.dto.js';
 import { OrderQueryDto } from './dto/order-query.dto.js';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto.js';
@@ -47,6 +48,70 @@ export class OrderService {
       message: 'This table has no active session',
       errorCode: 'TABLE_SESSION_UNAVAILABLE',
     });
+  }
+
+  private invalidModifierError(message: string, productId: string): BadRequestException {
+    return new BadRequestException({ message, errorCode: 'INVALID_MODIFIER_SELECTION', productId });
+  }
+
+  // Turns the client's plain name lists (removed/added — see
+  // CreateOrderItemDto, unchanged) into a validated, server-priced result:
+  // removed is checked against the product's own removableIngredients
+  // (never priced either way); added is checked against the product's own
+  // addOns and resolved to the real { name, price } snapshot actually
+  // charged — the client never sends a price, and nothing here ever
+  // trusts one if it did. Duplicates within either list are rejected
+  // rather than silently deduped or double-charged: neither list has any
+  // concept of "how many of this modifier" anywhere in this app (the
+  // customer UI toggles each one on/off by name), so a repeated name is
+  // never a legitimate selection.
+  private resolveItemModifiers(
+    product: Product,
+    itemDto: CreateOrderItemDto,
+  ): { removed: string[]; added: ProductAddOn[] } {
+    const removed = itemDto.removed ?? [];
+    const addedNames = itemDto.added ?? [];
+
+    if (new Set(removed).size !== removed.length) {
+      throw this.invalidModifierError(
+        `Duplicate entries in "removed" for product "${itemDto.productId}"`,
+        itemDto.productId,
+      );
+    }
+    if (new Set(addedNames).size !== addedNames.length) {
+      throw this.invalidModifierError(
+        `Duplicate entries in "added" for product "${itemDto.productId}"`,
+        itemDto.productId,
+      );
+    }
+
+    const removableIngredients = product.removableIngredients ?? [];
+    for (const name of removed) {
+      if (!removableIngredients.includes(name)) {
+        throw this.invalidModifierError(
+          `"${name}" is not a removable ingredient of product "${itemDto.productId}"`,
+          itemDto.productId,
+        );
+      }
+    }
+
+    const addOnByName = new Map((product.addOns ?? []).map((addOn) => [addOn.name, addOn]));
+    const added: ProductAddOn[] = [];
+    for (const name of addedNames) {
+      const addOn = addOnByName.get(name);
+      if (!addOn) {
+        throw this.invalidModifierError(
+          `"${name}" is not a valid add-on of product "${itemDto.productId}"`,
+          itemDto.productId,
+        );
+      }
+      // Copy the price at THIS moment — never a live reference back to
+      // product.addOns, so a later price change on the product never
+      // retroactively alters an already-placed order's snapshot.
+      added.push({ name: addOn.name, price: addOn.price });
+    }
+
+    return { removed, added };
   }
 
   // Unlocked, cheap check — rejects a garbage/expired sessionToken before
@@ -134,17 +199,23 @@ export class OrderService {
             });
           }
 
-          // Price/name come from the real product row, never from the
-          // client — see CreateOrderItemDto for what's deliberately absent.
+          // Price/name/modifiers come from the real product row, never
+          // from the client — see CreateOrderItemDto for what's
+          // deliberately absent (no price field at all, on either removed
+          // or added).
+          const { removed, added } = this.resolveItemModifiers(product, itemDto);
+          const addOnsTotal = added.reduce((sum, addOn) => sum + addOn.price, 0);
+          const unitPrice = product.price + addOnsTotal;
+
           const item = new OrderItem();
           item.productId = product.id;
           item.name = product.name;
-          item.unitPrice = product.price;
+          item.unitPrice = unitPrice;
           item.quantity = itemDto.quantity;
-          item.removed = itemDto.removed ?? [];
-          item.added = itemDto.added ?? [];
+          item.removed = removed;
+          item.added = added;
           items.push(item);
-          total += product.price * itemDto.quantity;
+          total += unitPrice * itemDto.quantity;
         }
 
         const order = new Order();

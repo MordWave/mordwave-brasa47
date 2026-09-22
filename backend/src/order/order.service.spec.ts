@@ -110,6 +110,11 @@ describe('OrderService', () => {
       price: 6900,
       active: true,
       available: true,
+      // Matches baseDto's removed:['Cebolla'] / added:['Tocino'] below —
+      // every existing happy-path test in this describe block relies on
+      // these being valid selections for this product.
+      removableIngredients: ['Cebolla'],
+      addOns: [{ name: 'Tocino', price: 1500 }],
     };
 
     // Sets up the "everything valid" path through resolveSession (one
@@ -278,7 +283,7 @@ describe('OrderService', () => {
       expect(orderRepo.save).not.toHaveBeenCalled();
     });
 
-    it('computes the total from the real Product price, ignoring anything price-related the client could have sent', async () => {
+    it('computes the total from the real Product price plus its resolved add-ons, ignoring anything price-related the client could have sent', async () => {
       mockHappyPathLookups();
       productRepo.find.mockResolvedValue([validProduct]);
 
@@ -286,15 +291,15 @@ describe('OrderService', () => {
 
       expect(orderRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
-          total: 13800, // 6900 * 2 — CreateOrderItemDto never carries a price at all
+          total: 16800, // (6900 + 1500) * 2 — Tocino's $1500 comes only from the product row
           items: [
             expect.objectContaining({
               productId: 'p1',
               name: 'Clásica Brasa',
-              unitPrice: 6900,
+              unitPrice: 8400, // 6900 + 1500
               quantity: 2,
               removed: ['Cebolla'],
-              added: ['Tocino'],
+              added: [{ name: 'Tocino', price: 1500 }],
             }),
           ],
         }),
@@ -365,13 +370,236 @@ describe('OrderService', () => {
       );
       expect(orderRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
-          total: 6900 * 1 + 6900 * 2,
+          total: 6900 * 1 + (6900 + 1500) * 2, // second line adds Tocino ($1500)
           items: [
-            expect.objectContaining({ productId: 'p1', quantity: 1, removed: ['Cebolla'] }),
-            expect.objectContaining({ productId: 'p1', quantity: 2, added: ['Tocino'] }),
+            expect.objectContaining({ productId: 'p1', quantity: 1, unitPrice: 6900, removed: ['Cebolla'] }),
+            expect.objectContaining({
+              productId: 'p1',
+              quantity: 2,
+              unitPrice: 8400,
+              added: [{ name: 'Tocino', price: 1500 }],
+            }),
           ],
         }),
       );
+    });
+
+    describe('add-on pricing and modifier validation (Fase 7 Bloque 2)', () => {
+      const productNoAddOns = {
+        id: 'p1',
+        businessId: 'biz-1',
+        name: 'Limonada Natural',
+        price: 3200,
+        active: true,
+        available: true,
+        removableIngredients: [],
+        addOns: [],
+      };
+
+      const productWithAddOns = {
+        id: 'p1',
+        businessId: 'biz-1',
+        name: 'Clásica Brasa',
+        price: 6900,
+        active: true,
+        available: true,
+        removableIngredients: ['Cebolla', 'Tomate'],
+        addOns: [
+          { name: 'Queso extra', price: 1200 },
+          { name: 'Tocino', price: 1500 },
+        ],
+      };
+
+      it('an order with no add-ons computes the same total as before (base price only)', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productNoAddOns]);
+
+        await service.create({ ...baseDto, items: [{ productId: 'p1', quantity: 2 }] });
+
+        expect(orderRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            total: 6400, // 3200 * 2
+            items: [expect.objectContaining({ unitPrice: 3200, added: [] })],
+          }),
+        );
+      });
+
+      it('a single valid add-on is priced correctly', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        await service.create({ ...baseDto, items: [{ productId: 'p1', quantity: 1, added: ['Tocino'] }] });
+
+        expect(orderRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            total: 8400, // 6900 + 1500
+            items: [
+              expect.objectContaining({ unitPrice: 8400, added: [{ name: 'Tocino', price: 1500 }] }),
+            ],
+          }),
+        );
+      });
+
+      it('several add-ons on the same line sum correctly', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        await service.create({
+          ...baseDto,
+          items: [{ productId: 'p1', quantity: 1, added: ['Queso extra', 'Tocino'] }],
+        });
+
+        expect(orderRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            total: 6900 + 1200 + 1500,
+            items: [
+              expect.objectContaining({
+                unitPrice: 6900 + 1200 + 1500,
+                added: [
+                  { name: 'Queso extra', price: 1200 },
+                  { name: 'Tocino', price: 1500 },
+                ],
+              }),
+            ],
+          }),
+        );
+      });
+
+      it('quantity > 1 multiplies the add-ons price along with the base price', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        await service.create({ ...baseDto, items: [{ productId: 'p1', quantity: 3, added: ['Tocino'] }] });
+
+        expect(orderRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            total: (6900 + 1500) * 3,
+            items: [expect.objectContaining({ unitPrice: 8400, quantity: 3 })],
+          }),
+        );
+      });
+
+      it('several products with different add-ons each compute their own correct total, still with a single batched Product query', async () => {
+        const product2 = {
+          id: 'p2',
+          businessId: 'biz-1',
+          name: 'Pizza Napolitana',
+          price: 8900,
+          active: true,
+          available: true,
+          removableIngredients: [],
+          addOns: [{ name: 'Extra mozzarella', price: 1800 }],
+        };
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns, product2]);
+
+        await service.create({
+          ...baseDto,
+          items: [
+            { productId: 'p1', quantity: 1, added: ['Tocino'] },
+            { productId: 'p2', quantity: 2, added: ['Extra mozzarella'] },
+          ],
+        });
+
+        expect(productRepo.find).toHaveBeenCalledTimes(1);
+        expect(orderRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            total: (6900 + 1500) * 1 + (8900 + 1800) * 2,
+          }),
+        );
+      });
+
+      it('rejects an add-on name that does not exist on the product, with INVALID_MODIFIER_SELECTION', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        const error = await service
+          .create({ ...baseDto, items: [{ productId: 'p1', quantity: 1, added: ['Huevo frito'] }] })
+          .catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect((error as BadRequestException).getResponse()).toEqual(
+          expect.objectContaining({ errorCode: 'INVALID_MODIFIER_SELECTION' }),
+        );
+        expect(orderRepo.save).not.toHaveBeenCalled();
+      });
+
+      it("rejects a removed ingredient that is not in the product's removableIngredients, with INVALID_MODIFIER_SELECTION", async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        const error = await service
+          .create({ ...baseDto, items: [{ productId: 'p1', quantity: 1, removed: ['Queso'] }] })
+          .catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect((error as BadRequestException).getResponse()).toEqual(
+          expect.objectContaining({ errorCode: 'INVALID_MODIFIER_SELECTION' }),
+        );
+        expect(orderRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects duplicate entries within added instead of charging the same add-on twice', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        const error = await service
+          .create({ ...baseDto, items: [{ productId: 'p1', quantity: 1, added: ['Tocino', 'Tocino'] }] })
+          .catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect((error as BadRequestException).getResponse()).toEqual(
+          expect.objectContaining({ errorCode: 'INVALID_MODIFIER_SELECTION' }),
+        );
+        expect(orderRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('rejects duplicate entries within removed', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        const error = await service
+          .create({ ...baseDto, items: [{ productId: 'p1', quantity: 1, removed: ['Cebolla', 'Cebolla'] }] })
+          .catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect((error as BadRequestException).getResponse()).toEqual(
+          expect.objectContaining({ errorCode: 'INVALID_MODIFIER_SELECTION' }),
+        );
+        expect(orderRepo.save).not.toHaveBeenCalled();
+      });
+
+      it('the added snapshot stores the real name and price resolved from the product, exactly as persisted', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        await service.create({ ...baseDto, items: [{ productId: 'p1', quantity: 1, added: ['Tocino'] }] });
+
+        expect(orderRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            items: [expect.objectContaining({ added: [{ name: 'Tocino', price: 1500 }] })],
+          }),
+        );
+      });
+
+      it('never uses a price the client sent — CreateOrderItemDto has no such field, and nothing here reads one even if present on the raw body', async () => {
+        mockHappyPathLookups();
+        productRepo.find.mockResolvedValue([productWithAddOns]);
+
+        // Simulates a body that somehow carried a price (bypassing the DTO,
+        // which has no such field at all) — must be silently ignored.
+        const itemWithSpoofedPrice = { productId: 'p1', quantity: 1, added: ['Tocino'], price: 1 };
+
+        await service.create({ ...baseDto, items: [itemWithSpoofedPrice] });
+
+        expect(orderRepo.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            items: [
+              expect.objectContaining({ unitPrice: 8400, added: [{ name: 'Tocino', price: 1500 }] }),
+            ],
+          }),
+        );
+      });
     });
 
     it('recovers from a racing duplicate submit (unique violation) by returning the order the other request created', async () => {
