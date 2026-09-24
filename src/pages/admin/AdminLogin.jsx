@@ -25,7 +25,9 @@ export default function AdminLogin() {
   return (
     <div className="admin-login">
       <form className="admin-login__form" onSubmit={handleSubmit}>
-        <p className="admin__eyebrow">BRASA 47</p>
+        {/* No tenant is known before login — this is MordWave's own neutral
+            branding, never a business name (see Fase 7 design notes). */}
+        <p className="admin__eyebrow">MordWave</p>
         <h1 className="admin-login__title">Acceso administrador</h1>
         <label className="admin-login__field">
           <span>Email</span>

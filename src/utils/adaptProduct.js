@@ -1,13 +1,10 @@
-import { getLegacyExtras } from '../data/legacyProductExtras'
-
 // Adapts a real API product to the shape ProductTile/ProductModal/cart
-// already expect (`image` instead of `imageUrl`), and reattaches the
-// demo-only personalization fields via the temporary name-based lookup —
-// see legacyProductExtras.js for why and its limitation.
+// already expect (`image` instead of `imageUrl`) — every other field
+// (tag, ingredients, removableIngredients, addOns) now comes straight from
+// the backend, no demo bridging needed.
 export function adaptPublicProduct(product) {
   return {
     ...product,
     image: product.imageUrl,
-    ...getLegacyExtras(product.name),
   }
 }

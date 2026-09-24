@@ -1,15 +1,15 @@
-import { formatPrice } from '../../utils/format'
+import { formatPrice, formatAddOn } from '../../utils/format'
 
 function timeLabel(timestamp) {
   return new Date(timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
 }
 
-export default function PrintTicket({ order }) {
+export default function PrintTicket({ order, businessName }) {
   if (!order) return null
 
   return (
     <div className="print-ticket">
-      <h2>BRASA 47</h2>
+      <h2>{businessName}</h2>
       <p className="print-ticket__meta">Comanda de cocina</p>
 
       <div className="print-ticket__divider" />
@@ -39,7 +39,7 @@ export default function PrintTicket({ order }) {
               <small>
                 {(item.removed || []).map((r) => `Sin ${r}`).join(', ')}
                 {item.removed?.length > 0 && item.added?.length > 0 ? ' / ' : ''}
-                {(item.added || []).map((a) => `+ ${a}`).join(', ')}
+                {(item.added || []).map(formatAddOn).join(', ')}
               </small>
             )}
           </li>

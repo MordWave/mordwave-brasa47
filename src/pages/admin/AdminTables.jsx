@@ -9,7 +9,7 @@ import TableQrModal from '../../components/admin/tables/TableQrModal'
 
 const POLL_MS = 12000
 
-export default function AdminTables() {
+export default function AdminTables({ businessName }) {
   const { token, user } = useAuth()
   const [tables, setTables] = useState([])
   const [loading, setLoading] = useState(true)
@@ -87,7 +87,7 @@ export default function AdminTables() {
   }
 
   function handlePrintQr(table, dataUrl) {
-    setPrintQr({ table, dataUrl })
+    setPrintQr({ table, dataUrl, businessName })
     setTimeout(() => {
       window.print()
       setPrintQr(null)

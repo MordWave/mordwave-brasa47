@@ -29,6 +29,15 @@ export interface JoinResult {
   // "which menu do I show" entirely from the QR, with no fixed/hardcoded
   // slug baked into the frontend build.
   businessSlug: string;
+  // Branding, for the customer app to show before the menu itself loads
+  // (and while it's neutral MordWave branding pre-scan) — all display-only,
+  // none of it is an identifier. logoUrl/colors are null until the
+  // business sets them via PATCH /businesses/me / POST /businesses/me/logo,
+  // in which case the frontend falls back to its own defaults.
+  businessName: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
 }
 
 export interface SessionStatusResult {
@@ -107,7 +116,15 @@ export class TableSessionService {
     if (!business) {
       throw this.unavailableError();
     }
-    return { sessionToken: session.sessionToken, tableName: table.name, businessSlug: business.slug };
+    return {
+      sessionToken: session.sessionToken,
+      tableName: table.name,
+      businessSlug: business.slug,
+      businessName: business.name,
+      logoUrl: business.logoUrl,
+      primaryColor: business.primaryColor,
+      accentColor: business.accentColor,
+    };
   }
 
   // Public — a device already holding a token just wants to know if it's

@@ -6,7 +6,7 @@ import {
   PrimaryGeneratedColumn,
   type Relation,
 } from 'typeorm';
-import { Product } from '../product/product.entity.js';
+import { Product, type ProductAddOn } from '../product/product.entity.js';
 import { Order } from './order.entity.js';
 
 @Entity('order_items')
@@ -37,17 +37,30 @@ export class OrderItem {
   @Column()
   name: string;
 
+  // Final price actually charged per unit — product.price at order time
+  // PLUS the price of every add-on in `added` below. Nothing else in this
+  // codebase currently reads this back (verified — no frontend screen
+  // depends on the older "base price only" meaning), so there is no
+  // display/history this redefinition breaks.
   @Column({ name: 'unit_price', type: 'integer' })
   unitPrice: number;
 
   @Column({ type: 'integer' })
   quantity: number;
 
-  // Ingredient/extra names only (no pricing model for these yet — see
-  // OrderService.create) — purely informational on the ticket/card.
+  // Ingredient names only, never priced — removing something is never a
+  // priced action (see ProductService.assertRemovableIngredientsSubset /
+  // OrderService.create for how each name is validated against the
+  // product's own removableIngredients at order time).
   @Column('text', { array: true, default: () => 'ARRAY[]::text[]' })
   removed: string[];
 
-  @Column('text', { array: true, default: () => 'ARRAY[]::text[]' })
-  added: string[];
+  // Snapshot of the add-ons actually charged at order time — { name,
+  // price } resolved server-side from the product's own addOns list (see
+  // OrderService.create), never trusted from the client (the client only
+  // ever sends names). jsonb rather than text[] like `removed` above,
+  // because each entry must carry the price that was actually charged,
+  // which must survive the product's own addOns/price changing later.
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  added: ProductAddOn[];
 }

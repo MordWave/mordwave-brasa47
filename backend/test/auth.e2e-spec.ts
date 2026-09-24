@@ -129,4 +129,16 @@ describe('Auth guards (e2e)', () => {
       .delete('/tables/00000000-0000-0000-0000-000000000000')
       .expect(401);
   });
+
+  it('GET /businesses/me without a token is rejected with 401', () => {
+    return request(app.getHttpServer()).get('/businesses/me').expect(401);
+  });
+
+  it('PATCH /businesses/me without a token is rejected with 401', () => {
+    return request(app.getHttpServer()).patch('/businesses/me').send({ name: 'x' }).expect(401);
+  });
+
+  it('POST /businesses/me/logo without a token is rejected with 401', () => {
+    return request(app.getHttpServer()).post('/businesses/me/logo').expect(401);
+  });
 });

@@ -14,7 +14,7 @@ import { CreateProductDto } from './dto/create-product.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { ProductImageService, type UploadableFile } from './product-image.service.js';
-import { Product } from './product.entity.js';
+import { Product, type ProductAddOn } from './product.entity.js';
 
 @Injectable()
 export class ProductService {
@@ -68,12 +68,80 @@ export class ProductService {
     }
   }
 
+  // removableIngredients must always be a subset of ingredients — checked
+  // here, against whatever the FINAL combined state will be, never against
+  // just the fields present in one particular request. A partial PATCH
+  // that only sends removableIngredients (leaving ingredients untouched),
+  // or only sends ingredients (silently orphaning an entry the existing
+  // removableIngredients still references), must be rejected exactly the
+  // same as sending both at once inconsistently — never silently
+  // corrected by dropping the offending entries.
+  private assertRemovableIngredientsSubset(ingredients: string[], removableIngredients: string[]): void {
+    const invalid = removableIngredients.filter((item) => !ingredients.includes(item));
+    if (invalid.length > 0) {
+      throw new BadRequestException({
+        message: `removableIngredients must be a subset of ingredients — not found in ingredients: ${invalid.join(', ')}`,
+        errorCode: 'REMOVABLE_INGREDIENTS_NOT_SUBSET',
+        invalidIngredients: invalid,
+      });
+    }
+  }
+
+  // A name repeated within the same list (ingredients, removableIngredients,
+  // or addOns' own names) is never legitimate — for addOns specifically,
+  // OrderService.resolveItemModifiers resolves a selected name to a single
+  // { name, price } via a Map keyed by name, so a duplicate would silently
+  // collapse to whichever entry happens to come last, charging a price the
+  // admin may not have intended. Rejected outright here (never
+  // deduplicated server-side) so the admin sees exactly what's wrong.
+  // Compared trimmed + case-insensitive: "Queso", " queso ", and "QUESO"
+  // are the same name for this purpose.
+  private assertNoDuplicateNames(field: string, names: string[]): void {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const name of names) {
+      const normalized = name.trim().toLowerCase();
+      if (seen.has(normalized)) {
+        duplicates.add(name);
+      } else {
+        seen.add(normalized);
+      }
+    }
+    if (duplicates.size > 0) {
+      throw new BadRequestException({
+        message: `${field} contains duplicate names (case-insensitive, trimmed): ${[...duplicates].join(', ')}`,
+        errorCode: 'DUPLICATE_PRODUCT_FIELD_NAMES',
+        field,
+        duplicateNames: [...duplicates],
+      });
+    }
+  }
+
+  private assertNoDuplicatePersonalizationNames(
+    ingredients: string[],
+    removableIngredients: string[],
+    addOns: ProductAddOn[],
+  ): void {
+    this.assertNoDuplicateNames('ingredients', ingredients);
+    this.assertNoDuplicateNames('removableIngredients', removableIngredients);
+    this.assertNoDuplicateNames(
+      'addOns',
+      addOns.map((addOn) => addOn.name),
+    );
+  }
+
   async create(dto: CreateProductDto, user: SafeUser): Promise<Product> {
     const businessId = resolveBusinessIdForCreate(user, dto.businessId);
     await this.assertBusinessExists(businessId);
     const category = await this.getCategoryOrThrow(dto.categoryId);
     this.assertCategoryBelongsToBusiness(category, businessId);
     this.assertCategoryIsActive(category);
+    this.assertNoDuplicatePersonalizationNames(
+      dto.ingredients ?? [],
+      dto.removableIngredients ?? [],
+      dto.addOns ?? [],
+    );
+    this.assertRemovableIngredientsSubset(dto.ingredients ?? [], dto.removableIngredients ?? []);
     const product = this.productRepository.create(dto);
     product.businessId = businessId;
     return this.productRepository.save(product);
@@ -182,6 +250,19 @@ export class ProductService {
       this.assertCategoryBelongsToBusiness(category, businessId);
       this.assertCategoryIsActive(category);
     }
+
+    // Validated against the FINAL combined state (whatever this PATCH
+    // changes, merged onto whatever it leaves untouched) — never against
+    // only the fields this particular request happens to include. The
+    // `?? []` fallback only matters for a product row loaded before either
+    // column existed in memory (e.g. a stale cache) — a real row always
+    // has both as real arrays, never null/undefined, thanks to the
+    // column's own DB-level default.
+    const finalIngredients = dto.ingredients ?? product.ingredients ?? [];
+    const finalRemovableIngredients = dto.removableIngredients ?? product.removableIngredients ?? [];
+    const finalAddOns = dto.addOns ?? product.addOns ?? [];
+    this.assertNoDuplicatePersonalizationNames(finalIngredients, finalRemovableIngredients, finalAddOns);
+    this.assertRemovableIngredientsSubset(finalIngredients, finalRemovableIngredients);
 
     Object.assign(product, dto, { businessId });
     return this.productRepository.save(product);

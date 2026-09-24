@@ -6,7 +6,9 @@ import CategoryTabs from './CategoryTabs'
 import ProductTile from './ProductTile'
 import ProductModal from './ProductModal'
 
-export default function MenuView({ tableName, businessSlug }) {
+const FALLBACK_NAME = 'Nuestro restaurante'
+
+export default function MenuView({ tableName, businessSlug, businessName }) {
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -93,7 +95,7 @@ export default function MenuView({ tableName, businessSlug }) {
     <div className="menu">
       <header className="menu__header">
         <div>
-          <p className="menu__eyebrow">BRASA 47</p>
+          <p className="menu__eyebrow">{businessName || FALLBACK_NAME}</p>
           <h1 className="menu__title">Menú</h1>
         </div>
         <span className="menu__mesa">{tableName}</span>

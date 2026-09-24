@@ -211,6 +211,16 @@ p {
   backdrop-filter: blur(6px);
 }
 
+.home__logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 241, 232, 0.4);
+  object-fit: cover;
+  margin-bottom: 10px;
+  backdrop-filter: blur(6px);
+}
+
 .home__brand {
   font-family: var(--font-display);
   font-size: clamp(26px, 6vh, 34px);
@@ -2428,6 +2438,79 @@ p {
 .admin-menu__form-error {
   font-size: 13px;
   font-weight: 600;
+  color: var(--primary-dark);
+}
+
+.admin-menu__form-success {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.admin-business__color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-business__color-swatch {
+  width: 44px;
+  height: 36px;
+  padding: 2px !important;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.admin-business__color-hex {
+  flex: 0 0 110px;
+}
+
+.admin-menu__field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-menu__field-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.admin-menu__ingredient-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.admin-menu__addons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-menu__addon-row {
+  display: grid;
+  grid-template-columns: 1fr 90px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-menu__addon-row input {
+  width: 100%;
+}
+
+.admin-menu__addon-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.admin-menu__addon-remove:hover {
   color: var(--primary-dark);
 }
 

@@ -13,7 +13,7 @@ const DELIVERED_POLL_MS = 60000
 const DELIVERED_RECENT_LIMIT = 8
 const CANCELLED_RECENT_LIMIT = 10
 
-export default function AdminApp() {
+export default function AdminApp({ businessName }) {
   const { token } = useAuth()
   const [newOrders, setNewOrders] = useState([])
   const [deliveredOrders, setDeliveredOrders] = useState([])
@@ -24,6 +24,13 @@ export default function AdminApp() {
   const [cancelTarget, setCancelTarget] = useState(null)
   const [printOrder, setPrintOrder] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  // Order ids currently mid-PATCH to DELIVERED — disables that card's own
+  // buttons so a double-click (or an impatient second click before the
+  // first request returns) can never fire two concurrent deliveries for
+  // the same order, which is what let a duplicate slip into
+  // deliveredOrders and temporarily show more than DELIVERED_RECENT_LIMIT
+  // until the next reload.
+  const [deliveringIds, setDeliveringIds] = useState(() => new Set())
 
   const loadNew = useCallback(async () => {
     try {
@@ -61,7 +68,9 @@ export default function AdminApp() {
   }, [loadDelivered])
 
   async function handleDeliver(order) {
+    if (deliveringIds.has(order.id)) return // already in flight for this order — ignore the extra click
     setError('')
+    setDeliveringIds((prev) => new Set(prev).add(order.id))
     try {
       const updated = await apiFetch(`/orders/${order.id}/status`, {
         method: 'PATCH',
@@ -69,9 +78,20 @@ export default function AdminApp() {
         body: JSON.stringify({ status: 'DELIVERED' }),
       })
       setNewOrders((prev) => prev.filter((o) => o.id !== order.id))
-      setDeliveredOrders((prev) => [updated, ...prev].slice(0, DELIVERED_RECENT_LIMIT))
+      setDeliveredOrders((prev) => {
+        // Defensive: never let the same order occupy two of the recent
+        // slots, regardless of how it could happen.
+        const withoutDuplicate = prev.filter((o) => o.id !== updated.id)
+        return [updated, ...withoutDuplicate].slice(0, DELIVERED_RECENT_LIMIT)
+      })
     } catch (err) {
       setError(translateApiError(err))
+    } finally {
+      setDeliveringIds((prev) => {
+        const next = new Set(prev)
+        next.delete(order.id)
+        return next
+      })
     }
   }
 
@@ -122,7 +142,7 @@ export default function AdminApp() {
     <div className="admin">
       <header className="admin__header">
         <div>
-          <p className="admin__eyebrow">BRASA 47</p>
+          <p className="admin__eyebrow">{businessName}</p>
           <h1 className="admin__title">Panel de pedidos</h1>
         </div>
         <span className="admin__badge">{newOrders.length} nuevos</span>
@@ -159,6 +179,7 @@ export default function AdminApp() {
                     onDeliver={handleDeliver}
                     onCancel={setCancelTarget}
                     onPrint={handlePrint}
+                    delivering={deliveringIds.has(order.id)}
                   />
                 ))}
               </div>
@@ -198,7 +219,7 @@ export default function AdminApp() {
         )}
       </section>
 
-      <PrintTicket order={printOrder} />
+      <PrintTicket order={printOrder} businessName={businessName} />
 
       {historyOpen && (
         <OrderHistoryModal token={token} onClose={() => setHistoryOpen(false)} onPrint={handlePrint} />

@@ -1,6 +1,68 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { translateApiError } from '../../../services/errorMessages'
 import PhotoCropModal from './PhotoCropModal'
+
+const MAX_INGREDIENTS = 20
+const MAX_INGREDIENT_LENGTH = 80
+const MAX_ADD_ONS = 15
+const MAX_ADD_ON_NAME_LENGTH = 60
+const MAX_ADD_ON_PRICE = 100_000
+const MAX_TAG_LENGTH = 40
+
+// One ingredient per line, trimmed, blanks dropped, exact duplicates
+// collapsed to the first occurrence.
+function parseIngredientsText(text) {
+  const seen = new Set()
+  const result = []
+  for (const raw of text.split('\n')) {
+    const trimmed = raw.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    result.push(trimmed)
+  }
+  return result
+}
+
+// Drops rows with no name (never sent) and collapses exact duplicate names
+// to the first occurrence, mirroring parseIngredientsText's approach.
+function cleanAddOns(rows) {
+  const seen = new Set()
+  const result = []
+  for (const row of rows) {
+    const name = row.name.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    const price = Number(row.price)
+    result.push({ name, price: Number.isFinite(price) ? Math.round(price) : 0 })
+  }
+  return result
+}
+
+// Frontend-side mirror of the backend's constraints (see
+// CreateProductDto/UpdateProductDto) — purely to give the admin an
+// immediate, readable message instead of a round trip to the API. The
+// backend remains the final authority.
+function validatePersonalization({ tag, ingredients, addOns }) {
+  if (tag.length > MAX_TAG_LENGTH) {
+    return `La etiqueta puede tener máximo ${MAX_TAG_LENGTH} caracteres.`
+  }
+  if (ingredients.length > MAX_INGREDIENTS) {
+    return `Máximo ${MAX_INGREDIENTS} ingredientes.`
+  }
+  if (ingredients.some((i) => i.length > MAX_INGREDIENT_LENGTH)) {
+    return `Cada ingrediente puede tener máximo ${MAX_INGREDIENT_LENGTH} caracteres.`
+  }
+  if (addOns.length > MAX_ADD_ONS) {
+    return `Máximo ${MAX_ADD_ONS} extras.`
+  }
+  if (addOns.some((a) => a.name.length > MAX_ADD_ON_NAME_LENGTH)) {
+    return `El nombre de cada extra puede tener máximo ${MAX_ADD_ON_NAME_LENGTH} caracteres.`
+  }
+  if (addOns.some((a) => !Number.isInteger(a.price) || a.price < 0 || a.price > MAX_ADD_ON_PRICE)) {
+    return `El precio de cada extra debe ser un entero entre 0 y ${MAX_ADD_ON_PRICE.toLocaleString('es-CL')}.`
+  }
+  return null
+}
 
 export default function ProductFormModal({
   product,
@@ -17,8 +79,34 @@ export default function ProductFormModal({
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? categories[0]?.id ?? '')
   const [available, setAvailable] = useState(product?.available ?? true)
   const [sortOrder, setSortOrder] = useState(product?.sortOrder ?? 0)
+  const [tag, setTag] = useState(product?.tag ?? '')
+  const [ingredientsText, setIngredientsText] = useState((product?.ingredients ?? []).join('\n'))
+  const [removableIngredients, setRemovableIngredients] = useState(product?.removableIngredients ?? [])
+  const [addOns, setAddOns] = useState(
+    (product?.addOns ?? []).map((a) => ({ name: a.name, price: a.price }))
+  )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const ingredientsList = useMemo(() => parseIngredientsText(ingredientsText), [ingredientsText])
+
+  function toggleRemovable(ingredient) {
+    setRemovableIngredients((prev) =>
+      prev.includes(ingredient) ? prev.filter((n) => n !== ingredient) : [...prev, ingredient]
+    )
+  }
+
+  function addAddOnRow() {
+    setAddOns((prev) => (prev.length >= MAX_ADD_ONS ? prev : [...prev, { name: '', price: 0 }]))
+  }
+
+  function updateAddOn(index, patch) {
+    setAddOns((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+
+  function removeAddOn(index) {
+    setAddOns((prev) => prev.filter((_, i) => i !== index))
+  }
 
   // Existing image (from the server) or a fresh local preview — either way,
   // whatever should currently be shown in the preview box.
@@ -126,6 +214,25 @@ export default function ProductFormModal({
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+
+    const trimmedTag = tag.trim()
+    const cleanedAddOns = cleanAddOns(addOns)
+    // Only ingredients still present in the current list can stay
+    // removable — one that was unchecked-by-deletion from the textarea
+    // must not be resubmitted, or the backend would reject the whole save
+    // (removableIngredients ⊄ ingredients).
+    const cleanedRemovable = removableIngredients.filter((n) => ingredientsList.includes(n))
+
+    const validationError = validatePersonalization({
+      tag: trimmedTag,
+      ingredients: ingredientsList,
+      addOns: cleanedAddOns,
+    })
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
     setSubmitting(true)
     try {
       await onSave(
@@ -136,6 +243,10 @@ export default function ProductFormModal({
           categoryId,
           available,
           sortOrder: Number(sortOrder),
+          tag: trimmedTag || undefined,
+          ingredients: ingredientsList,
+          removableIngredients: cleanedRemovable,
+          addOns: cleanedAddOns,
         },
         product?.id,
         pendingFile,
@@ -186,6 +297,90 @@ export default function ProductFormModal({
               ))}
             </select>
           </label>
+
+          <label>
+            <span>Etiqueta (opcional)</span>
+            <input
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              maxLength={MAX_TAG_LENGTH}
+              placeholder="Ej: Más pedido"
+            />
+          </label>
+
+          <label>
+            <span>Ingredientes (uno por línea)</span>
+            <textarea
+              value={ingredientsText}
+              onChange={(e) => setIngredientsText(e.target.value)}
+              rows={4}
+              placeholder={'Carne 180 g\nPan brioche\nQueso cheddar'}
+            />
+          </label>
+
+          {ingredientsList.length > 0 && (
+            <div className="admin-menu__field-group">
+              <span className="admin-menu__field-label">Ingredientes que se pueden quitar</span>
+              <div className="admin-menu__ingredient-checks">
+                {ingredientsList.map((ingredient) => (
+                  <label key={ingredient} className="admin-menu__checkbox">
+                    <input
+                      type="checkbox"
+                      checked={removableIngredients.includes(ingredient)}
+                      onChange={() => toggleRemovable(ingredient)}
+                    />
+                    <span>{ingredient}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="admin-menu__field-group">
+            <span className="admin-menu__field-label">Extras</span>
+            {addOns.length > 0 && (
+              <div className="admin-menu__addons">
+                {addOns.map((addOn, index) => (
+                  <div className="admin-menu__addon-row" key={index}>
+                    <input
+                      type="text"
+                      value={addOn.name}
+                      onChange={(e) => updateAddOn(index, { name: e.target.value })}
+                      maxLength={MAX_ADD_ON_NAME_LENGTH}
+                      placeholder="Nombre"
+                      aria-label="Nombre del extra"
+                    />
+                    <input
+                      type="number"
+                      value={addOn.price}
+                      onChange={(e) => updateAddOn(index, { price: e.target.value })}
+                      min="0"
+                      max={MAX_ADD_ON_PRICE}
+                      step="1"
+                      placeholder="Precio"
+                      aria-label="Precio del extra"
+                    />
+                    <button
+                      type="button"
+                      className="admin-menu__addon-remove"
+                      onClick={() => removeAddOn(index)}
+                      aria-label="Eliminar extra"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn btn--outline btn--small"
+              onClick={addAddOnRow}
+              disabled={addOns.length >= MAX_ADD_ONS}
+            >
+              + Agregar extra
+            </button>
+          </div>
 
           <div className="admin-menu__image-field">
             <span className="admin-menu__image-label">Foto</span>
