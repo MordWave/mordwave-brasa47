@@ -1,13 +1,24 @@
 import { formatPrice, formatAddOn } from '../../utils/format'
 
+const MINUTES_PER_HOUR = 60
+const MINUTES_PER_DAY = MINUTES_PER_HOUR * 24
+
 function timeAgo(timestamp) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 60000))
   if (mins < 1) return 'ahora'
-  if (mins === 1) return 'hace 1 min'
-  return `hace ${mins} min`
+  if (mins < MINUTES_PER_HOUR) return `hace ${mins} min`
+
+  if (mins < MINUTES_PER_DAY) {
+    const hours = Math.floor(mins / MINUTES_PER_HOUR)
+    const remainderMinutes = mins % MINUTES_PER_HOUR
+    return remainderMinutes === 0 ? `hace ${hours} h` : `hace ${hours} h ${remainderMinutes} min`
+  }
+
+  const days = Math.floor(mins / MINUTES_PER_DAY)
+  return `hace ${days} ${days === 1 ? 'día' : 'días'}`
 }
 
-export default function OrderCard({ order, onDeliver, onCancel, onPrint }) {
+export default function OrderCard({ order, onDeliver, onCancel, onPrint, delivering = false }) {
   const isNew = order.status === 'NEW'
 
   return (
@@ -51,10 +62,16 @@ export default function OrderCard({ order, onDeliver, onCancel, onPrint }) {
               type="button"
               className="btn btn--small btn--primary order-card__advance"
               onClick={() => onDeliver(order)}
+              disabled={delivering}
             >
-              Marcar entregado
+              {delivering ? 'Marcando…' : 'Marcar entregado'}
             </button>
-            <button type="button" className="order-card__cancel" onClick={() => onCancel(order)}>
+            <button
+              type="button"
+              className="order-card__cancel"
+              onClick={() => onCancel(order)}
+              disabled={delivering}
+            >
               Cancelar pedido
             </button>
           </>
