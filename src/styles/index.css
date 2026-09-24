@@ -2391,6 +2391,40 @@ p {
   text-align: left;
 }
 
+/* ProductFormModal only (Fase 7 personalization made it tall enough to
+   exceed the viewport on desktop) — the dialog itself is capped and never
+   scrolls; only its form body does, so the title stays put above it and
+   the actions row can stick to the bottom of that scroll area. Other
+   .admin-menu__modal users (TableFormModal, CategoryFormModal, etc.) don't
+   get this modifier and are unaffected. */
+.admin-menu__modal--product {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+
+.admin-menu__modal--product .admin-menu__modal-title {
+  flex-shrink: 0;
+}
+
+.admin-menu__modal--product .admin-menu__form {
+  flex: 1;
+  /* Lets a flex child actually shrink below its content's natural height
+     instead of forcing the dialog to grow past max-height — the classic
+     flexbox overflow gotcha without this. */
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.admin-menu__modal--product .confirm-dialog__actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding-top: 14px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
 .admin-menu__modal-title {
   font-family: var(--font-display);
   font-size: 19px;

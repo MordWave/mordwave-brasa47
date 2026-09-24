@@ -262,7 +262,10 @@ export default function ProductFormModal({
 
   return (
     <div className="confirm-backdrop" onClick={onClose}>
-      <div className="confirm-dialog admin-menu__modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="confirm-dialog admin-menu__modal admin-menu__modal--product"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="admin-menu__modal-title">
           {isEditing ? 'Editar producto' : 'Nuevo producto'}
         </h3>
