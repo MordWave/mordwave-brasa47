@@ -231,7 +231,12 @@ function CustomerFlow() {
     )
   } else if (step === 'success' && lastOrder) {
     content = (
-      <SuccessView orderNumber={lastOrder.orderNumber} tableName={session.tableName} onNewOrder={handleNewOrder} />
+      <SuccessView
+        order={lastOrder}
+        businessName={session.businessName}
+        logoUrl={session.logoUrl}
+        onNewOrder={handleNewOrder}
+      />
     )
   } else if (step === 'review') {
     content = (
