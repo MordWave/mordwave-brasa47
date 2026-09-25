@@ -11,12 +11,18 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Request } from 'express';
 import { memoryStorage } from 'multer';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../audit/audit-actions.const.js';
+import { AuditService } from '../audit/audit.service.js';
+import { Audit } from '../audit/decorators/audit.decorator.js';
+import { extractClientInfo } from '../audit/request-client-info.util.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -36,11 +42,15 @@ const MULTER_HARD_LIMIT_BYTES = 20 * 1024 * 1024;
 
 @Controller('products')
 export class ProductController {
-  constructor(private readonly productService: ProductService) {}
+  constructor(
+    private readonly productService: ProductService,
+    private readonly auditService: AuditService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Audit(AUDIT_ACTIONS.PRODUCT_CREATED, AUDIT_ENTITY_TYPES.PRODUCT)
   create(
     @Body() dto: CreateProductDto,
     @CurrentUser() user: SafeUser,
@@ -73,26 +83,53 @@ export class ProductController {
     return this.productService.findOnePublic(id, query);
   }
 
+  // Not @Audit(...): this one route covers both a plain edit and a
+  // deactivation (dto.active === false) — which action name applies can
+  // only be known from the request body at runtime, so it's logged
+  // explicitly here instead of via the generic decorator/interceptor.
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  update(
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateProductDto,
     @CurrentUser() user: SafeUser,
+    @Req() req: Request,
   ): Promise<Product> {
-    return this.productService.update(id, dto, user);
+    const updated = await this.productService.update(id, dto, user);
+    void this.auditService.record({
+      businessId: updated.businessId,
+      userId: user.id,
+      userEmail: user.email,
+      action: dto.active === false ? AUDIT_ACTIONS.PRODUCT_DEACTIVATED : AUDIT_ACTIONS.PRODUCT_UPDATED,
+      entityType: AUDIT_ENTITY_TYPES.PRODUCT,
+      entityId: updated.id,
+      metadata: dto,
+      ...extractClientInfo(req),
+    });
+    return updated;
   }
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(
+  async remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: SafeUser,
+    @Req() req: Request,
   ): Promise<void> {
-    return this.productService.remove(id, user);
+    const { businessId } = await this.productService.remove(id, user);
+    void this.auditService.record({
+      businessId,
+      userId: user.id,
+      userEmail: user.email,
+      action: AUDIT_ACTIONS.PRODUCT_DELETED,
+      entityType: AUDIT_ENTITY_TYPES.PRODUCT,
+      entityId: id,
+      metadata: {},
+      ...extractClientInfo(req),
+    });
   }
 
   @Post(':id/image')

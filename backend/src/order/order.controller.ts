@@ -1,5 +1,9 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import type { Request } from 'express';
+import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../audit/audit-actions.const.js';
+import { AuditService } from '../audit/audit.service.js';
+import { extractClientInfo } from '../audit/request-client-info.util.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -11,11 +15,15 @@ import { OrderHistoryQueryDto } from './dto/order-history-query.dto.js';
 import { OrderQueryDto } from './dto/order-query.dto.js';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto.js';
 import { Order } from './order.entity.js';
+import { OrderStatus } from './order-status.enum.js';
 import { OrderHistoryPage, OrderService } from './order.service.js';
 
 @Controller('orders')
 export class OrderController {
-  constructor(private readonly orderService: OrderService) {}
+  constructor(
+    private readonly orderService: OrderService,
+    private readonly auditService: AuditService,
+  ) {}
 
   // Public, unauthenticated — a customer's table submits its own order. See
   // Order's SECURITY NOTE: `table` is unverified free text, and this
@@ -47,14 +55,30 @@ export class OrderController {
     return this.orderService.findHistoryAdmin(query, user);
   }
 
+  // Explicit call, not @Audit(...): the same route handles both terminal
+  // transitions (DELIVERED/CANCELLED), only distinguishable at runtime.
+  // Normal customer checkout (POST /orders) is deliberately not audited —
+  // high-volume, and not an admin action.
   @Patch(':id/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  updateStatus(
+  async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateOrderStatusDto,
     @CurrentUser() user: SafeUser,
+    @Req() req: Request,
   ): Promise<Order> {
-    return this.orderService.updateStatus(id, dto, user);
+    const updated = await this.orderService.updateStatus(id, dto, user);
+    void this.auditService.record({
+      businessId: updated.businessId,
+      userId: user.id,
+      userEmail: user.email,
+      action: updated.status === OrderStatus.DELIVERED ? AUDIT_ACTIONS.ORDER_DELIVERED : AUDIT_ACTIONS.ORDER_CANCELLED,
+      entityType: AUDIT_ENTITY_TYPES.ORDER,
+      entityId: updated.id,
+      metadata: { orderNumber: updated.orderNumber, table: updated.table },
+      ...extractClientInfo(req),
+    });
+    return updated;
   }
 }

@@ -187,7 +187,11 @@ export class TableService {
   // in this codebase excludes the row automatically (TypeORM's
   // @DeleteDateColumn behavior) — that alone is what makes its qrToken
   // stop resolving, with no extra code needed in TableSessionService.
-  async remove(id: string, user: SafeUser): Promise<void> {
+  // Returns { businessId } (rather than void) purely so the controller can
+  // audit-log the deletion with the correct tenant even for a SUPER_ADMIN
+  // acting on a business that isn't their own — the HTTP contract is
+  // unaffected (the controller still responds 204 with no body).
+  async remove(id: string, user: SafeUser): Promise<{ businessId: string }> {
     const existing = await this.findOne(id);
     resolveBusinessIdForUpdate(user, existing.businessId, undefined);
 
@@ -215,5 +219,6 @@ export class TableService {
 
       await manager.getRepository(RestaurantTable).softDelete(id);
     });
+    return { businessId: existing.businessId };
   }
 }

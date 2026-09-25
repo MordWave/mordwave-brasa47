@@ -141,4 +141,8 @@ describe('Auth guards (e2e)', () => {
   it('POST /businesses/me/logo without a token is rejected with 401', () => {
     return request(app.getHttpServer()).post('/businesses/me/logo').expect(401);
   });
+
+  it('GET /audit-logs without a token is rejected with 401', () => {
+    return request(app.getHttpServer()).get('/audit-logs').expect(401);
+  });
 });

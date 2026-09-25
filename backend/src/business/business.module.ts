@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { Business } from './business.entity.js';
@@ -16,6 +17,9 @@ import { PublicBusinessResolverService } from './public-business-resolver.servic
     // Gives BusinessService access to the shared ImageStorageService (logo
     // upload).
     StorageModule,
+    // Gives BusinessController access to AuditService for its explicit
+    // updateMe()/uploadLogo() audit calls.
+    AuditModule,
   ],
   controllers: [BusinessController],
   providers: [PublicBusinessResolverService, BusinessService],

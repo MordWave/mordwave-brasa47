@@ -273,10 +273,16 @@ export class ProductService {
   // deletedAt column comment on Product) while staying intact for any
   // future orders table to reference. No extra precondition beyond
   // ownership — unlike a category, a product has nothing under it.
-  async remove(id: string, user: SafeUser): Promise<void> {
+  //
+  // Returns { businessId } (rather than void) purely so the controller can
+  // audit-log the deletion with the correct tenant even for a SUPER_ADMIN
+  // acting on a business that isn't their own — the HTTP contract is
+  // unaffected (the controller still responds 204 with no body).
+  async remove(id: string, user: SafeUser): Promise<{ businessId: string }> {
     const product = await this.findOne(id);
     resolveBusinessIdForUpdate(user, product.businessId, undefined);
     await this.productRepository.softDelete(id);
+    return { businessId: product.businessId };
   }
 
   // Same ownership check as update()/remove() — an ADMIN can only touch the
