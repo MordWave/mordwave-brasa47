@@ -1220,8 +1220,8 @@ p {
   white-space: nowrap;
 }
 
-/* ============ Success ============ */
-@keyframes success-pop {
+/* ============ Order success modal ============ */
+@keyframes order-success-pop {
   0% {
     transform: scale(0.6);
     opacity: 0;
@@ -1236,121 +1236,99 @@ p {
   }
 }
 
-@keyframes success-fade-up {
+@keyframes order-success-sheet-up {
   from {
+    transform: translateY(24px);
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
-    opacity: 1;
     transform: translateY(0);
+    opacity: 1;
   }
 }
 
-.success {
-  min-height: 100dvh;
+/* Mobile default: bottom sheet, same visual language as .sheet-backdrop /
+   .sheet (ProductModal). Desktop (min-width below) switches to a centered
+   dialog instead. */
+.order-success-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 23, 20, 0.5);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
-  text-align: center;
-}
-
-.success__brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  animation: success-fade-up 0.4s ease-out both;
-}
-
-.success__logo {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  object-fit: cover;
-  border: 1px solid var(--border);
-}
-
-.success__mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--primary);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
+  z-index: 50;
 }
 
-.success__brand-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-secondary);
+.order-success-modal {
+  width: 100%;
+  max-height: 90dvh;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  overflow-y: auto;
+  padding: 8px 20px calc(20px + env(safe-area-inset-bottom));
+  text-align: center;
+  animation: order-success-sheet-up 0.25s ease;
 }
 
-.success__badge {
-  width: 64px;
-  height: 64px;
+.order-success-modal__handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 0 auto 14px;
+}
+
+.order-success-modal__badge {
+  width: 56px;
+  height: 56px;
   border-radius: 999px;
   background: var(--success);
   color: #fff;
-  font-size: 28px;
+  font-size: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 20px 0 20px;
-  animation: success-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+  margin: 0 auto 16px;
+  animation: order-success-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
 }
 
-.success__title {
+.order-success-modal__title {
   font-family: var(--font-display);
-  font-size: 26px;
-  animation: success-fade-up 0.4s ease-out 0.2s both;
+  font-size: 22px;
 }
 
-.success__text {
+.order-success-modal__text {
   color: var(--text-secondary);
   font-size: 14px;
-  margin-top: 10px;
-  max-width: 320px;
+  margin-top: 8px;
   line-height: 1.5;
-  animation: success-fade-up 0.4s ease-out 0.3s both;
 }
 
-.success__card {
-  width: 100%;
-  max-width: 400px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  text-align: left;
-  margin: 24px 0 28px;
-  animation: success-fade-up 0.4s ease-out 0.4s both;
-}
-
-.success__card-head {
+.order-success-modal__meta {
   display: flex;
   justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px dashed var(--border);
   background: var(--bg);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-top: 18px;
+  text-align: left;
 }
 
-.success__meta-item {
+.order-success-modal__meta-item {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.success__meta-item--right {
+.order-success-modal__meta-item--right {
   align-items: flex-end;
   text-align: right;
 }
 
-.success__meta-label {
+.order-success-modal__meta-label {
   font-size: 11px;
   font-weight: 700;
   color: var(--text-secondary);
@@ -1358,71 +1336,68 @@ p {
   letter-spacing: 0.04em;
 }
 
-.success__meta-value {
-  font-size: 16px;
+.order-success-modal__meta-value {
+  font-size: 15px;
   font-weight: 800;
 }
 
-.success__items {
-  padding: 4px 16px;
+.order-success-modal__items {
+  text-align: left;
+  margin-top: 6px;
 }
 
-.success__item {
+.order-success-modal__item {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
 
-.success__items .success__item:last-child {
+.order-success-modal__items .order-success-modal__item:last-child {
   border-bottom: none;
 }
 
-.success__item-main {
+.order-success-modal__item-main {
   display: flex;
   gap: 10px;
   min-width: 0;
 }
 
-.success__item-qty {
+.order-success-modal__item-qty {
   font-weight: 700;
   color: var(--accent);
   flex-shrink: 0;
 }
 
-.success__item-body {
-  min-width: 0;
-}
-
-.success__item-name {
+.order-success-modal__item-name {
   font-weight: 700;
   font-size: 14px;
 }
 
-.success__item-mods {
+.order-success-modal__item-mods {
   font-size: 12px;
   color: var(--text-secondary);
   margin-top: 2px;
 }
 
-.success__item-price {
+.order-success-modal__item-price {
   font-weight: 700;
   font-size: 14px;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-.success__total {
+.order-success-modal__total {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding-top: 12px;
+  margin-top: 4px;
   border-top: 1px dashed var(--border);
-  background: var(--bg);
 }
 
-.success__total-label {
+.order-success-modal__total-label {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-secondary);
@@ -1430,30 +1405,33 @@ p {
   letter-spacing: 0.04em;
 }
 
-.success__total-value {
-  font-size: 20px;
+.order-success-modal__total-value {
+  font-size: 19px;
   font-weight: 800;
   font-family: var(--font-display);
   color: var(--primary);
 }
 
-.success__actions {
+.order-success-modal__cta {
   width: 100%;
-  max-width: 400px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  animation: success-fade-up 0.4s ease-out 0.5s both;
+  margin-top: 18px;
 }
 
-.success .btn {
-  width: 100%;
-}
+@media (min-width: 640px) {
+  .order-success-backdrop {
+    align-items: center;
+    padding: 20px;
+  }
 
-@media (min-width: 480px) {
-  .success__card,
-  .success__actions {
+  .order-success-modal {
     max-width: 420px;
+    max-height: 85dvh;
+    border-radius: var(--radius-lg);
+    padding: 24px;
+  }
+
+  .order-success-modal__handle {
+    display: none;
   }
 }
 

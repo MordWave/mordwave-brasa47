@@ -7,7 +7,7 @@ import MenuView from '../components/customer/MenuView'
 import CartBar from '../components/customer/CartBar'
 import CartView from '../components/customer/CartView'
 import ReviewView from '../components/customer/ReviewView'
-import SuccessView from '../components/customer/SuccessView'
+import OrderSuccessModal from '../components/customer/OrderSuccessModal'
 import { createOrder } from '../services/orderApi'
 import { checkTableSessionStatus, joinTableSession } from '../services/tableSessionApi'
 import { translateApiError } from '../services/errorMessages'
@@ -39,6 +39,10 @@ const EMPTY_CHECKOUT = { clientRequestId: null, fingerprint: null }
 function CustomerFlow() {
   const [session, setSession] = useState({ status: 'loading' })
   const [step, setStep] = useState('home')
+  // Snapshot of the order just submitted — while set, OrderSuccessModal is
+  // shown as an overlay on top of whatever `step` currently is (always
+  // 'menu' in practice, since a successful checkout sends `step` there in
+  // the same update). null = no modal.
   const [lastOrder, setLastOrder] = useState(null)
   const [checkout, setCheckout] = useState(EMPTY_CHECKOUT)
   const [submittingOrder, setSubmittingOrder] = useState(false)
@@ -161,9 +165,10 @@ function CustomerFlow() {
           added: it.added,
         })),
       })
-      setLastOrder(order)
+      setLastOrder(order) // opens OrderSuccessModal
+      clearCart() // the order is placed — nothing left to show as "pending" in the cart/menu behind the modal
       setCheckout(EMPTY_CHECKOUT) // next checkout starts with a fresh id
-      setStep('success')
+      setStep('menu') // back to the base view the modal appears over
     } catch (err) {
       // The table closed in the exact window between the last status poll
       // and this submit — that's a session closure, not a form error the
@@ -180,12 +185,13 @@ function CustomerFlow() {
     }
   }
 
-  function handleNewOrder() {
-    clearCart()
+  // "Seguir pidiendo" in OrderSuccessModal, plus Escape/backdrop on it —
+  // the cart, checkout id, and step were already reset the moment the
+  // order was created (see handleConfirmOrder), so closing the modal here
+  // is purely dismissing it: nothing left to clear, and nothing here can
+  // re-trigger a checkout.
+  function handleCloseSuccessModal() {
     setLastOrder(null)
-    setCheckout(EMPTY_CHECKOUT)
-    setOrderError('')
-    setStep('menu')
   }
 
   if (session.status === 'loading') {
@@ -229,15 +235,6 @@ function CustomerFlow() {
         onContinue={() => setStep('menu')}
       />
     )
-  } else if (step === 'success' && lastOrder) {
-    content = (
-      <SuccessView
-        order={lastOrder}
-        businessName={session.businessName}
-        logoUrl={session.logoUrl}
-        onNewOrder={handleNewOrder}
-      />
-    )
   } else if (step === 'review') {
     content = (
       <ReviewView
@@ -264,6 +261,14 @@ function CustomerFlow() {
   return (
     <div className="customer-app" style={brandingStyle}>
       {content}
+      {lastOrder && (
+        <OrderSuccessModal
+          order={lastOrder}
+          primaryColor={session.primaryColor}
+          accentColor={session.accentColor}
+          onClose={handleCloseSuccessModal}
+        />
+      )}
     </div>
   )
 }
