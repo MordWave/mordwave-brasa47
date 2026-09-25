@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useConfirm } from '../context/ConfirmContext'
+import { useToast } from '../context/ToastContext'
 import { apiFetch } from '../services/api'
 import { translateApiError } from '../services/errorMessages'
 import OrderCard from '../components/admin/OrderCard'
@@ -15,13 +17,17 @@ const CANCELLED_RECENT_LIMIT = 10
 
 export default function AdminApp({ businessName }) {
   const { token } = useAuth()
+  const confirm = useConfirm()
+  const toast = useToast()
   const [newOrders, setNewOrders] = useState([])
   const [deliveredOrders, setDeliveredOrders] = useState([])
   const [cancelledOrders, setCancelledOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  // Background polling failures only (loadNew/loadDelivered) — a page-level
+  // banner rather than a Toast, since re-toasting every failed poll tick
+  // would be noisy. User-initiated action results go through Toast.
   const [error, setError] = useState('')
   const [cancelledOpen, setCancelledOpen] = useState(false)
-  const [cancelTarget, setCancelTarget] = useState(null)
   const [printOrder, setPrintOrder] = useState(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   // Order ids currently mid-PATCH to DELIVERED — disables that card's own
@@ -69,7 +75,6 @@ export default function AdminApp({ businessName }) {
 
   async function handleDeliver(order) {
     if (deliveringIds.has(order.id)) return // already in flight for this order — ignore the extra click
-    setError('')
     setDeliveringIds((prev) => new Set(prev).add(order.id))
     try {
       const updated = await apiFetch(`/orders/${order.id}/status`, {
@@ -84,8 +89,9 @@ export default function AdminApp({ businessName }) {
         const withoutDuplicate = prev.filter((o) => o.id !== updated.id)
         return [updated, ...withoutDuplicate].slice(0, DELIVERED_RECENT_LIMIT)
       })
+      toast.success(`Pedido #${updated.orderNumber} marcado como entregado.`)
     } catch (err) {
-      setError(translateApiError(err))
+      toast.error(translateApiError(err))
     } finally {
       setDeliveringIds((prev) => {
         const next = new Set(prev)
@@ -95,22 +101,24 @@ export default function AdminApp({ businessName }) {
     }
   }
 
-  async function handleConfirmCancel() {
-    if (!cancelTarget) return
-    setError('')
-    const target = cancelTarget
-    setCancelTarget(null)
-    try {
-      const updated = await apiFetch(`/orders/${target.id}/status`, {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({ status: 'CANCELLED' }),
-      })
-      setNewOrders((prev) => prev.filter((o) => o.id !== target.id))
-      setCancelledOrders((prev) => [updated, ...prev].slice(0, CANCELLED_RECENT_LIMIT))
-    } catch (err) {
-      setError(translateApiError(err))
-    }
+  async function handleCancelOrder(order) {
+    const ok = await confirm({
+      title: `¿Cancelar el pedido #${order.orderNumber}?`,
+      message: 'Esta acción no se puede deshacer.',
+      variant: 'destructive',
+      confirmLabel: 'Cancelar pedido',
+      cancelLabel: 'Volver',
+      onConfirm: async () => {
+        const updated = await apiFetch(`/orders/${order.id}/status`, {
+          method: 'PATCH',
+          token,
+          body: JSON.stringify({ status: 'CANCELLED' }),
+        })
+        setNewOrders((prev) => prev.filter((o) => o.id !== order.id))
+        setCancelledOrders((prev) => [updated, ...prev].slice(0, CANCELLED_RECENT_LIMIT))
+      },
+    })
+    if (ok) toast.success('Pedido cancelado.')
   }
 
   async function handleToggleCancelled() {
@@ -121,7 +129,7 @@ export default function AdminApp({ businessName }) {
       const data = await apiFetch(`/orders/admin?status=CANCELLED&limit=${CANCELLED_RECENT_LIMIT}`, { token })
       setCancelledOrders(data)
     } catch (err) {
-      setError(translateApiError(err))
+      toast.error(translateApiError(err))
     }
   }
 
@@ -177,7 +185,7 @@ export default function AdminApp({ businessName }) {
                     key={order.id}
                     order={order}
                     onDeliver={handleDeliver}
-                    onCancel={setCancelTarget}
+                    onCancel={handleCancelOrder}
                     onPrint={handlePrint}
                     delivering={deliveringIds.has(order.id)}
                   />
@@ -223,31 +231,6 @@ export default function AdminApp({ businessName }) {
 
       {historyOpen && (
         <OrderHistoryModal token={token} onClose={() => setHistoryOpen(false)} onPrint={handlePrint} />
-      )}
-
-      {cancelTarget && (
-        <div className="confirm-backdrop" onClick={() => setCancelTarget(null)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <p className="confirm-dialog__text">¿Cancelar el pedido #{cancelTarget.orderNumber}?</p>
-            <p className="confirm-dialog__subtext">Esta acción no se puede deshacer.</p>
-            <div className="confirm-dialog__actions">
-              <button
-                type="button"
-                className="btn btn--outline btn--small"
-                onClick={() => setCancelTarget(null)}
-              >
-                Volver
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary btn--small"
-                onClick={handleConfirmCancel}
-              >
-                Cancelar pedido
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   )

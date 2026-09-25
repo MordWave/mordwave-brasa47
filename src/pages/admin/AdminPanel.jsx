@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { ConfirmProvider } from '../../context/ConfirmContext'
+import { ToastProvider } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
 import AdminApp from '../AdminApp'
 import AdminBusiness from './AdminBusiness'
@@ -60,37 +62,41 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="admin-panel">
-      <header className="admin-panel__header">
-        <div>
-          <p className="admin__eyebrow">{business?.name || FALLBACK_BUSINESS_NAME}</p>
-          <h1 className="admin__title">Panel administrativo</h1>
-        </div>
-        <div className="admin-panel__user">
-          <span className="admin-panel__user-email">{user.email}</span>
-          <button type="button" className="btn btn--outline btn--small" onClick={handleLogout}>
-            Cerrar sesión
-          </button>
-        </div>
-      </header>
+    <ToastProvider>
+      <ConfirmProvider>
+        <div className="admin-panel">
+          <header className="admin-panel__header">
+            <div>
+              <p className="admin__eyebrow">{business?.name || FALLBACK_BUSINESS_NAME}</p>
+              <h1 className="admin__title">Panel administrativo</h1>
+            </div>
+            <div className="admin-panel__user">
+              <span className="admin-panel__user-email">{user.email}</span>
+              <button type="button" className="btn btn--outline btn--small" onClick={handleLogout}>
+                Cerrar sesión
+              </button>
+            </div>
+          </header>
 
-      <nav className="admin-panel__tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`admin-panel__tab${tab === t.key ? ' admin-panel__tab--active' : ''}`}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+          <nav className="admin-panel__tabs">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className={`admin-panel__tab${tab === t.key ? ' admin-panel__tab--active' : ''}`}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
 
-      {tab === 'pedidos' && <AdminApp businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
-      {tab === 'menu' && <AdminMenu />}
-      {tab === 'mesas' && <AdminTables businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
-      {tab === 'negocio' && <AdminBusiness onBusinessSaved={setBusiness} />}
-    </div>
+          {tab === 'pedidos' && <AdminApp businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
+          {tab === 'menu' && <AdminMenu />}
+          {tab === 'mesas' && <AdminTables businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
+          {tab === 'negocio' && <AdminBusiness onBusinessSaved={setBusiness} />}
+        </div>
+      </ConfirmProvider>
+    </ToastProvider>
   )
 }

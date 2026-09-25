@@ -1862,6 +1862,128 @@ p {
   flex: 1;
 }
 
+.btn--danger {
+  background: var(--primary-dark);
+  color: #fff;
+}
+
+@media (hover: hover) {
+  .btn--danger:hover:not(:disabled) {
+    background: #99311b;
+    box-shadow: 0 6px 16px rgba(185, 59, 32, 0.28);
+  }
+}
+
+.btn--danger:disabled {
+  background: var(--border);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+/* ============ Toast ============ */
+.admin-toast-viewport {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+@media (min-width: 640px) {
+  .admin-toast-viewport {
+    left: auto;
+    width: 360px;
+  }
+}
+
+.admin-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--text-secondary);
+  padding: 14px 14px 14px 12px;
+  box-shadow: 0 12px 28px rgba(23, 23, 20, 0.16);
+  pointer-events: auto;
+  animation: admin-toast-in 0.18s ease;
+}
+
+.admin-toast--success {
+  border-left-color: var(--success);
+}
+
+.admin-toast--error {
+  border-left-color: var(--primary-dark);
+}
+
+.admin-toast--warning {
+  border-left-color: var(--accent);
+}
+
+.admin-toast--info {
+  border-left-color: var(--text-secondary);
+}
+
+.admin-toast__icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--text-secondary);
+}
+
+.admin-toast--success .admin-toast__icon {
+  background: var(--success);
+}
+
+.admin-toast--error .admin-toast__icon {
+  background: var(--primary-dark);
+}
+
+.admin-toast--warning .admin-toast__icon {
+  background: var(--accent);
+}
+
+.admin-toast__message {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.admin-toast__close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 2px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+@keyframes admin-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ============ Print ============ */
 .print-ticket {
   display: none;

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
 import { translateApiError } from '../../services/errorMessages'
 import PhotoCropModal from '../../components/admin/menu/PhotoCropModal'
@@ -10,7 +11,6 @@ const MAX_NAME_LENGTH = 120
 const MAX_ADDRESS_LENGTH = 200
 const MAX_PHONE_LENGTH = 40
 const MAX_HOURS_LENGTH = 200
-const SUCCESS_MESSAGE_MS = 3000
 
 // undefined = field untouched (omitted from the PATCH body entirely);
 // null = the admin cleared it on purpose; a string = its new value. This
@@ -49,8 +49,11 @@ function validate({ name, address, phone, hours, primaryColor, accentColor }) {
 
 export default function AdminBusiness({ onBusinessSaved }) {
   const { token } = useAuth()
+  const toast = useToast()
   const [business, setBusiness] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Page-blocking load failure — stays inline (with a Reintentar button)
+  // since there's nothing else to show while it's unresolved.
   const [loadError, setLoadError] = useState('')
 
   const [name, setName] = useState('')
@@ -61,12 +64,15 @@ export default function AdminBusiness({ onBusinessSaved }) {
   const [accentColor, setAccentColor] = useState('')
 
   const [saving, setSaving] = useState(false)
+  // Client-side validation only (checked before any API call) — stays
+  // inline, next to the form. The PATCH's own failure goes to Toast.
   const [saveError, setSaveError] = useState('')
-  const [savedAt, setSavedAt] = useState(null)
-  const successTimeout = useRef(null)
 
   const [logoUrl, setLogoUrl] = useState(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  // Same split as saveError: the pre-flight "can this file even be
+  // previewed" check stays inline; the actual upload's failure goes to
+  // Toast (see handleCropConfirm).
   const [logoError, setLogoError] = useState('')
   const [cropSrc, setCropSrc] = useState(null)
 
@@ -94,8 +100,6 @@ export default function AdminBusiness({ onBusinessSaved }) {
     loadBusiness()
   }, [loadBusiness])
 
-  useEffect(() => () => clearTimeout(successTimeout.current), [])
-
   // Same idea as ProductFormModal's blob-preview cleanup — covers cancel,
   // confirm, and an unmount while the cropper is open.
   useEffect(() => {
@@ -104,9 +108,8 @@ export default function AdminBusiness({ onBusinessSaved }) {
     }
   }, [cropSrc])
 
-  // Drives both the Save button's disabled state and whether the "Cambios
-  // guardados" message is still relevant (it only makes sense while
-  // nothing has been touched since).
+  // Drives the Save button's disabled state — no unsaved changes, nothing
+  // to submit.
   const isDirty = useMemo(() => {
     if (!business) return false
     return (
@@ -162,13 +165,11 @@ export default function AdminBusiness({ onBusinessSaved }) {
       setPrimaryColor(updated.primaryColor ?? '')
       setAccentColor(updated.accentColor ?? '')
       onBusinessSaved?.(updated)
-      setSavedAt(Date.now())
-      clearTimeout(successTimeout.current)
-      successTimeout.current = setTimeout(() => setSavedAt(null), SUCCESS_MESSAGE_MS)
+      toast.success('Cambios guardados.')
     } catch (err) {
       // Form state is left exactly as the admin typed it — nothing is
       // reset, so a failed save never loses what they wrote.
-      setSaveError(translateApiError(err))
+      toast.error(translateApiError(err))
     } finally {
       setSaving(false)
     }
@@ -223,8 +224,9 @@ export default function AdminBusiness({ onBusinessSaved }) {
       setBusiness((prev) => (prev ? { ...prev, logoUrl: updated.logoUrl } : prev))
       setLogoUrl(updated.logoUrl)
       onBusinessSaved?.(updated)
+      toast.success('Logo actualizado.')
     } catch (err) {
-      setLogoError(translateApiError(err))
+      toast.error(translateApiError(err))
     } finally {
       setUploadingLogo(false)
     }
@@ -350,9 +352,6 @@ export default function AdminBusiness({ onBusinessSaved }) {
         </div>
 
         {saveError && <p className="admin-menu__form-error">{saveError}</p>}
-        {savedAt && !isDirty && !saveError && (
-          <p className="admin-menu__form-success">Cambios guardados.</p>
-        )}
 
         <button type="submit" className="btn btn--primary btn--small" disabled={saving || !isDirty}>
           {saving ? 'Guardando…' : 'Guardar cambios'}

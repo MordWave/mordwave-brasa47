@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { useConfirm } from '../../context/ConfirmContext'
+import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
 import { translateApiError } from '../../services/errorMessages'
 import CategoryFilterBar from '../../components/admin/menu/CategoryFilterBar'
@@ -10,17 +12,17 @@ import ProductList from '../../components/admin/menu/ProductList'
 
 export default function AdminMenu() {
   const { token, user } = useAuth()
+  const confirm = useConfirm()
+  const toast = useToast()
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
+  // Page-load failure only, from here on — individual action results
+  // (delete/toggle/save) go through Toast instead.
   const [error, setError] = useState('')
   // null = closed, 'new' = create form, an object = editing that record.
   const [categoryModal, setCategoryModal] = useState(null)
   const [productModal, setProductModal] = useState(null)
-  // null = closed, otherwise { type: 'category' | 'product', item }
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleteError, setDeleteError] = useState('')
-  const [deleting, setDeleting] = useState(false)
   const [productCategoryFilter, setProductCategoryFilter] = useState('all')
   // Closed by default on every fresh /admin load — plain component state
   // (no persistence) is exactly what gives that for free. Once the admin
@@ -76,16 +78,39 @@ export default function AdminMenu() {
   }
 
   async function handleToggleCategoryActive(category) {
-    setError('')
+    // Deactivating hides it from the menu until reactivated — worth a
+    // confirmation. Reactivating is never destructive, so it goes straight
+    // through.
+    if (category.active) {
+      const ok = await confirm({
+        title: `¿Desactivar la categoría "${category.name}"?`,
+        message: 'Sus productos dejarán de mostrarse en el menú hasta que la reactives.',
+        variant: 'destructive',
+        confirmLabel: 'Desactivar',
+        onConfirm: () =>
+          apiFetch(`/categories/${category.id}`, {
+            method: 'PATCH',
+            token,
+            body: JSON.stringify({ active: false }),
+          }),
+      })
+      if (ok) {
+        toast.success('Categoría desactivada.')
+        await loadAll()
+      }
+      return
+    }
+
     try {
       await apiFetch(`/categories/${category.id}`, {
         method: 'PATCH',
         token,
-        body: JSON.stringify({ active: !category.active }),
+        body: JSON.stringify({ active: true }),
       })
+      toast.success('Categoría reactivada.')
       await loadAll()
     } catch (err) {
-      setError(translateApiError(err))
+      toast.error(translateApiError(err))
     }
   }
 
@@ -111,7 +136,10 @@ export default function AdminMenu() {
           body: formData,
         })
       } catch (err) {
-        setError(translateApiError(err))
+        // The product itself was created successfully — only the
+        // automatic photo upload failed, surfaced separately so it's clear
+        // the save as a whole didn't fail.
+        toast.error(translateApiError(err))
       }
     }
 
@@ -141,21 +169,45 @@ export default function AdminMenu() {
   }
 
   async function handleToggleProductActive(product) {
-    setError('')
+    // Same reasoning as handleToggleCategoryActive: deactivating hides it
+    // from the menu, reactivating doesn't need a confirmation.
+    if (product.active) {
+      const ok = await confirm({
+        title: `¿Desactivar el producto "${product.name}"?`,
+        message: 'Dejará de aparecer en el menú hasta que lo reactives.',
+        variant: 'destructive',
+        confirmLabel: 'Desactivar',
+        onConfirm: () =>
+          apiFetch(`/products/${product.id}`, {
+            method: 'PATCH',
+            token,
+            body: JSON.stringify({ active: false }),
+          }),
+      })
+      if (ok) {
+        toast.success('Producto desactivado.')
+        await loadAll()
+      }
+      return
+    }
+
     try {
       await apiFetch(`/products/${product.id}`, {
         method: 'PATCH',
         token,
-        body: JSON.stringify({ active: !product.active }),
+        body: JSON.stringify({ active: true }),
       })
+      toast.success('Producto reactivado.')
       await loadAll()
     } catch (err) {
-      setError(translateApiError(err))
+      toast.error(translateApiError(err))
     }
   }
 
+  // Deliberately no confirmation — marking a product available/unavailable
+  // is a routine, everyday action for a restaurant (e.g. "se acabó el
+  // ingrediente"), not a destructive one.
   async function handleToggleProductAvailable(product) {
-    setError('')
     try {
       await apiFetch(`/products/${product.id}`, {
         method: 'PATCH',
@@ -164,38 +216,33 @@ export default function AdminMenu() {
       })
       await loadAll()
     } catch (err) {
-      setError(translateApiError(err))
+      toast.error(translateApiError(err))
     }
   }
 
-  function requestDeleteCategory(category) {
-    setDeleteError('')
-    setDeleteTarget({ type: 'category', item: category })
-  }
-
-  function requestDeleteProduct(product) {
-    setDeleteError('')
-    setDeleteTarget({ type: 'product', item: product })
-  }
-
-  async function handleConfirmDelete() {
-    if (!deleteTarget) return
-    setDeleteError('')
-    setDeleting(true)
-    try {
-      const path =
-        deleteTarget.type === 'category'
-          ? `/categories/${deleteTarget.item.id}`
-          : `/products/${deleteTarget.item.id}`
-      await apiFetch(path, { method: 'DELETE', token })
-      setDeleteTarget(null)
+  async function handleDeleteCategory(category) {
+    const ok = await confirm({
+      title: `¿Eliminar la categoría "${category.name}"?`,
+      message: 'Esta acción la quitará de la administración y del menú.',
+      variant: 'destructive',
+      onConfirm: () => apiFetch(`/categories/${category.id}`, { method: 'DELETE', token }),
+    })
+    if (ok) {
+      toast.success('Categoría eliminada.')
       await loadAll()
-    } catch (err) {
-      // Stays open so the admin sees why (e.g. 409 CATEGORY_HAS_PRODUCTS)
-      // instead of the dialog just vanishing.
-      setDeleteError(translateApiError(err))
-    } finally {
-      setDeleting(false)
+    }
+  }
+
+  async function handleDeleteProduct(product) {
+    const ok = await confirm({
+      title: `¿Eliminar el producto "${product.name}"?`,
+      message: 'Esta acción lo quitará de la administración y del menú.',
+      variant: 'destructive',
+      onConfirm: () => apiFetch(`/products/${product.id}`, { method: 'DELETE', token }),
+    })
+    if (ok) {
+      toast.success('Producto eliminado.')
+      await loadAll()
     }
   }
 
@@ -238,7 +285,7 @@ export default function AdminMenu() {
             onEdit={setProductModal}
             onToggleActive={handleToggleProductActive}
             onToggleAvailable={handleToggleProductAvailable}
-            onDelete={requestDeleteProduct}
+            onDelete={handleDeleteProduct}
           />
         )}
       </section>
@@ -274,7 +321,7 @@ export default function AdminMenu() {
               loading={loading}
               onEdit={setCategoryModal}
               onToggleActive={handleToggleCategoryActive}
-              onDelete={requestDeleteCategory}
+              onDelete={handleDeleteCategory}
             />
           </>
         )}
@@ -296,41 +343,6 @@ export default function AdminMenu() {
           onUploadImage={handleUploadProductImage}
           onRemoveImage={handleRemoveProductImage}
         />
-      )}
-
-      {deleteTarget && (
-        <div className="confirm-backdrop" onClick={() => setDeleteTarget(null)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <p className="confirm-dialog__text">
-              {deleteTarget.type === 'category'
-                ? `¿Eliminar la categoría “${deleteTarget.item.name}”?`
-                : `¿Eliminar el producto “${deleteTarget.item.name}”?`}
-            </p>
-            <p className="confirm-dialog__subtext">
-              {deleteTarget.type === 'category'
-                ? 'Esta acción la quitará de la administración y del menú.'
-                : 'Esta acción lo quitará de la administración y del menú.'}
-            </p>
-            {deleteError && <p className="admin-menu__form-error">{deleteError}</p>}
-            <div className="confirm-dialog__actions">
-              <button
-                type="button"
-                className="btn btn--outline btn--small"
-                onClick={() => setDeleteTarget(null)}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary btn--small"
-                onClick={handleConfirmDelete}
-                disabled={deleting}
-              >
-                {deleting ? 'Eliminando…' : 'Eliminar'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   )
