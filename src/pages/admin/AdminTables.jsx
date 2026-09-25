@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { useConfirm } from '../../context/ConfirmContext'
+import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
 import { translateApiError } from '../../services/errorMessages'
 import PrintQr from '../../components/admin/tables/PrintQr'
@@ -9,22 +11,32 @@ import TableQrModal from '../../components/admin/tables/TableQrModal'
 
 const POLL_MS = 12000
 
+// Shared with the delete confirm below — TABLE_HAS_OPEN_SESSION is the same
+// backend errorCode for both deactivate and delete, so each call site maps
+// it to its own wording via useConfirm's mapError instead of the shared
+// translator picking one generic message for both.
+function mapDeleteError(err) {
+  return err.code === 'TABLE_HAS_OPEN_SESSION'
+    ? 'Cierra la sesión de esta mesa antes de eliminarla.'
+    : translateApiError(err)
+}
+
 export default function AdminTables({ businessName }) {
   const { token, user } = useAuth()
+  const confirm = useConfirm()
+  const toast = useToast()
   const [tables, setTables] = useState([])
   const [loading, setLoading] = useState(true)
+  // Page-load failure only — individual action results go through Toast.
   const [error, setError] = useState('')
   // null = closed, 'new' = create form, an object = editing that table.
   const [tableModal, setTableModal] = useState(null)
   const [qrTable, setQrTable] = useState(null)
   const [printQr, setPrintQr] = useState(null)
-  // Table id whose open/close request is currently in flight — disables
-  // that card's own action buttons without blocking the rest of the list.
+  // Table id whose open request is currently in flight — disables that
+  // card's own action buttons. Closing a session goes through the confirm
+  // dialog instead, which already blocks the whole page while open.
   const [busyId, setBusyId] = useState(null)
-  // null = closed, otherwise the table pending deletion.
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [deleteError, setDeleteError] = useState('')
-  const [deleting, setDeleting] = useState(false)
 
   // `silent` covers the periodic background poll: a transient hiccup there
   // (a dev-server restart mid-request, a dropped connection) shouldn't
@@ -70,17 +82,31 @@ export default function AdminTables({ businessName }) {
   }
 
   async function handleToggleSession(table) {
-    setError('')
+    if (table.sessionOpen) {
+      // Closing disconnects every device currently at that table — worth a
+      // confirmation. The dialog itself already blocks the rest of the
+      // page while open, so busyId isn't needed for this branch.
+      const ok = await confirm({
+        title: `¿Cerrar la sesión de "${table.name}"?`,
+        message: 'Los clientes conectados a esta mesa perderán acceso al menú y no podrán seguir pidiendo.',
+        variant: 'destructive',
+        confirmLabel: 'Cerrar sesión',
+        onConfirm: () => apiFetch(`/tables/${table.id}/sessions/current`, { method: 'PATCH', token }),
+      })
+      if (ok) {
+        toast.success('Sesión cerrada.')
+        await loadTables()
+      }
+      return
+    }
+
     setBusyId(table.id)
     try {
-      if (table.sessionOpen) {
-        await apiFetch(`/tables/${table.id}/sessions/current`, { method: 'PATCH', token })
-      } else {
-        await apiFetch(`/tables/${table.id}/sessions`, { method: 'POST', token })
-      }
+      await apiFetch(`/tables/${table.id}/sessions`, { method: 'POST', token })
+      toast.success('Mesa abierta.')
       await loadTables()
     } catch (err) {
-      setError(translateApiError(err))
+      toast.error(translateApiError(err))
     } finally {
       setBusyId(null)
     }
@@ -94,32 +120,17 @@ export default function AdminTables({ businessName }) {
     }, 50)
   }
 
-  function requestDeleteTable(table) {
-    setDeleteError('')
-    setDeleteTarget(table)
-  }
-
-  async function handleConfirmDelete() {
-    if (!deleteTarget) return
-    setDeleteError('')
-    setDeleting(true)
-    try {
-      await apiFetch(`/tables/${deleteTarget.id}`, { method: 'DELETE', token })
-      setDeleteTarget(null)
+  async function handleDeleteTable(table) {
+    const ok = await confirm({
+      title: `¿Eliminar la mesa "${table.name}"?`,
+      message: 'Los pedidos históricos se conservarán.',
+      variant: 'destructive',
+      onConfirm: () => apiFetch(`/tables/${table.id}`, { method: 'DELETE', token }),
+      mapError: mapDeleteError,
+    })
+    if (ok) {
+      toast.success('Mesa eliminada.')
       await loadTables()
-    } catch (err) {
-      // Stays open so the admin sees why (e.g. 409 TABLE_HAS_OPEN_SESSION)
-      // instead of the dialog just vanishing. TABLE_HAS_OPEN_SESSION is
-      // shared with the deactivate flow (same backend errorCode for both),
-      // so it's special-cased here rather than in the shared translator —
-      // deactivate keeps its own "...antes de desactivarla." wording.
-      setDeleteError(
-        err.code === 'TABLE_HAS_OPEN_SESSION'
-          ? 'Cierra la sesión de esta mesa antes de eliminarla.'
-          : translateApiError(err),
-      )
-    } finally {
-      setDeleting(false)
     }
   }
 
@@ -141,7 +152,7 @@ export default function AdminTables({ businessName }) {
         onEdit={setTableModal}
         onToggleSession={handleToggleSession}
         onViewQr={setQrTable}
-        onDelete={requestDeleteTable}
+        onDelete={handleDeleteTable}
       />
 
       {tableModal && (
@@ -159,34 +170,6 @@ export default function AdminTables({ businessName }) {
           onClose={() => setQrTable(null)}
           onPrint={handlePrintQr}
         />
-      )}
-
-      {deleteTarget && (
-        <div className="confirm-backdrop" onClick={() => setDeleteTarget(null)}>
-          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <p className="confirm-dialog__text">¿Eliminar la mesa “{deleteTarget.name}”?</p>
-            <p className="confirm-dialog__subtext">Los pedidos históricos se conservarán.</p>
-            {deleteError && <p className="admin-menu__form-error">{deleteError}</p>}
-            <div className="confirm-dialog__actions">
-              <button
-                type="button"
-                className="btn btn--outline btn--small"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary btn--small"
-                onClick={handleConfirmDelete}
-                disabled={deleting}
-              >
-                {deleting ? 'Eliminando…' : 'Eliminar'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       <PrintQr data={printQr} />

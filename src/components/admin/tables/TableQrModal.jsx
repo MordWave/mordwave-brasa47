@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
+import { useConfirm } from '../../../context/ConfirmContext'
+import { useToast } from '../../../context/ToastContext'
 import { apiFetch } from '../../../services/api'
 import { translateApiError } from '../../../services/errorMessages'
 
@@ -21,12 +23,14 @@ function redactForLog(url, qrToken) {
 }
 
 export default function TableQrModal({ table, token, onClose, onPrint }) {
+  const confirm = useConfirm()
+  const toast = useToast()
   const [qrToken, setQrToken] = useState(null)
   const [dataUrl, setDataUrl] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Only the initial load (fetching qrToken / generating the QR image) —
+  // rotate's own failure is shown inside the confirm dialog instead.
   const [error, setError] = useState('')
-  const [rotating, setRotating] = useState(false)
-  const [confirmingRotate, setConfirmingRotate] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -86,51 +90,19 @@ export default function TableQrModal({ table, token, onClose, onPrint }) {
     }
   }, [qrToken])
 
-  async function handleConfirmRotate() {
-    setRotating(true)
-    setError('')
-    try {
-      const result = await apiFetch(`/tables/${table.id}/qr/rotate`, { method: 'POST', token })
-      setDataUrl(null)
-      setQrToken(result.qrToken)
-      setConfirmingRotate(false)
-    } catch (err) {
-      setError(translateApiError(err))
-    } finally {
-      setRotating(false)
-    }
-  }
-
-  if (confirmingRotate) {
-    return (
-      <div className="confirm-backdrop" onClick={onClose}>
-        <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-          <p className="confirm-dialog__text">¿Regenerar el QR de “{table.name}”?</p>
-          <p className="confirm-dialog__subtext">
-            El QR anterior dejará de funcionar y tendrás que volver a imprimirlo.
-          </p>
-          {error && <p className="admin-menu__form-error">{error}</p>}
-          <div className="confirm-dialog__actions">
-            <button
-              type="button"
-              className="btn btn--outline btn--small"
-              onClick={() => setConfirmingRotate(false)}
-              disabled={rotating}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn btn--primary btn--small"
-              onClick={handleConfirmRotate}
-              disabled={rotating}
-            >
-              {rotating ? 'Regenerando…' : 'Regenerar'}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
+  async function handleRotateQr() {
+    const ok = await confirm({
+      title: `¿Regenerar el QR de "${table.name}"?`,
+      message: 'El QR anterior dejará de funcionar y tendrás que volver a imprimirlo.',
+      variant: 'destructive',
+      confirmLabel: 'Regenerar',
+      onConfirm: async () => {
+        const result = await apiFetch(`/tables/${table.id}/qr/rotate`, { method: 'POST', token })
+        setDataUrl(null)
+        setQrToken(result.qrToken)
+      },
+    })
+    if (ok) toast.success('QR regenerado.')
   }
 
   return (
@@ -171,7 +143,7 @@ export default function TableQrModal({ table, token, onClose, onPrint }) {
               <button
                 type="button"
                 className="btn btn--outline btn--small"
-                onClick={() => setConfirmingRotate(true)}
+                onClick={handleRotateQr}
               >
                 Regenerar QR
               </button>
