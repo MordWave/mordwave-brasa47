@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { Business } from '../business/business.entity.js';
 import { RestaurantTable } from './table.entity.js';
@@ -15,6 +16,10 @@ import { TableService } from './table.service.js';
     TypeOrmModule.forFeature([RestaurantTable, TableSession, Business]),
     // Gives access to AuthModule's exported JwtAuthGuard/RolesGuard.
     AuthModule,
+    // Gives TableController access to AuditService for its explicit
+    // update()/remove() audit calls (create/openSession/closeSession are
+    // audited generically via @Audit(...) + the global AuditInterceptor).
+    AuditModule,
     // Scoped to this module, applied only via @UseGuards(ThrottlerGuard) on
     // the two public table-sessions/* routes. `join` is one-shot per visit,
     // so it keeps this default limit. `status`, in contrast, is polled by

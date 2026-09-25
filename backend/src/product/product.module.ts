@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { Business } from '../business/business.entity.js';
 import { BusinessModule } from '../business/business.module.js';
@@ -22,6 +23,11 @@ import { ProductService } from './product.service.js';
     BusinessModule,
     // Gives ProductImageService access to the shared ImageStorageService.
     StorageModule,
+    // Gives ProductController access to AuditService for its explicit
+    // update()/remove() audit calls (create() is audited generically via
+    // @Audit(...) + the global AuditInterceptor, no dependency needed here
+    // for that one).
+    AuditModule,
   ],
   controllers: [ProductController],
   providers: [ProductService, ProductImageService],

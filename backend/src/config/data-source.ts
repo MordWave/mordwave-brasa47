@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { config as loadEnv } from 'dotenv';
 import { DataSource } from 'typeorm';
+import { AuditLog } from '../audit/audit-log.entity.js';
 import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
 import { OrderItem } from '../order/order-item.entity.js';
@@ -28,7 +29,7 @@ export default new DataSource({
         password: process.env.DB_PASSWORD ?? 'postgres',
         database: process.env.DB_NAME ?? 'brasa47',
       }),
-  entities: [Business, Category, Product, User, Order, OrderItem, RestaurantTable, TableSession],
+  entities: [Business, Category, Product, User, Order, OrderItem, RestaurantTable, TableSession, AuditLog],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,
 });

@@ -111,7 +111,11 @@ export class CategoryService {
   // since deleting the category out from under a still-existing product
   // would leave that product pointing at a category that no longer exists
   // for any normal purpose.
-  async remove(id: string, user: SafeUser): Promise<void> {
+  // Returns { businessId } (rather than void) purely so the controller can
+  // audit-log the deletion with the correct tenant even for a SUPER_ADMIN
+  // acting on a business that isn't their own — the HTTP contract is
+  // unaffected (the controller still responds 204 with no body).
+  async remove(id: string, user: SafeUser): Promise<{ businessId: string }> {
     const category = await this.findOne(id);
     resolveBusinessIdForUpdate(user, category.businessId, undefined);
 
@@ -127,5 +131,6 @@ export class CategoryService {
     }
 
     await this.categoryRepository.softDelete(id);
+    return { businessId: category.businessId };
   }
 }
