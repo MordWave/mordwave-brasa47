@@ -1252,9 +1252,42 @@ p {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 32px 24px;
+  padding: 28px 20px calc(28px + env(safe-area-inset-bottom));
   text-align: center;
+}
+
+.success__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: success-fade-up 0.4s ease-out both;
+}
+
+.success__logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.success__mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.success__brand-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
 }
 
 .success__badge {
@@ -1267,50 +1300,161 @@ p {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 20px;
-  animation: success-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  margin: 20px 0 20px;
+  animation: success-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
 }
 
 .success__title {
   font-family: var(--font-display);
   font-size: 26px;
-  animation: success-fade-up 0.4s ease-out 0.15s both;
+  animation: success-fade-up 0.4s ease-out 0.2s both;
 }
 
 .success__text {
   color: var(--text-secondary);
   font-size: 14px;
   margin-top: 10px;
-  max-width: 300px;
+  max-width: 320px;
   line-height: 1.5;
-  animation: success-fade-up 0.4s ease-out 0.25s both;
+  animation: success-fade-up 0.4s ease-out 0.3s both;
 }
 
 .success__card {
   width: 100%;
-  max-width: 320px;
+  max-width: 400px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 18px 20px;
+  overflow: hidden;
+  text-align: left;
   margin: 24px 0 28px;
-  animation: success-fade-up 0.4s ease-out 0.35s both;
+  animation: success-fade-up 0.4s ease-out 0.4s both;
 }
 
-.success__row {
+.success__card-head {
   display: flex;
   justify-content: space-between;
-  font-size: 14px;
-  padding: 6px 0;
+  padding: 16px;
+  border-bottom: 1px dashed var(--border);
+  background: var(--bg);
 }
 
-.success__row strong {
-  font-size: 15px;
+.success__meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.success__meta-item--right {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.success__meta-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.success__meta-value {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.success__items {
+  padding: 4px 16px;
+}
+
+.success__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.success__items .success__item:last-child {
+  border-bottom: none;
+}
+
+.success__item-main {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.success__item-qty {
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.success__item-body {
+  min-width: 0;
+}
+
+.success__item-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.success__item-mods {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.success__item-price {
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.success__total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-top: 1px dashed var(--border);
+  background: var(--bg);
+}
+
+.success__total-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.success__total-value {
+  font-size: 20px;
+  font-weight: 800;
+  font-family: var(--font-display);
+  color: var(--primary);
+}
+
+.success__actions {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: success-fade-up 0.4s ease-out 0.5s both;
 }
 
 .success .btn {
-  max-width: 320px;
-  animation: success-fade-up 0.4s ease-out 0.45s both;
+  width: 100%;
+}
+
+@media (min-width: 480px) {
+  .success__card,
+  .success__actions {
+    max-width: 420px;
+  }
 }
 
 /* ============ Admin ============ */
