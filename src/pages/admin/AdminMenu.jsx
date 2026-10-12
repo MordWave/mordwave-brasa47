@@ -377,18 +377,25 @@ export default function AdminMenu() {
 
   const hasProductFilters =
     productCategoryFilter !== 'all' || search !== '' || activeFilter !== 'all' || availableFilter !== 'all'
-  const emptyMessage =
-    summary.total > 0 && hasProductFilters
-      ? 'No hay productos que coincidan con los filtros.'
-      : 'No hay productos todavía.'
+  // `summary` follows search/active/available too, so it can't tell "no
+  // filters matched" apart from "no products at all" — the filters themselves
+  // can.
+  const emptyMessage = hasProductFilters
+    ? 'No hay productos que coincidan con los filtros.'
+    : 'No hay productos todavía.'
 
   return (
     <div className="admin-menu">
       {error && <p className="admin-menu__error">{error}</p>}
 
-      <section className="admin-menu__section">
-        <div className="admin-menu__section-head">
-          <h2>Productos</h2>
+      <section className="admin-card" aria-labelledby="products-heading">
+        <header className="admin-card__header">
+          <div className="admin-card__title-group">
+            <h2 id="products-heading" className="admin-card__title">
+              Productos
+            </h2>
+            {!initialLoading && <span className="count-badge">{productsMeta.total}</span>}
+          </div>
           <button
             type="button"
             className="btn btn--primary btn--small"
@@ -397,16 +404,10 @@ export default function AdminMenu() {
           >
             + Nuevo producto
           </button>
-        </div>
+        </header>
+
         {!initialLoading && (
-          <>
-            <CategoryFilterBar
-              categories={categories}
-              counts={summary.byCategory}
-              total={summary.total}
-              activeId={productCategoryFilter}
-              onSelect={changeCategoryFilter}
-            />
+          <div className="admin-card__toolbar">
             <ProductFilters
               searchValue={searchInput}
               onSearchChange={setSearchInput}
@@ -415,9 +416,20 @@ export default function AdminMenu() {
               availableFilter={availableFilter}
               onAvailableChange={changeAvailableFilter}
             />
-          </>
+            <CategoryFilterBar
+              categories={categories}
+              counts={summary.byCategory}
+              total={summary.total}
+              activeId={productCategoryFilter}
+              onSelect={changeCategoryFilter}
+            />
+          </div>
         )}
-        <div className={productsLoading && !initialLoading ? 'admin-menu__list--busy' : undefined} aria-busy={productsLoading}>
+
+        <div
+          className={`admin-card__body${productsLoading && !initialLoading ? ' admin-menu__list--busy' : ''}`}
+          aria-busy={productsLoading}
+        >
           <ProductList
             products={products}
             categories={categories}
@@ -429,24 +441,35 @@ export default function AdminMenu() {
             onDelete={handleDeleteProduct}
           />
         </div>
-        <Pager
-          page={page}
-          totalPages={productsMeta.totalPages}
-          total={productsMeta.total}
-          loading={productsLoading}
-          onPageChange={setPage}
-          itemLabel="productos"
-        />
+
+        <footer className="admin-card__footer">
+          <Pager
+            page={page}
+            pageSize={PRODUCTS_PAGE_SIZE}
+            totalPages={productsMeta.totalPages}
+            total={productsMeta.total}
+            loading={productsLoading}
+            onPageChange={setPage}
+            itemLabel="productos"
+            itemLabelSingular="producto"
+          />
+        </footer>
       </section>
 
-      <section className="admin-menu__section">
+      <section className="admin-card admin-card--secondary" aria-labelledby="categories-heading">
         <button
           type="button"
-          className="admin-menu__collapsible-toggle"
+          className="admin-card__collapse"
           onClick={() => setCategoriesOpen((open) => !open)}
           aria-expanded={categoriesOpen}
         >
-          <h2>Gestionar categorías ({categories.length})</h2>
+          <span className="admin-card__title-group">
+            <span id="categories-heading" className="admin-card__title admin-card__title--small">
+              Gestionar categorías
+            </span>
+            <span className="count-badge">{categories.length}</span>
+            <span className="admin-card__hint">Crea, ordena y desactiva las categorías del menú</span>
+          </span>
           <span
             className={`admin-menu__collapsible-chevron${categoriesOpen ? ' admin-menu__collapsible-chevron--open' : ''}`}
             aria-hidden="true"
@@ -455,7 +478,7 @@ export default function AdminMenu() {
           </span>
         </button>
         {categoriesOpen && (
-          <>
+          <div className="admin-card__body admin-card__body--padded">
             <div className="admin-menu__section-head admin-menu__section-head--collapsible">
               <button
                 type="button"
@@ -472,7 +495,7 @@ export default function AdminMenu() {
               onToggleActive={handleToggleCategoryActive}
               onDelete={handleDeleteCategory}
             />
-          </>
+          </div>
         )}
       </section>
 
