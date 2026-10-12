@@ -736,6 +736,14 @@ describe('OrderService', () => {
       );
     });
 
+    it('defaults to page 1, limit 20 (shared pagination defaults) when none are given', async () => {
+      orderRepo.find.mockResolvedValue([]);
+
+      await service.findHistoryAdmin({}, admin);
+
+      expect(orderRepo.find).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 21 }));
+    });
+
     it('reports hasMore:true and trims the extra row when more results exist', async () => {
       const rows = Array.from({ length: 21 }, (_, i) => ({ id: `o${i}` }));
       orderRepo.find.mockResolvedValue(rows);

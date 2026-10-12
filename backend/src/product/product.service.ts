@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import {
   resolveBusinessIdForCreate,
   resolveBusinessIdForRead,
@@ -10,11 +10,23 @@ import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
 import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
+import { PAGINATION_DEFAULT_LIMIT, PAGINATION_DEFAULT_PAGE } from '../common/pagination.const.js';
+import { buildPaginated, escapeLikePattern, type Paginated } from '../common/pagination.util.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
+import { ProductAdminQueryDto } from './dto/product-admin-query.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
+import { ProductSummaryQueryDto } from './dto/product-summary-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { ProductImageService, type UploadableFile } from './product-image.service.js';
 import { Product, type ProductAddOn } from './product.entity.js';
+
+// Per-category product counts for the admin category chips — computed over
+// the whole filtered set (search/active/available), never over just the page
+// the list is showing.
+export interface ProductAdminSummary {
+  total: number;
+  byCategory: Record<string, number>;
+}
 
 @Injectable()
 export class ProductService {
@@ -199,16 +211,68 @@ export class ProductService {
   // Admin listing — includes active:false products (and products under an
   // inactive category), scoped to the caller's tenant (ADMIN: always their
   // own business; SUPER_ADMIN: whatever they ask for, or everything if
-  // unscoped).
-  async findAllAdmin(query: ProductQueryDto, user: SafeUser): Promise<Product[]> {
+  // unscoped). Paginated with a real total: a product catalog is small and
+  // bounded, so the extra COUNT is cheap and lets the UI show "page X of Y".
+  // `id` is a final ORDER BY tiebreaker so rows sharing the same
+  // sortOrder/createdAt can never shuffle between pages.
+  async findAllAdmin(query: ProductAdminQueryDto, user: SafeUser): Promise<Paginated<Product>> {
     const businessId = resolveBusinessIdForRead(user, query.businessId);
-    const where: Partial<Record<'businessId' | 'categoryId', string>> = {};
+    const page = query.page ?? PAGINATION_DEFAULT_PAGE;
+    const limit = query.limit ?? PAGINATION_DEFAULT_LIMIT;
+
+    const where: FindOptionsWhere<Product> = {};
     if (businessId) where.businessId = businessId;
     if (query.categoryId) where.categoryId = query.categoryId;
-    return this.productRepository.find({
+    if (query.active !== undefined) where.active = query.active;
+    if (query.available !== undefined) where.available = query.available;
+    if (query.search) where.name = ILike(`%${escapeLikePattern(query.search)}%`);
+
+    const [items, total] = await this.productRepository.findAndCount({
       where,
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return buildPaginated(items, page, limit, total);
+  }
+
+  // Per-category counts of the products matching the CURRENT search/active/
+  // available filters, across every category (categoryId is deliberately not
+  // a filter here — the breakdown by category is the point). With no filters
+  // that's the whole catalog. One grouped query regardless of how many
+  // categories exist; never derived from a single page of findAllAdmin. Same
+  // tenant scoping as findAllAdmin; soft-deleted products are excluded
+  // automatically (Product has a @DeleteDateColumn).
+  async getAdminSummary(query: ProductSummaryQueryDto, user: SafeUser): Promise<ProductAdminSummary> {
+    const businessId = resolveBusinessIdForRead(user, query.businessId);
+
+    const builder = this.productRepository
+      .createQueryBuilder('product')
+      .select('product.categoryId', 'categoryId')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('product.categoryId');
+    if (businessId) builder.andWhere('product.businessId = :businessId', { businessId });
+    if (query.active !== undefined) builder.andWhere('product.active = :active', { active: query.active });
+    if (query.available !== undefined) {
+      builder.andWhere('product.available = :available', { available: query.available });
+    }
+    if (query.search) {
+      // Same literal-wildcard escaping as findAllAdmin (backslash is
+      // Postgres' default LIKE escape character).
+      builder.andWhere('product.name ILIKE :search', { search: `%${escapeLikePattern(query.search)}%` });
+    }
+
+    const rows = await builder.getRawMany<{ categoryId: string; count: string }>();
+
+    const byCategory: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      const count = Number(row.count);
+      byCategory[row.categoryId] = count;
+      total += count;
+    }
+    return { total, byCategory };
   }
 
   // Internal lookup, no active filter — used by update() so a deactivated

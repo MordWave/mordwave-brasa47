@@ -3,6 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { And, DataSource, FindOptionsWhere, ILike, In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { resolveBusinessIdForRead, resolveBusinessIdForUpdate } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import {
+  LIVE_QUEUE_DEFAULT_LIMIT,
+  PAGINATION_DEFAULT_LIMIT,
+  PAGINATION_DEFAULT_PAGE,
+} from '../common/pagination.const.js';
 import { Product, type ProductAddOn } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
 import { TableSession } from '../table/table-session.entity.js';
@@ -254,8 +259,9 @@ export class OrderService {
   // Admin board — scoped to the caller's tenant (ADMIN: always their own
   // business; SUPER_ADMIN: whatever they ask for, or everything if
   // unscoped), same pattern as ProductService/CategoryService. `limit`
-  // deliberately caps every call (default 50) — the delivered/cancelled
-  // history only grows now that orders are never deleted.
+  // deliberately caps every call (default LIVE_QUEUE_DEFAULT_LIMIT, max
+  // PAGINATION_MAX_LIMIT) — the delivered/cancelled history only grows now
+  // that orders are never deleted.
   async findAllAdmin(query: OrderQueryDto, user: SafeUser): Promise<Order[]> {
     const businessId = resolveBusinessIdForRead(user, query.businessId);
     const where: { businessId?: string; status?: OrderStatus } = {};
@@ -266,7 +272,7 @@ export class OrderService {
       where,
       relations: { items: true },
       order: { createdAt: 'DESC' },
-      take: query.limit ?? 50,
+      take: query.limit ?? LIVE_QUEUE_DEFAULT_LIMIT,
     });
   }
 
@@ -278,8 +284,8 @@ export class OrderService {
   // to answer "is there a next page" without a separate COUNT query.
   async findHistoryAdmin(query: OrderHistoryQueryDto, user: SafeUser): Promise<OrderHistoryPage> {
     const businessId = resolveBusinessIdForRead(user, query.businessId);
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const page = query.page ?? PAGINATION_DEFAULT_PAGE;
+    const limit = query.limit ?? PAGINATION_DEFAULT_LIMIT;
 
     const where: FindOptionsWhere<Order> = {
       status: query.status ?? In([OrderStatus.DELIVERED, OrderStatus.CANCELLED]),

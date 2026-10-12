@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ILike } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
@@ -22,6 +23,8 @@ function createRepoMock() {
     save: vi.fn(async (entity: unknown) => entity),
     findOne: vi.fn(),
     find: vi.fn(),
+    findAndCount: vi.fn(),
+    createQueryBuilder: vi.fn(),
     softDelete: vi.fn(),
   };
 }
@@ -304,36 +307,208 @@ describe('ProductService', () => {
     );
   });
 
-  it('findAllAdmin: ADMIN ignores a foreign businessId from the query and sees only their own', async () => {
-    productRepo.find.mockResolvedValue([]);
+  describe('findAllAdmin (paginated)', () => {
+    beforeEach(() => {
+      productRepo.findAndCount.mockResolvedValue([[], 0]);
+    });
 
-    await service.findAllAdmin({ businessId: 'other-biz' }, admin);
+    it('ADMIN ignores a foreign businessId from the query and sees only their own', async () => {
+      await service.findAllAdmin({ businessId: 'other-biz' }, admin);
 
-    expect(productRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-1' }) }),
-    );
-    // No active filter — admin listing must include inactive products.
-    const callArgs = productRepo.find.mock.calls[0][0];
-    expect(callArgs.where).not.toHaveProperty('active');
+      expect(productRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-1' }) }),
+      );
+      // No active filter by default — admin listing must include inactive products.
+      const callArgs = productRepo.findAndCount.mock.calls[0][0];
+      expect(callArgs.where).not.toHaveProperty('active');
+    });
+
+    it('SUPER_ADMIN with no businessId gets an unfiltered (all-business) query', async () => {
+      await service.findAllAdmin({}, superAdmin);
+
+      const callArgs = productRepo.findAndCount.mock.calls[0][0];
+      expect(callArgs.where).not.toHaveProperty('businessId');
+    });
+
+    it('SUPER_ADMIN can scope to a specific business', async () => {
+      await service.findAllAdmin({ businessId: 'biz-2' }, superAdmin);
+
+      expect(productRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-2' }) }),
+      );
+    });
+
+    it('defaults to page 1, limit 20 and returns the standard envelope', async () => {
+      productRepo.findAndCount.mockResolvedValue([[{ id: 'p1' }], 45]);
+
+      const result = await service.findAllAdmin({}, admin);
+
+      expect(productRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 0, take: 20 }),
+      );
+      expect(result).toEqual({
+        items: [{ id: 'p1' }],
+        page: 1,
+        limit: 20,
+        total: 45,
+        totalPages: 3,
+        hasMore: true,
+      });
+    });
+
+    it('translates page/limit into skip/take', async () => {
+      productRepo.findAndCount.mockResolvedValue([[], 45]);
+
+      const result = await service.findAllAdmin({ page: 3, limit: 10 }, admin);
+
+      expect(productRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 20, take: 10 }),
+      );
+      expect(result).toMatchObject({ page: 3, limit: 10, total: 45, totalPages: 5, hasMore: true });
+    });
+
+    it('reports hasMore=false on the last page and an empty envelope when there are no products', async () => {
+      productRepo.findAndCount.mockResolvedValue([[], 45]);
+      const last = await service.findAllAdmin({ page: 3 }, admin);
+      expect(last).toMatchObject({ totalPages: 3, hasMore: false });
+
+      productRepo.findAndCount.mockResolvedValue([[], 0]);
+      const empty = await service.findAllAdmin({}, admin);
+      expect(empty).toEqual({ items: [], page: 1, limit: 20, total: 0, totalPages: 0, hasMore: false });
+    });
+
+    it('orders deterministically (sortOrder, createdAt, then id as tiebreaker)', async () => {
+      await service.findAllAdmin({}, admin);
+
+      expect(productRepo.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' } }),
+      );
+    });
+
+    it('applies categoryId, active and available filters (including explicit false)', async () => {
+      await service.findAllAdmin({ categoryId: 'cat-1', active: false, available: false }, admin);
+
+      const where = productRepo.findAndCount.mock.calls[0][0].where;
+      expect(where).toMatchObject({
+        businessId: 'biz-1',
+        categoryId: 'cat-1',
+        active: false,
+        available: false,
+      });
+    });
+
+    it('search becomes a case-insensitive partial match on name', async () => {
+      await service.findAllAdmin({ search: 'burg' }, admin);
+
+      const where = productRepo.findAndCount.mock.calls[0][0].where;
+      expect(where.name).toEqual(ILike('%burg%'));
+    });
+
+    it('search escapes LIKE wildcards so they match literally', async () => {
+      await service.findAllAdmin({ search: '50%_off\\' }, admin);
+
+      const where = productRepo.findAndCount.mock.calls[0][0].where;
+      expect(where.name).toEqual(ILike('%50\\%\\_off\\\\%'));
+    });
+
+    it('an empty search adds no name filter', async () => {
+      await service.findAllAdmin({ search: '' }, admin);
+
+      const where = productRepo.findAndCount.mock.calls[0][0].where;
+      expect(where).not.toHaveProperty('name');
+    });
+
+    it('never opts back into seeing soft-deleted rows (no withDeleted)', async () => {
+      await service.findAllAdmin({}, admin);
+
+      const callArgs = productRepo.findAndCount.mock.calls.at(-1)[0];
+      expect(callArgs).not.toHaveProperty('withDeleted');
+    });
   });
 
-  it('findAllAdmin: SUPER_ADMIN with no businessId gets an unfiltered (all-business) query', async () => {
-    productRepo.find.mockResolvedValue([]);
+  describe('getAdminSummary', () => {
+    function mockBuilder(rows: Array<{ categoryId: string; count: string }>) {
+      const builder = {
+        select: vi.fn().mockReturnThis(),
+        addSelect: vi.fn().mockReturnThis(),
+        groupBy: vi.fn().mockReturnThis(),
+        andWhere: vi.fn().mockReturnThis(),
+        getRawMany: vi.fn().mockResolvedValue(rows),
+      };
+      productRepo.createQueryBuilder.mockReturnValue(builder);
+      return builder;
+    }
 
-    await service.findAllAdmin({}, superAdmin);
+    it('returns counts per category and a total, from a single grouped query', async () => {
+      const builder = mockBuilder([
+        { categoryId: 'cat-1', count: '12' },
+        { categoryId: 'cat-2', count: '3' },
+      ]);
 
-    const callArgs = productRepo.find.mock.calls[0][0];
-    expect(callArgs.where).not.toHaveProperty('businessId');
-  });
+      const result = await service.getAdminSummary({}, admin);
 
-  it('findAllAdmin: SUPER_ADMIN can scope to a specific business', async () => {
-    productRepo.find.mockResolvedValue([]);
+      expect(result).toEqual({ total: 15, byCategory: { 'cat-1': 12, 'cat-2': 3 } });
+      expect(productRepo.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(builder.groupBy).toHaveBeenCalledWith('product.categoryId');
+      expect(builder.getRawMany).toHaveBeenCalledTimes(1);
+    });
 
-    await service.findAllAdmin({ businessId: 'biz-2' }, superAdmin);
+    it('ADMIN is always scoped to their own business, ignoring a foreign businessId', async () => {
+      const builder = mockBuilder([]);
 
-    expect(productRepo.find).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ businessId: 'biz-2' }) }),
-    );
+      await service.getAdminSummary({ businessId: 'other-biz' }, admin);
+
+      expect(builder.andWhere).toHaveBeenCalledWith('product.businessId = :businessId', {
+        businessId: 'biz-1',
+      });
+    });
+
+    it('SUPER_ADMIN can scope to a business, or leave it unscoped', async () => {
+      const scoped = mockBuilder([]);
+      await service.getAdminSummary({ businessId: 'biz-2' }, superAdmin);
+      expect(scoped.andWhere).toHaveBeenCalledWith('product.businessId = :businessId', {
+        businessId: 'biz-2',
+      });
+
+      const unscoped = mockBuilder([]);
+      await service.getAdminSummary({}, superAdmin);
+      expect(unscoped.andWhere).not.toHaveBeenCalled();
+    });
+
+    it('with no filters, adds no condition beyond the tenant scope (whole catalog)', async () => {
+      const builder = mockBuilder([]);
+
+      await service.getAdminSummary({}, admin);
+
+      expect(builder.andWhere).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies search (escaped, case-insensitive), active and available — including explicit false', async () => {
+      const builder = mockBuilder([]);
+
+      await service.getAdminSummary({ search: '50%_', active: false, available: false }, admin);
+
+      expect(builder.andWhere).toHaveBeenCalledWith('product.active = :active', { active: false });
+      expect(builder.andWhere).toHaveBeenCalledWith('product.available = :available', { available: false });
+      expect(builder.andWhere).toHaveBeenCalledWith('product.name ILIKE :search', {
+        search: '%50\\%\\_%',
+      });
+    });
+
+    it('never filters by category, even if a categoryId is smuggled into the query', async () => {
+      const builder = mockBuilder([]);
+
+      await service.getAdminSummary({ categoryId: 'cat-1' } as never, admin);
+
+      const conditions = builder.andWhere.mock.calls.map((call) => call[0]);
+      expect(conditions.some((c: string) => c.includes('categoryId') || c.includes('category'))).toBe(false);
+    });
+
+    it('returns an empty summary for a business with no matching products', async () => {
+      mockBuilder([]);
+
+      await expect(service.getAdminSummary({}, admin)).resolves.toEqual({ total: 0, byCategory: {} });
+    });
   });
 
   describe('persists tag/ingredients/removableIngredients/addOns', () => {
@@ -780,15 +955,6 @@ describe('ProductService', () => {
     await expect(service.update('p1', { name: 'renamed' }, admin)).rejects.toBeInstanceOf(
       NotFoundException,
     );
-  });
-
-  it('admin listing never opts back into seeing soft-deleted rows (no withDeleted)', async () => {
-    productRepo.find.mockResolvedValue([]);
-
-    await service.findAllAdmin({}, admin);
-
-    const callArgs = productRepo.find.mock.calls.at(-1)[0];
-    expect(callArgs).not.toHaveProperty('withDeleted');
   });
 
   describe('attachImage', () => {

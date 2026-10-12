@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { And, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { resolveBusinessIdForRead } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import { PAGINATION_DEFAULT_LIMIT, PAGINATION_DEFAULT_PAGE } from '../common/pagination.const.js';
 import { AuditLog } from './audit-log.entity.js';
 import { AuditLogQueryDto } from './dto/audit-log-query.dto.js';
 import { sanitizeMetadata } from './metadata-sanitizer.js';
@@ -94,8 +95,8 @@ export class AuditService {
   // OrderService.findAllAdmin, etc).
   async findAllForBusiness(query: AuditLogQueryDto, user: SafeUser): Promise<AuditLogPage> {
     const businessId = resolveBusinessIdForRead(user, query.businessId);
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const page = query.page ?? PAGINATION_DEFAULT_PAGE;
+    const limit = query.limit ?? PAGINATION_DEFAULT_LIMIT;
 
     const where: Record<string, unknown> = {};
     if (businessId) where.businessId = businessId;

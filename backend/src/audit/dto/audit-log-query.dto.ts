@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsISO8601, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsISO8601, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 // Same shape/purpose as OrderHistoryQueryDto — page/limit for pagination,
 // businessId only effective for a SUPER_ADMIN (see resolveBusinessIdForRead),
@@ -8,7 +8,7 @@ import { IsISO8601, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } f
 // are plain strings, not validated against AUDIT_ACTIONS/AUDIT_ENTITY_TYPES
 // here — an unknown value just matches nothing, which is simpler than
 // keeping this DTO in lockstep with every action a module ever adds.
-export class AuditLogQueryDto {
+export class AuditLogQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   businessId?: string;
@@ -38,17 +38,4 @@ export class AuditLogQueryDto {
   @IsOptional()
   @IsISO8601()
   to?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
 }

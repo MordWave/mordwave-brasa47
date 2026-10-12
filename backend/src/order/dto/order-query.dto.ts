@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { PAGINATION_MAX_LIMIT } from '../../common/pagination.const.js';
 import { OrderStatus } from '../order-status.enum.js';
 
 export class OrderQueryDto {
@@ -18,6 +19,6 @@ export class OrderQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(200)
+  @Max(PAGINATION_MAX_LIMIT)
   limit?: number;
 }
