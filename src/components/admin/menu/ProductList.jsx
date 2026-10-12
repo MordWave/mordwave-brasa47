@@ -1,4 +1,5 @@
 import { formatPrice } from '../../../utils/format'
+import RowActionsMenu from '../RowActionsMenu'
 
 export default function ProductList({
   products,
@@ -16,60 +17,58 @@ export default function ProductList({
   const categoryNameById = Object.fromEntries(categories.map((c) => [c.id, c.name]))
 
   return (
-    <div className="admin-menu__table">
+    <div className="product-list">
       {products.map((product) => (
-        <div
-          key={product.id}
-          className={`admin-menu__row${product.active ? '' : ' admin-menu__row--inactive'}`}
-        >
-          <div className="admin-menu__row-thumb">
+        <div key={product.id} className={`product-row${product.active ? '' : ' product-row--inactive'}`}>
+          <div className="product-row__thumb">
             {product.imageUrl ? (
               <img src={product.imageUrl} alt="" />
             ) : (
-              <span className="admin-menu__row-thumb-placeholder">Sin foto</span>
+              <span className="product-row__thumb-placeholder">Sin foto</span>
             )}
           </div>
-          <div className="admin-menu__row-main">
-            <span className="admin-menu__row-name">{product.name}</span>
-            <span className="admin-menu__row-meta">
-              {categoryNameById[product.categoryId] ?? 'Sin categoría'} · {formatPrice(product.price)}
+
+          <div className="product-row__main">
+            <span className="product-row__name">{product.name}</span>
+            <span className="product-row__meta">
+              <span className="product-row__category">{categoryNameById[product.categoryId] ?? 'Sin categoría'}</span>
+              <span className={`status-badge status-badge--${product.active ? 'ok' : 'off'}`}>
+                {product.active ? 'Activo' : 'Inactivo'}
+              </span>
+              <span className={`status-badge status-badge--${product.available ? 'ok' : 'off'}`}>
+                {product.available ? 'Disponible' : 'No disponible'}
+              </span>
             </span>
           </div>
-          <div className="admin-menu__row-actions">
-            <span
-              className={`admin-menu__status admin-menu__status--${product.active ? 'active' : 'inactive'}`}
-            >
-              {product.active ? 'Activo' : 'Inactivo'}
-            </span>
-            <span
-              className={`admin-menu__status admin-menu__status--${product.available ? 'available' : 'unavailable'}`}
-            >
-              {product.available ? 'Disponible' : 'No disponible'}
-            </span>
+
+          <span className="product-row__price">{formatPrice(product.price)}</span>
+
+          <div className="product-row__actions">
             <button type="button" className="btn btn--outline btn--small" onClick={() => onEdit(product)}>
               Editar
             </button>
-            <button
-              type="button"
-              className="btn btn--outline btn--small"
-              onClick={() => onToggleActive(product)}
-            >
-              {product.active ? 'Desactivar' : 'Activar'}
-            </button>
-            <button
-              type="button"
-              className="btn btn--outline btn--small"
-              onClick={() => onToggleAvailable(product)}
-            >
-              {product.available ? 'Marcar no disponible' : 'Marcar disponible'}
-            </button>
-            <button
-              type="button"
-              className="btn btn--outline btn--small admin-menu__delete-btn"
-              onClick={() => onDelete(product)}
-            >
-              Eliminar
-            </button>
+            <RowActionsMenu
+              label={`Más acciones para ${product.name}`}
+              items={[
+                {
+                  key: 'available',
+                  label: product.available ? 'Marcar no disponible' : 'Marcar disponible',
+                  onSelect: () => onToggleAvailable(product),
+                },
+                {
+                  key: 'active',
+                  label: product.active ? 'Desactivar' : 'Activar',
+                  onSelect: () => onToggleActive(product),
+                },
+                {
+                  key: 'delete',
+                  label: 'Eliminar',
+                  destructive: true,
+                  separatorBefore: true,
+                  onSelect: () => onDelete(product),
+                },
+              ]}
+            />
           </div>
         </div>
       ))}
