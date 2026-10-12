@@ -4,13 +4,14 @@ export default function ProductList({
   products,
   categories,
   loading,
+  emptyMessage = 'No hay productos todavía.',
   onEdit,
   onToggleActive,
   onToggleAvailable,
   onDelete,
 }) {
   if (loading) return <p className="empty-state">Cargando productos…</p>
-  if (products.length === 0) return <p className="empty-state">No hay productos todavía.</p>
+  if (products.length === 0) return <p className="empty-state">{emptyMessage}</p>
 
   const categoryNameById = Object.fromEntries(categories.map((c) => [c.id, c.name]))
 

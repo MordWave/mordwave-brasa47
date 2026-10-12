@@ -213,6 +213,14 @@ describe('AuditService', () => {
       expect(result.hasMore).toBe(false);
     });
 
+    it('defaults to page 1, limit 20 (shared pagination defaults) when none are given', async () => {
+      auditLogRepo.find.mockResolvedValue([]);
+
+      await service.findAllForBusiness({}, admin);
+
+      expect(auditLogRepo.find).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 21 }));
+    });
+
     it('applies page/limit as skip/take', async () => {
       auditLogRepo.find.mockResolvedValue([]);
 

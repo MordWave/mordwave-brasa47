@@ -2490,6 +2490,75 @@ p {
   display: none;
 }
 
+.admin-menu__filters {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.admin-menu__filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.admin-menu__filters-search {
+  grid-column: 1 / -1;
+}
+
+.admin-menu__filters input,
+.admin-menu__filters select {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--surface);
+  font-family: inherit;
+}
+
+.admin-menu__list--busy {
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.admin-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding-top: 14px;
+}
+
+.admin-pager .btn {
+  width: auto;
+}
+
+.admin-pager__page {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+@media (min-width: 720px) {
+  .admin-menu__filters {
+    grid-template-columns: 2fr 1fr 1fr;
+  }
+
+  .admin-menu__filters-search {
+    grid-column: auto;
+  }
+}
+
 .admin-menu__category-chip {
   flex-shrink: 0;
   display: flex;

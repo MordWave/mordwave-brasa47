@@ -28,12 +28,15 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import type { Paginated } from '../common/pagination.util.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
+import { ProductAdminQueryDto } from './dto/product-admin-query.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
+import { ProductSummaryQueryDto } from './dto/product-summary-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { Product } from './product.entity.js';
-import { ProductService } from './product.service.js';
+import { ProductService, type ProductAdminSummary } from './product.service.js';
 
 // Pure infrastructure-level ceiling (protects the process from buffering an
 // absurdly large upload at all) — the real, user-facing 10 MB business rule
@@ -64,10 +67,20 @@ export class ProductController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   findAllAdmin(
-    @Query() query: ProductQueryDto,
+    @Query() query: ProductAdminQueryDto,
     @CurrentUser() user: SafeUser,
-  ): Promise<Product[]> {
+  ): Promise<Paginated<Product>> {
     return this.productService.findAllAdmin(query, user);
+  }
+
+  @Get('admin/summary')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  getAdminSummary(
+    @Query() query: ProductSummaryQueryDto,
+    @CurrentUser() user: SafeUser,
+  ): Promise<ProductAdminSummary> {
+    return this.productService.getAdminSummary(query, user);
   }
 
   @Get()

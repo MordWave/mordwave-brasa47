@@ -1,12 +1,12 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsISO8601, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsISO8601, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 import { OrderStatus } from '../order-status.enum.js';
 
 // History only ever covers terminal orders — NEW belongs on the live board
 // (GET /orders/admin), never here.
 const HISTORY_STATUSES = [OrderStatus.DELIVERED, OrderStatus.CANCELLED] as const;
 
-export class OrderHistoryQueryDto {
+export class OrderHistoryQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID()
   businessId?: string;
@@ -37,17 +37,4 @@ export class OrderHistoryQueryDto {
   @IsString()
   @MaxLength(40)
   table?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
 }
