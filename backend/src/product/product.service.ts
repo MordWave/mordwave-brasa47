@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import {
   resolveBusinessIdForCreate,
   resolveBusinessIdForRead,
@@ -8,6 +8,7 @@ import {
 } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessLimitsService } from '../business/business-limits.service.js';
 import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
 import { PAGINATION_DEFAULT_LIMIT, PAGINATION_DEFAULT_PAGE } from '../common/pagination.const.js';
@@ -39,6 +40,8 @@ export class ProductService {
     private readonly businessRepository: Repository<Business>,
     private readonly productImageService: ProductImageService,
     private readonly publicBusinessResolver: PublicBusinessResolverService,
+    private readonly dataSource: DataSource,
+    private readonly businessLimits: BusinessLimitsService,
   ) {}
 
   private async assertBusinessExists(businessId: string): Promise<void> {
@@ -154,15 +157,31 @@ export class ProductService {
       dto.addOns ?? [],
     );
     this.assertRemovableIngredientsSubset(dto.ingredients ?? [], dto.removableIngredients ?? []);
-    const product = this.productRepository.create(dto);
-    product.businessId = businessId;
-    return this.productRepository.save(product);
+    // Count + insert run in one transaction behind a FOR UPDATE on the
+    // Business row (see BusinessLimitsService.assertCanCreate) so the
+    // per-Business product ceiling can't be overshot by concurrent creates.
+    return this.dataSource.transaction(async (manager) => {
+      await this.businessLimits.assertCanCreate(manager, businessId, 'product');
+      const productRepository = manager.getRepository(Product);
+      const product = productRepository.create(dto);
+      product.businessId = businessId;
+      return productRepository.save(product);
+    });
   }
 
   private async findActiveCategoryIds(businessId: string, categoryId?: string): Promise<string[]> {
     const where: { active: boolean; businessId: string; id?: string } = { active: true, businessId };
     if (categoryId) where.id = categoryId;
-    const categories = await this.categoryRepository.find({ where, select: { id: true } });
+    const rows = await this.categoryRepository.find({
+      where,
+      select: { id: true },
+      // Defensive ceiling only — a Business can't create more categories
+      // than this, so a normal tenant is never cut off. Asks for one extra
+      // row so a real truncation can be detected (see capList).
+      take: this.businessLimits.getListFetchSize('category'),
+      order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
+    });
+    const categories = this.businessLimits.capList('category', businessId, rows);
     return categories.map((category) => category.id);
   }
 
@@ -180,10 +199,15 @@ export class ProductService {
       return [];
     }
 
-    return this.productRepository.find({
+    // Defensive ceiling = exactly what a Business is allowed to create
+    // (never lower, so a normal tenant is never truncated), with a fully
+    // deterministic order so the cut — if it ever applies — is stable.
+    const rows = await this.productRepository.find({
       where: { active: true, categoryId: In(activeCategoryIds), businessId },
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
+      take: this.businessLimits.getListFetchSize('product'),
     });
+    return this.businessLimits.capList('product', businessId, rows);
   }
 
   // Same tenant scoping as findAllPublic: a product id from another
@@ -328,7 +352,18 @@ export class ProductService {
     this.assertNoDuplicatePersonalizationNames(finalIngredients, finalRemovableIngredients, finalAddOns);
     this.assertRemovableIngredientsSubset(finalIngredients, finalRemovableIngredients);
 
+    const movingToAnotherBusiness = businessId !== product.businessId;
     Object.assign(product, dto, { businessId });
+
+    // Only a SUPER_ADMIN can move a product (see resolveBusinessIdForUpdate).
+    // That consumes quota in the DESTINATION Business, so it goes through the
+    // same locked count as a create.
+    if (movingToAnotherBusiness) {
+      return this.dataSource.transaction(async (manager) => {
+        await this.businessLimits.assertCanCreate(manager, businessId, 'product');
+        return manager.getRepository(Product).save(product);
+      });
+    }
     return this.productRepository.save(product);
   }
 

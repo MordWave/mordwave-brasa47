@@ -30,6 +30,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import type { Paginated } from '../common/pagination.util.js';
 import { UserRole } from '../user/user-role.enum.js';
+import { IMAGE_MULTER_HARD_LIMIT_BYTES } from '../common/limits/resource-limits.const.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { ProductAdminQueryDto } from './dto/product-admin-query.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
@@ -37,11 +38,6 @@ import { ProductSummaryQueryDto } from './dto/product-summary-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { Product } from './product.entity.js';
 import { ProductService, type ProductAdminSummary } from './product.service.js';
-
-// Pure infrastructure-level ceiling (protects the process from buffering an
-// absurdly large upload at all) — the real, user-facing 10 MB business rule
-// is enforced with a proper structured error inside ProductImageService.
-const MULTER_HARD_LIMIT_BYTES = 20 * 1024 * 1024;
 
 @Controller('products')
 export class ProductController {
@@ -151,7 +147,7 @@ export class ProductController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
-      limits: { fileSize: MULTER_HARD_LIMIT_BYTES },
+      limits: { fileSize: IMAGE_MULTER_HARD_LIMIT_BYTES },
     }),
   )
   uploadImage(

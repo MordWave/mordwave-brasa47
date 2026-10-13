@@ -1,7 +1,7 @@
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
-  constructor(status, message, { code, count, productName } = {}) {
+  constructor(status, message, { code, count, productName, limit } = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
@@ -12,6 +12,8 @@ export class ApiError extends Error {
     this.code = code
     this.count = count
     this.productName = productName
+    // Numeric ceiling reported with BUSINESS_*_LIMIT_REACHED errors.
+    this.limit = limit
   }
 }
 
@@ -56,6 +58,7 @@ export async function apiFetch(path, { token, headers, ...options } = {}) {
       code: body?.errorCode,
       count: body?.count,
       productName: body?.productName,
+      limit: body?.limit,
     })
   }
 

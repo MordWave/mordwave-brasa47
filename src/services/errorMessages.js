@@ -1,5 +1,13 @@
 import { ApiError } from './api'
 
+// The numeric ceiling comes from the error body; a missing/garbled value
+// falls back to wording without a number instead of printing "undefined".
+// e.g. "500 productos" / "productos permitidos".
+function limitedCount(limit, noun, adjective) {
+  const n = Number(limit)
+  return Number.isFinite(n) && n > 0 ? `${n} ${noun}` : `${noun} ${adjective}`
+}
+
 // Messages keyed by the backend's structured errorCode — takes priority over
 // the generic per-status fallback below, since these can use real data from
 // the error body (count, productName) instead of a generic sentence. Each
@@ -17,6 +25,14 @@ const MESSAGES_BY_CODE = {
     const verb = n === 1 ? 'Elimínalo o muévelo' : 'Elimínalos o muévelos'
     return `No puedes eliminar esta categoría porque todavía tiene ${n} ${noun}. ${verb} primero.`
   },
+  BUSINESS_PRODUCT_LIMIT_REACHED: (error) =>
+    `Alcanzaste el máximo de ${limitedCount(error.limit, 'productos', 'permitidos')} de tu negocio. Elimina alguno que ya no uses para poder crear uno nuevo.`,
+  BUSINESS_CATEGORY_LIMIT_REACHED: (error) =>
+    `Alcanzaste el máximo de ${limitedCount(error.limit, 'categorías', 'permitidas')} de tu negocio. Elimina alguna que ya no uses para poder crear una nueva.`,
+  BUSINESS_TABLE_LIMIT_REACHED: (error) =>
+    `Alcanzaste el máximo de ${limitedCount(error.limit, 'mesas', 'permitidas')} de tu negocio. Elimina alguna que ya no uses para poder crear una nueva.`,
+  BUSINESS_USER_LIMIT_REACHED: (error) =>
+    `Alcanzaste el máximo de ${limitedCount(error.limit, 'usuarios', 'permitidos')} de tu negocio.`,
   IMAGE_TOO_LARGE: () => 'La imagen es demasiado pesada. El tamaño máximo permitido es 10 MB.',
   IMAGE_INVALID_FORMAT: () =>
     'El archivo no es una imagen válida. Usa JPEG, PNG o WebP.',
