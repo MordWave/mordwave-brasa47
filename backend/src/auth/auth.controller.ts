@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { AuthService, type LoginResult } from './auth.service.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -12,7 +12,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
+  @RateLimit('login')
   login(@Body() dto: LoginDto): Promise<LoginResult> {
     return this.authService.login(dto);
   }

@@ -1,5 +1,5 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { QrTokenDto } from './dto/qr-token.dto.js';
 import { SessionStatusQueryDto } from './dto/session-status-query.dto.js';
 import { JoinResult, SessionStatusResult, TableSessionService } from './table-session.service.js';
@@ -20,17 +20,14 @@ export class TableSessionController {
 
   @Post('join')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
+  @RateLimit('tableJoin')
   join(@Body() dto: QrTokenDto): Promise<JoinResult> {
     return this.tableSessionService.join(dto.qrToken);
   }
 
   @Post('status')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
-  // Raised well above the module's default 'table-sessions' limit — see
-  // TableModule for the reasoning (many devices, one shared IP, 12s poll).
-  @Throttle({ 'table-sessions': { limit: 300, ttl: 60_000 } })
+  @RateLimit('tableStatus')
   status(@Body() dto: SessionStatusQueryDto): Promise<SessionStatusResult> {
     return this.tableSessionService.status(dto.sessionToken);
   }

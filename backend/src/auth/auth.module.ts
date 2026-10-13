@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule, type JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { ThrottlerModule } from '@nestjs/throttler';
 import jwtConfig from '../config/jwt.config.js';
 import { UserModule } from '../user/user.module.js';
 import { AuthController } from './auth.controller.js';
@@ -32,17 +31,6 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
         } as JwtModuleOptions['signOptions'],
       }),
     }),
-    // Scoped to this module and applied only via @UseGuards(ThrottlerGuard)
-    // on AuthController's login route (not registered as a global guard),
-    // so no other endpoint is rate-limited by this. Adjust limit/ttl here
-    // to retune it later.
-    ThrottlerModule.forRoot([
-      {
-        name: 'login',
-        ttl: 60_000, // 1 minute, in ms
-        limit: 5, // max 5 login attempts per IP per minute
-      },
-    ]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],

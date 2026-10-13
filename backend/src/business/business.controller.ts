@@ -22,6 +22,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { BusinessService } from './business.service.js';
 import { Business } from './business.entity.js';
@@ -77,6 +78,7 @@ export class BusinessController {
 
   @Post('me/logo')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @RateLimit('upload')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @UseInterceptors(
     FileInterceptor('file', {
