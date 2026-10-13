@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ThrottlerModule } from '@nestjs/throttler';
 import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { Product } from '../product/product.entity.js';
@@ -24,17 +23,6 @@ import { OrderService } from './order.service.js';
     // Gives OrderController access to AuditService for its explicit
     // updateStatus() audit call (DELIVERED/CANCELLED).
     AuditModule,
-    // Scoped to this module, applied only via @UseGuards(ThrottlerGuard) on
-    // POST /orders — the one public, unauthenticated write in this app.
-    // Same isolated mechanism as AuthModule's own throttler for
-    // /auth/login, with its own separate limit (see order.controller.ts).
-    ThrottlerModule.forRoot([
-      {
-        name: 'orders',
-        ttl: 60_000, // 1 minute, in ms
-        limit: 20, // max 20 order submissions per IP per minute
-      },
-    ]),
   ],
   controllers: [OrderController],
   providers: [OrderService],

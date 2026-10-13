@@ -20,7 +20,7 @@ async function bootstrap() {
   // platform logs (no secrets involved).
   const security = app.get<ConfigType<typeof securityConfig>>(securityConfig.KEY);
   Logger.log(
-    `Client IP resolution: CLIENT_IP_HEADER=${security.clientIpHeader ?? '(none)'}, TRUST_PROXY=${String(security.trustProxy)}, IP diagnostics ${security.ipDiagnosticsEnabled ? 'ENABLED' : 'disabled'}`,
+    `Client IP resolution: CLIENT_IP_HEADER=${security.clientIpHeader ?? '(none)'}, TRUST_PROXY=${String(security.trustProxy)}`,
     'Bootstrap',
   );
   const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:5173')

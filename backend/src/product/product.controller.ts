@@ -37,6 +37,7 @@ import { ProductQueryDto } from './dto/product-query.dto.js';
 import { ProductSummaryQueryDto } from './dto/product-summary-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { Product } from './product.entity.js';
+import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { ProductService, type ProductAdminSummary } from './product.service.js';
 
 @Controller('products')
@@ -80,11 +81,13 @@ export class ProductController {
   }
 
   @Get()
+  @RateLimit('publicMenu')
   findAll(@Query() query: ProductQueryDto): Promise<Product[]> {
     return this.productService.findAllPublic(query);
   }
 
   @Get(':id')
+  @RateLimit('publicMenu')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ProductQueryDto,
@@ -143,6 +146,7 @@ export class ProductController {
 
   @Post(':id/image')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @RateLimit('upload')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @UseInterceptors(
     FileInterceptor('file', {

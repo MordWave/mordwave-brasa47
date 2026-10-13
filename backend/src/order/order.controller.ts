@@ -1,5 +1,4 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AUDIT_ACTIONS, AUDIT_ENTITY_TYPES } from '../audit/audit-actions.const.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -9,6 +8,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
 import { OrderHistoryQueryDto } from './dto/order-history-query.dto.js';
@@ -25,12 +25,11 @@ export class OrderController {
     private readonly auditService: AuditService,
   ) {}
 
-  // Public, unauthenticated — a customer's table submits its own order. See
-  // Order's SECURITY NOTE: `table` is unverified free text, and this
-  // ThrottlerGuard (20/min per IP — see order.module.ts) is a basic abuse
-  // guard, not a substitute for a real table session.
+  // Public, unauthenticated — a customer's table submits its own order; the
+  // table/business come from the sessionToken, never from the client.
+  // Rate limited per sessionToken and per IP (see rate-limit.config.ts).
   @Post()
-  @UseGuards(ThrottlerGuard)
+  @RateLimit('ordersCreate')
   create(@Body() dto: CreateOrderDto): Promise<Order> {
     return this.orderService.create(dto);
   }

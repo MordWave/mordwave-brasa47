@@ -23,6 +23,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { Category } from './category.entity.js';
 import { CategoryService } from './category.service.js';
@@ -61,6 +62,7 @@ export class CategoryController {
   }
 
   @Get()
+  @RateLimit('publicMenu')
   findAll(@Query() query: CategoryQueryDto): Promise<Category[]> {
     return this.categoryService.findAllPublic(query);
   }

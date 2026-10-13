@@ -33,6 +33,9 @@ const MESSAGES_BY_CODE = {
     `Alcanzaste el máximo de ${limitedCount(error.limit, 'mesas', 'permitidas')} de tu negocio. Elimina alguna que ya no uses para poder crear una nueva.`,
   BUSINESS_USER_LIMIT_REACHED: (error) =>
     `Alcanzaste el máximo de ${limitedCount(error.limit, 'usuarios', 'permitidos')} de tu negocio.`,
+  // 429 from the backend's rate limiter (any route). Deliberately generic:
+  // the response says nothing about which limit was hit.
+  RATE_LIMITED: () => 'Demasiadas solicitudes. Espera un momento e inténtalo nuevamente.',
   IMAGE_TOO_LARGE: () => 'La imagen es demasiado pesada. El tamaño máximo permitido es 10 MB.',
   IMAGE_INVALID_FORMAT: () =>
     'El archivo no es una imagen válida. Usa JPEG, PNG o WebP.',

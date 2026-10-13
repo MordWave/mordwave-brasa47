@@ -35,7 +35,4 @@ export default registerAs('security', () => ({
   // CLIENT_IP_HEADER (e.g. "x-real-ip") — see common/client-ip/client-ip.ts.
   // Validated here so a malformed value stops the app at startup.
   clientIpHeader: parseClientIpHeader(process.env.CLIENT_IP_HEADER),
-  // Temporary GET /diagnostics/client-ip. Strictly opt-in: only the literal
-  // string "true" enables it.
-  ipDiagnosticsEnabled: process.env.ENABLE_IP_DIAGNOSTICS === 'true',
 }));
