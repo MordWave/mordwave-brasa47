@@ -5,6 +5,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { StorageModule } from '../storage/storage.module.js';
 import { Business } from './business.entity.js';
 import { BusinessController } from './business.controller.js';
+import { BusinessLimitsService } from './business-limits.service.js';
 import { BusinessService } from './business.service.js';
 import { PublicBusinessResolverService } from './public-business-resolver.service.js';
 
@@ -22,7 +23,7 @@ import { PublicBusinessResolverService } from './public-business-resolver.servic
     AuditModule,
   ],
   controllers: [BusinessController],
-  providers: [PublicBusinessResolverService, BusinessService],
-  exports: [TypeOrmModule, PublicBusinessResolverService],
+  providers: [PublicBusinessResolverService, BusinessService, BusinessLimitsService],
+  exports: [TypeOrmModule, PublicBusinessResolverService, BusinessLimitsService],
 })
 export class BusinessModule {}

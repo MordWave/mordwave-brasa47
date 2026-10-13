@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessLimitsService } from '../business/business-limits.service.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { RestaurantTable } from './table.entity.js';
 import { TableSession } from './table-session.entity.js';
@@ -21,6 +22,20 @@ function createRepoMock() {
   };
 }
 
+function createBusinessLimitsMock() {
+  const limits: Record<string, number> = { product: 500, category: 50, table: 200, user: 20 };
+  return {
+    assertCanCreate: vi.fn(async () => undefined),
+    getLimit: vi.fn((resource: string) => limits[resource]),
+    getListFetchSize: vi.fn((resource: string) => limits[resource] + 1),
+    // Same contract as the real one: trims to the limit (the real service
+    // also logs when it actually trims — covered in its own spec).
+    capList: vi.fn((resource: string, _businessId: string | undefined, rows: unknown[]) =>
+      rows.slice(0, limits[resource]),
+    ),
+  };
+}
+
 function getErrorBody(error: unknown): Record<string, unknown> {
   return (error as { getResponse: () => Record<string, unknown> }).getResponse();
 }
@@ -31,6 +46,8 @@ describe('TableService', () => {
   let businessRepo: ReturnType<typeof createRepoMock>;
   let tableSessionRepo: ReturnType<typeof createRepoMock>;
   let dataSource: { transaction: ReturnType<typeof vi.fn> };
+  let businessLimits: ReturnType<typeof createBusinessLimitsMock>;
+  let transactionManager: { getRepository: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -58,17 +75,16 @@ describe('TableService', () => {
     // update() runs inside a transaction — manager.getRepository() routes
     // to the same mocks as the plain injected ones, same approach as
     // TableSessionService's own spec.
-    dataSource = {
-      transaction: vi.fn(async (cb: (manager: unknown) => unknown) => {
-        const manager = {
-          getRepository: vi.fn((entity: unknown) => {
-            if (entity === RestaurantTable) return tableRepo;
-            if (entity === TableSession) return tableSessionRepo;
-            throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
-          }),
-        };
-        return cb(manager);
+    businessLimits = createBusinessLimitsMock();
+    transactionManager = {
+      getRepository: vi.fn((entity: unknown) => {
+        if (entity === RestaurantTable) return tableRepo;
+        if (entity === TableSession) return tableSessionRepo;
+        throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
       }),
+    };
+    dataSource = {
+      transaction: vi.fn(async (cb: (manager: unknown) => unknown) => cb(transactionManager)),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -78,10 +94,76 @@ describe('TableService', () => {
         { provide: getRepositoryToken(Business), useValue: businessRepo },
         { provide: getRepositoryToken(TableSession), useValue: tableSessionRepo },
         { provide: DataSource, useValue: dataSource },
+        { provide: BusinessLimitsService, useValue: businessLimits },
       ],
     }).compile();
 
     service = moduleRef.get(TableService);
+  });
+
+  describe('per-Business table limit', () => {
+    it('create() checks the limit for the resolved Business, inside the transaction, before saving', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      const order: string[] = [];
+      businessLimits.assertCanCreate.mockImplementation(async () => {
+        order.push('limit');
+      });
+      tableRepo.save.mockImplementation(async (entity: unknown) => {
+        order.push('save');
+        return entity;
+      });
+
+      await service.create({ name: 'Mesa 1', businessId: 'x' }, admin);
+
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'table');
+      expect(order).toEqual(['limit', 'save']);
+    });
+
+    it('create() never saves when the limit is reached', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      businessLimits.assertCanCreate.mockRejectedValue(
+        new ConflictException({ errorCode: 'BUSINESS_TABLE_LIMIT_REACHED', limit: 200 }),
+      );
+
+      await expect(service.create({ name: 'Mesa 1', businessId: 'x' }, admin)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(tableRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('SUPER_ADMIN is not exempt: the limit is checked against the Business they target', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-2' });
+
+      await service.create({ name: 'Mesa 1', businessId: 'biz-2' }, superAdmin);
+
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'table');
+    });
+
+    it('admin list asks for one extra row (limit + 1) with a deterministic order', async () => {
+      tableRepo.find.mockResolvedValue([]);
+
+      await service.findAllAdmin({}, admin);
+
+      expect(tableRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 201, order: { createdAt: 'ASC', id: 'ASC' } }),
+      );
+      expect(businessLimits.capList).toHaveBeenCalledWith('table', 'biz-1', []);
+    });
+
+    it('admin list exactly at the limit: returns all 200 tables, nothing trimmed', async () => {
+      tableRepo.find.mockResolvedValue(Array.from({ length: 200 }, (_, i) => ({ id: `t${i}`, name: `M${i}`, active: true })));
+
+      await expect(service.findAllAdmin({}, admin)).resolves.toHaveLength(200);
+    });
+
+    it('admin list above the limit: returns only the first 200, in order', async () => {
+      tableRepo.find.mockResolvedValue(Array.from({ length: 201 }, (_, i) => ({ id: `t${i}`, name: `M${i}`, active: true })));
+
+      const result = await service.findAllAdmin({}, admin);
+
+      expect(result).toHaveLength(200);
+      expect(result.at(-1)).toMatchObject({ id: 't199' });
+    });
   });
 
   describe('create', () => {

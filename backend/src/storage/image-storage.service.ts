@@ -2,15 +2,13 @@ import { BadGatewayException, BadRequestException, Inject, Injectable } from '@n
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
+import {
+  IMAGE_MAX_FILE_SIZE_BYTES,
+  IMAGE_MAX_INPUT_PIXELS,
+  IMAGE_MAX_OUTPUT_DIMENSION,
+  IMAGE_OUTPUT_QUALITY,
+} from '../common/limits/resource-limits.const.js';
 import supabaseConfig from '../config/supabase.config.js';
-
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB, matches the bucket's own limit
-// ~50 megapixels — comfortably above any phone camera's output, but bounded
-// enough to reject a deliberately crafted "pixel bomb" before sharp decodes
-// the full image into memory.
-const MAX_INPUT_PIXELS = 50_000_000;
-const MAX_OUTPUT_DIMENSION = 1200; // plenty for a menu card/detail view or a logo
-const OUTPUT_QUALITY = 80;
 
 // HEIC/HEIF (iPhone) is allowed through this check, but whether sharp can
 // actually decode it depends on how it was built (libvips w/ libheif) — that
@@ -52,7 +50,7 @@ export class ImageStorageService {
   // cache-busting query param) only once the file actually exists in
   // Storage — callers should not persist anything until this resolves.
   async upload(path: string, file: UploadableFile): Promise<string> {
-    if (file.size > MAX_FILE_SIZE_BYTES) {
+    if (file.size > IMAGE_MAX_FILE_SIZE_BYTES) {
       throw new BadRequestException({
         message: 'Uploaded file exceeds the maximum allowed size (10 MB)',
         errorCode: 'IMAGE_TOO_LARGE',
@@ -69,15 +67,15 @@ export class ImageStorageService {
 
     let webpBuffer: Buffer;
     try {
-      webpBuffer = await sharp(file.buffer, { limitInputPixels: MAX_INPUT_PIXELS })
+      webpBuffer = await sharp(file.buffer, { limitInputPixels: IMAGE_MAX_INPUT_PIXELS })
         .rotate() // auto-orients from EXIF before it gets stripped below
         .resize({
-          width: MAX_OUTPUT_DIMENSION,
-          height: MAX_OUTPUT_DIMENSION,
+          width: IMAGE_MAX_OUTPUT_DIMENSION,
+          height: IMAGE_MAX_OUTPUT_DIMENSION,
           fit: 'inside',
           withoutEnlargement: true,
         })
-        .webp({ quality: OUTPUT_QUALITY })
+        .webp({ quality: IMAGE_OUTPUT_QUALITY })
         .toBuffer();
       // .withMetadata() is deliberately never called — sharp strips EXIF/ICC
       // metadata by default, which is what "eliminar metadata innecesaria" asks for.

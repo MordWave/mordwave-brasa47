@@ -6,10 +6,11 @@ import {
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ILike } from 'typeorm';
+import { DataSource, ILike } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessLimitsService } from '../business/business-limits.service.js';
 import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
@@ -26,6 +27,20 @@ function createRepoMock() {
     findAndCount: vi.fn(),
     createQueryBuilder: vi.fn(),
     softDelete: vi.fn(),
+  };
+}
+
+function createBusinessLimitsMock() {
+  const limits: Record<string, number> = { product: 500, category: 50, table: 200, user: 20 };
+  return {
+    assertCanCreate: vi.fn(async () => undefined),
+    getLimit: vi.fn((resource: string) => limits[resource]),
+    getListFetchSize: vi.fn((resource: string) => limits[resource] + 1),
+    // Same contract as the real one: trims to the limit (the real service
+    // also logs when it actually trims — covered in its own spec).
+    capList: vi.fn((resource: string, _businessId: string | undefined, rows: unknown[]) =>
+      rows.slice(0, limits[resource]),
+    ),
   };
 }
 
@@ -47,6 +62,8 @@ describe('ProductService', () => {
   let businessRepo: ReturnType<typeof createRepoMock>;
   let productImageService: ReturnType<typeof createProductImageServiceMock>;
   let publicBusinessResolver: ReturnType<typeof createPublicBusinessResolverMock>;
+  let businessLimits: ReturnType<typeof createBusinessLimitsMock>;
+  let transactionManager: { getRepository: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -70,6 +87,19 @@ describe('ProductService', () => {
     businessRepo = createRepoMock();
     productImageService = createProductImageServiceMock();
     publicBusinessResolver = createPublicBusinessResolverMock();
+    businessLimits = createBusinessLimitsMock();
+
+    // create()/moves run inside a transaction — manager.getRepository() routes
+    // to the same product mock as the injected repository.
+    transactionManager = {
+      getRepository: vi.fn((entity: unknown) => {
+        if (entity === Product) return productRepo;
+        throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
+      }),
+    };
+    const dataSource = {
+      transaction: vi.fn(async (cb: (manager: unknown) => unknown) => cb(transactionManager)),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -79,6 +109,8 @@ describe('ProductService', () => {
         { provide: getRepositoryToken(Business), useValue: businessRepo },
         { provide: ProductImageService, useValue: productImageService },
         { provide: PublicBusinessResolverService, useValue: publicBusinessResolver },
+        { provide: DataSource, useValue: dataSource },
+        { provide: BusinessLimitsService, useValue: businessLimits },
       ],
     }).compile();
 
@@ -508,6 +540,171 @@ describe('ProductService', () => {
       mockBuilder([]);
 
       await expect(service.getAdminSummary({}, admin)).resolves.toEqual({ total: 0, byCategory: {} });
+    });
+  });
+
+  describe('per-Business product limit', () => {
+    const limitError = () =>
+      new ConflictException({
+        message: 'The maximum number of products for this business (500) has been reached',
+        errorCode: 'BUSINESS_PRODUCT_LIMIT_REACHED',
+        limit: 500,
+      });
+
+    it('create() checks the limit for the resolved Business, inside the transaction, before saving', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+      const order: string[] = [];
+      businessLimits.assertCanCreate.mockImplementation(async () => {
+        order.push('limit');
+      });
+      productRepo.save.mockImplementation(async (entity: unknown) => {
+        order.push('save');
+        return entity;
+      });
+
+      await service.create({ name: 'Producto', price: 1000, businessId: 'x', categoryId: 'cat-1' }, admin);
+
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'product');
+      expect(order).toEqual(['limit', 'save']);
+    });
+
+    it('create() never saves when the limit is reached, and the 409 error propagates untouched', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+      businessLimits.assertCanCreate.mockRejectedValue(limitError());
+
+      const attempt = service.create({ name: 'Producto', price: 1000, businessId: 'x', categoryId: 'cat-1' }, admin);
+
+      await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('SUPER_ADMIN is not exempt: the limit is checked against the Business they target', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-2' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-9', businessId: 'biz-2', active: true });
+
+      await service.create({ name: 'Producto', price: 1000, businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin);
+
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product');
+    });
+
+    it('moving a product to another Business consumes quota in the DESTINATION (locked check before saving)', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: true });
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-2' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-9', businessId: 'biz-2', active: true });
+
+      await service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin);
+
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product');
+      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', businessId: 'biz-2' }));
+    });
+
+    it('a move into a full Business is rejected and nothing is saved', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: true });
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-2' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-9', businessId: 'biz-2', active: true });
+      businessLimits.assertCanCreate.mockRejectedValue(limitError());
+
+      await expect(
+        service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('an ordinary update (same Business) never touches the limit', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: true });
+
+      await service.update('p1', { name: 'renamed' }, admin);
+
+      expect(businessLimits.assertCanCreate).not.toHaveBeenCalled();
+      expect(productRepo.save).toHaveBeenCalled();
+    });
+
+    it('reactivating (active false -> true) does not consume quota — the row already counts', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: false });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+      await service.update('p1', { active: true }, admin);
+
+      expect(businessLimits.assertCanCreate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('public menu defensive cap', () => {
+    const rowsOf = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}` }));
+
+    it('asks for ONE row more than the product limit (to detect real truncation) with a fully deterministic order', async () => {
+      publicBusinessResolver.resolve.mockResolvedValue('biz-1');
+      categoryRepo.find.mockResolvedValue([{ id: 'cat-1' }]);
+      productRepo.find.mockResolvedValue(rowsOf(1));
+
+      await service.findAllPublic({ businessSlug: 'brasa-47' });
+
+      expect(productRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 501,
+          order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
+        }),
+      );
+      expect(businessLimits.getListFetchSize).toHaveBeenCalledWith('product');
+    });
+
+    it('exactly at the limit: returns every product, nothing is trimmed', async () => {
+      publicBusinessResolver.resolve.mockResolvedValue('biz-1');
+      categoryRepo.find.mockResolvedValue([{ id: 'cat-1' }]);
+      productRepo.find.mockResolvedValue(rowsOf(500));
+
+      const result = await service.findAllPublic({ businessSlug: 'brasa-47' });
+
+      expect(result).toHaveLength(500);
+      expect(businessLimits.capList).toHaveBeenCalledWith('product', 'biz-1', expect.any(Array));
+    });
+
+    it('above the limit (the extra probe row exists): returns only the first `limit`, in order', async () => {
+      publicBusinessResolver.resolve.mockResolvedValue('biz-1');
+      categoryRepo.find.mockResolvedValue([{ id: 'cat-1' }]);
+      productRepo.find.mockResolvedValue(rowsOf(501));
+
+      const result = await service.findAllPublic({ businessSlug: 'brasa-47' });
+
+      expect(result).toHaveLength(500);
+      expect(result[0]).toEqual({ id: 'p0' });
+      expect(result.at(-1)).toEqual({ id: 'p499' });
+    });
+
+    it('asks for one extra category row too, deterministically ordered, and caps the ids it uses', async () => {
+      publicBusinessResolver.resolve.mockResolvedValue('biz-1');
+      categoryRepo.find.mockResolvedValue(
+        Array.from({ length: 51 }, (_, i) => ({ id: `cat-${i}` })),
+      );
+      productRepo.find.mockResolvedValue([]);
+
+      await service.findAllPublic({ businessSlug: 'brasa-47' });
+
+      expect(categoryRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 51,
+          order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
+        }),
+      );
+      // 51 rows came back; only the first 50 category ids reach the product query.
+      const categoryIdFilter = productRepo.find.mock.calls[0][0].where.categoryId;
+      expect(categoryIdFilter.value).toHaveLength(50);
+      expect(categoryIdFilter.value).not.toContain('cat-50');
+    });
+
+    it('the public cap is never lower than what a Business may create (same limit source)', async () => {
+      businessLimits.getLimit.mockImplementation((resource: string) => (resource === 'product' ? 123 : 7));
+      businessLimits.getListFetchSize.mockImplementation((resource: string) => (resource === 'product' ? 124 : 8));
+      publicBusinessResolver.resolve.mockResolvedValue('biz-1');
+      categoryRepo.find.mockResolvedValue([{ id: 'cat-1' }]);
+      productRepo.find.mockResolvedValue([]);
+
+      await service.findAllPublic({ businessSlug: 'brasa-47' });
+
+      expect(productRepo.find).toHaveBeenCalledWith(expect.objectContaining({ take: 124 }));
+      expect(categoryRepo.find).toHaveBeenCalledWith(expect.objectContaining({ take: 8 }));
     });
   });
 

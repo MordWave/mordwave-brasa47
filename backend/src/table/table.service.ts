@@ -8,6 +8,7 @@ import {
 } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessLimitsService } from '../business/business-limits.service.js';
 import { CreateTableDto } from './dto/create-table.dto.js';
 import { TableQueryDto } from './dto/table-query.dto.js';
 import { UpdateTableDto } from './dto/update-table.dto.js';
@@ -52,6 +53,7 @@ export class TableService {
     @InjectRepository(TableSession)
     private readonly tableSessionRepository: Repository<TableSession>,
     private readonly dataSource: DataSource,
+    private readonly businessLimits: BusinessLimitsService,
   ) {}
 
   private async assertBusinessExists(businessId: string): Promise<void> {
@@ -65,13 +67,19 @@ export class TableService {
     const businessId = resolveBusinessIdForCreate(user, dto.businessId);
     await this.assertBusinessExists(businessId);
 
-    const table = this.tableRepository.create({
-      name: dto.name,
-      businessId,
-      active: dto.active ?? true,
-      qrToken: generateOpaqueToken(),
+    // Count + insert in one transaction behind a FOR UPDATE on the Business
+    // row — see BusinessLimitsService.assertCanCreate.
+    const saved = await this.dataSource.transaction(async (manager) => {
+      await this.businessLimits.assertCanCreate(manager, businessId, 'table');
+      const tableRepository = manager.getRepository(RestaurantTable);
+      const table = tableRepository.create({
+        name: dto.name,
+        businessId,
+        active: dto.active ?? true,
+        qrToken: generateOpaqueToken(),
+      });
+      return tableRepository.save(table);
     });
-    const saved = await this.tableRepository.save(table);
     return toPublicTable(saved);
   }
 
@@ -84,7 +92,14 @@ export class TableService {
     const businessId = resolveBusinessIdForRead(user, query.businessId);
     const where: { businessId?: string } = {};
     if (businessId) where.businessId = businessId;
-    const tables = await this.tableRepository.find({ where, order: { createdAt: 'ASC' } });
+    // Capped at the number of tables a Business may create (never lower),
+    // deterministic order (RestaurantTable has no sortOrder column).
+    const rows = await this.tableRepository.find({
+      where,
+      order: { createdAt: 'ASC', id: 'ASC' },
+      take: this.businessLimits.getListFetchSize('table'),
+    });
+    const tables = this.businessLimits.capList('table', businessId, rows);
     if (tables.length === 0) return [];
 
     const openSessions = await this.tableSessionRepository.find({

@@ -25,12 +25,9 @@ import type { SafeUser } from '../auth/safe-user.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { BusinessService } from './business.service.js';
 import { Business } from './business.entity.js';
+import { IMAGE_MULTER_HARD_LIMIT_BYTES } from '../common/limits/resource-limits.const.js';
 import { BusinessQueryDto } from './dto/business-query.dto.js';
 import { UpdateBusinessDto } from './dto/update-business.dto.js';
-
-// Pure infrastructure-level ceiling, same as ProductController's own — the
-// real 10 MB business rule is enforced inside ImageStorageService.
-const MULTER_HARD_LIMIT_BYTES = 20 * 1024 * 1024;
 
 // "My own business" surface — no business-creation endpoint here (out of
 // scope for this phase; a Business still only ever comes from the seed
@@ -84,7 +81,7 @@ export class BusinessController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
-      limits: { fileSize: MULTER_HARD_LIMIT_BYTES },
+      limits: { fileSize: IMAGE_MULTER_HARD_LIMIT_BYTES },
     }),
   )
   async uploadLogo(

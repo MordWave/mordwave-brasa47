@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   resolveBusinessIdForCreate,
   resolveBusinessIdForRead,
@@ -8,6 +8,7 @@ import {
 } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessLimitsService } from '../business/business-limits.service.js';
 import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Product } from '../product/product.entity.js';
 import { Category } from './category.entity.js';
@@ -25,6 +26,8 @@ export class CategoryService {
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
     private readonly publicBusinessResolver: PublicBusinessResolverService,
+    private readonly dataSource: DataSource,
+    private readonly businessLimits: BusinessLimitsService,
   ) {}
 
   private async assertBusinessExists(businessId: string): Promise<void> {
@@ -41,9 +44,15 @@ export class CategoryService {
   async create(dto: CreateCategoryDto, user: SafeUser): Promise<Category> {
     const businessId = resolveBusinessIdForCreate(user, dto.businessId);
     await this.assertBusinessExists(businessId);
-    const category = this.categoryRepository.create(dto);
-    category.businessId = businessId;
-    return this.categoryRepository.save(category);
+    // Count + insert in one transaction behind a FOR UPDATE on the Business
+    // row — see BusinessLimitsService.assertCanCreate.
+    return this.dataSource.transaction(async (manager) => {
+      await this.businessLimits.assertCanCreate(manager, businessId, 'category');
+      const categoryRepository = manager.getRepository(Category);
+      const category = categoryRepository.create(dto);
+      category.businessId = businessId;
+      return categoryRepository.save(category);
+    });
   }
 
   // Public menu read — active:false categories never show up here. Always
@@ -51,10 +60,14 @@ export class CategoryService {
   // unscoped public read would otherwise mix every tenant's menu together.
   async findAllPublic(query: CategoryQueryDto): Promise<Category[]> {
     const businessId = await this.publicBusinessResolver.resolve(query);
-    return this.categoryRepository.find({
+    // Defensive ceiling = what a Business may create (never lower), with a
+    // deterministic order.
+    const rows = await this.categoryRepository.find({
       where: { businessId, active: true },
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
+      take: this.businessLimits.getListFetchSize('category'),
     });
+    return this.businessLimits.capList('category', businessId, rows);
   }
 
   // Admin listing — includes active:false categories, scoped to the
@@ -62,10 +75,12 @@ export class CategoryService {
   // whatever they ask for, or everything if unscoped).
   async findAllAdmin(query: CategoryQueryDto, user: SafeUser): Promise<Category[]> {
     const businessId = resolveBusinessIdForRead(user, query.businessId);
-    return this.categoryRepository.find({
+    const rows = await this.categoryRepository.find({
       where: businessId ? { businessId } : {},
-      order: { sortOrder: 'ASC', createdAt: 'ASC' },
+      order: { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' },
+      take: this.businessLimits.getListFetchSize('category'),
     });
+    return this.businessLimits.capList('category', businessId, rows);
   }
 
   // Internal lookup, no active filter — used by update() so a deactivated
