@@ -1,4 +1,5 @@
 import { registerAs } from '@nestjs/config';
+import { parseClientIpHeader } from '../common/client-ip/client-ip.js';
 
 // Express's `trust proxy` setting — controls how req.ip (and the
 // X-Forwarded-For chain) is resolved. Configurable per environment rather
@@ -31,4 +32,10 @@ export function resolveTrustProxy(value: string | undefined): boolean | number {
 
 export default registerAs('security', () => ({
   trustProxy: resolveTrustProxy(process.env.TRUST_PROXY),
+  // CLIENT_IP_HEADER (e.g. "x-real-ip") — see common/client-ip/client-ip.ts.
+  // Validated here so a malformed value stops the app at startup.
+  clientIpHeader: parseClientIpHeader(process.env.CLIENT_IP_HEADER),
+  // Temporary GET /diagnostics/client-ip. Strictly opt-in: only the literal
+  // string "true" enables it.
+  ipDiagnosticsEnabled: process.env.ENABLE_IP_DIAGNOSTICS === 'true',
 }));

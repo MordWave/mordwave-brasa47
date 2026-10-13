@@ -1,8 +1,9 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import type { ConfigType } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
-import { resolveTrustProxy } from './config/security.config.js';
+import securityConfig, { resolveTrustProxy } from './config/security.config.js';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -15,6 +16,13 @@ async function bootstrap() {
   // from a phone on the same Wi-Fi) can both be allowed at once — see
   // .env's FRONTEND_URL. Never hardcode a LAN IP here; it always comes
   // from the environment.
+  // One startup line so the effective IP-resolution setup is visible in the
+  // platform logs (no secrets involved).
+  const security = app.get<ConfigType<typeof securityConfig>>(securityConfig.KEY);
+  Logger.log(
+    `Client IP resolution: CLIENT_IP_HEADER=${security.clientIpHeader ?? '(none)'}, TRUST_PROXY=${String(security.trustProxy)}, IP diagnostics ${security.ipDiagnosticsEnabled ? 'ENABLED' : 'disabled'}`,
+    'Bootstrap',
+  );
   const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:5173')
     .split(',')
     .map((origin) => origin.trim())
