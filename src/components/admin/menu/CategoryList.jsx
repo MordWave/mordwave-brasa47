@@ -1,3 +1,5 @@
+import RowActionsMenu from '../RowActionsMenu'
+
 export default function CategoryList({ categories, loading, onEdit, onToggleActive, onDelete }) {
   if (loading) return <p className="empty-state">Cargando categorías…</p>
   if (categories.length === 0) return <p className="empty-state">No hay categorías todavía.</p>
@@ -24,20 +26,23 @@ export default function CategoryList({ categories, loading, onEdit, onToggleActi
             <button type="button" className="btn btn--outline btn--small" onClick={() => onEdit(category)}>
               Editar
             </button>
-            <button
-              type="button"
-              className="btn btn--outline btn--small"
-              onClick={() => onToggleActive(category)}
-            >
-              {category.active ? 'Desactivar' : 'Activar'}
-            </button>
-            <button
-              type="button"
-              className="btn btn--outline btn--small admin-menu__delete-btn"
-              onClick={() => onDelete(category)}
-            >
-              Eliminar
-            </button>
+            <RowActionsMenu
+              label={`Más acciones para ${category.name}`}
+              items={[
+                {
+                  key: 'active',
+                  label: category.active ? 'Desactivar' : 'Activar',
+                  onSelect: () => onToggleActive(category),
+                },
+                {
+                  key: 'delete',
+                  label: 'Eliminar',
+                  destructive: true,
+                  separatorBefore: true,
+                  onSelect: () => onDelete(category),
+                },
+              ]}
+            />
           </div>
         </div>
       ))}
