@@ -1,20 +1,13 @@
 import { registerAs } from '@nestjs/config';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
-
-// Unset by default — the pg driver's own default pool size (10) applies,
-// same as always. Exists only so a test with an unusual connection target
-// (see backend/test/support/test-database.ts: an ephemeral local Postgres
-// that can only tolerate a single connection at a time) can force a small
-// pool without touching this file's real branches.
-function poolExtra(): { max: number } | undefined {
-  const max = Number(process.env.DB_POOL_MAX);
-  return Number.isInteger(max) && max > 0 ? { max } : undefined;
-}
+import { buildPgPoolExtra, loadDbOperationalConfig } from './database-operational.config.js';
 
 export default registerAs(
   'database',
   (): TypeOrmModuleOptions => {
     const databaseUrl = process.env.DATABASE_URL;
+    // Throws on an invalid DB_* value, which stops the app at startup.
+    const extra = buildPgPoolExtra(loadDbOperationalConfig());
 
     if (databaseUrl) {
       return {
@@ -25,7 +18,7 @@ export default registerAs(
         // Schema changes go exclusively through TypeORM migrations from here
         // on — synchronize never runs, in dev or production.
         synchronize: false,
-        extra: poolExtra(),
+        extra,
       };
     }
 
@@ -38,7 +31,7 @@ export default registerAs(
       database: process.env.DB_NAME ?? 'brasa47',
       autoLoadEntities: true,
       synchronize: process.env.NODE_ENV !== 'production',
-      extra: poolExtra(),
+      extra,
     };
   },
 );

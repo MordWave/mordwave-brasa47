@@ -36,6 +36,10 @@ const MESSAGES_BY_CODE = {
   // 429 from the backend's rate limiter (any route). Deliberately generic:
   // the response says nothing about which limit was hit.
   RATE_LIMITED: () => 'Demasiadas solicitudes. Espera un momento e inténtalo nuevamente.',
+  PAYLOAD_TOO_LARGE: () => 'El contenido enviado es demasiado grande.',
+  REQUEST_TIMEOUT: () => 'La solicitud tardó demasiado. Inténtalo nuevamente.',
+  TEMPORARILY_UNAVAILABLE: () =>
+    'El servicio no está disponible temporalmente. Inténtalo nuevamente en unos instantes.',
   IMAGE_TOO_LARGE: () => 'La imagen es demasiado pesada. El tamaño máximo permitido es 10 MB.',
   IMAGE_INVALID_FORMAT: () =>
     'El archivo no es una imagen válida. Usa JPEG, PNG o WebP.',

@@ -6,6 +6,7 @@ import { AppService } from './app.service.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { BusinessModule } from './business/business.module.js';
+import { HttpProtectionModule } from './common/http/http-protection.module.js';
 import { CategoryModule } from './category/category.module.js';
 import resourceLimitsConfig from './config/resource-limits.config.js';
 import databaseConfig from './config/typeorm.config.js';
@@ -30,6 +31,7 @@ import { UserModule } from './user/user.module.js';
     }),
     AuditModule,
     RateLimitModule,
+    HttpProtectionModule,
     BusinessModule,
     CategoryModule,
     ProductModule,

@@ -22,6 +22,7 @@ import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import { UploadTimeout } from '../common/http/request-timeout.decorator.js';
 import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { BusinessService } from './business.service.js';
@@ -79,6 +80,7 @@ export class BusinessController {
   @Post('me/logo')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @RateLimit('upload')
+  @UploadTimeout()
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @UseInterceptors(
     FileInterceptor('file', {
