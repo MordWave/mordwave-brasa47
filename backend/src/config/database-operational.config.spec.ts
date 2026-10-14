@@ -104,13 +104,17 @@ describe('TypeORM database config (app DataSource)', () => {
     expect((databaseConfig() as { synchronize: boolean }).synchronize).toBe(false);
   });
 
-  // Only explicit migrations may change the physical schema. TypeORM's
+  // Only explicit migrations may change the physical schema, in EVERY environment. TypeORM's
   // synchronize / dropSchema / migrationsRun would silently add or DROP columns
   // (e.g. the unmapped legacy image_url / logo_url) at startup.
   it.each([
     ['production, DATABASE_URL (the Railway setup)', { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u:p@db.example.test:5432/railway' }],
     ['production, DB_* host', { NODE_ENV: 'production', DATABASE_URL: undefined }],
     ['no NODE_ENV, DATABASE_URL', { NODE_ENV: undefined, DATABASE_URL: 'postgresql://u:p@db.example.test:5432/railway' }],
+    ['development, DB_* host (local Postgres)', { NODE_ENV: 'development', DATABASE_URL: undefined }],
+    ['no NODE_ENV, DB_* host (local Postgres)', { NODE_ENV: undefined, DATABASE_URL: undefined }],
+    ['test, DB_* host', { NODE_ENV: 'test', DATABASE_URL: undefined }],
+    ['development, DATABASE_URL', { NODE_ENV: 'development', DATABASE_URL: 'postgresql://u:p@localhost:5432/brasa47' }],
   ])('never synchronizes, drops the schema or auto-runs migrations at startup (%s)', (_label, env) => {
     for (const [name, value] of Object.entries(env)) {
       if (value === undefined) delete process.env[name];

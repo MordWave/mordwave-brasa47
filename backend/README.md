@@ -50,11 +50,10 @@ npm run start:dev
 
 La API queda en `http://localhost:3000` (`PORT` en `.env`).
 
-En desarrollo (`NODE_ENV` distinto de `production`), TypeORM usa
-`synchronize: true` y crea/actualiza las tablas automáticamente a partir de
-las entidades — no hace falta correr migraciones todavía. **`synchronize`
-nunca debe usarse en producción**; para eso ya está preparado el CLI de
-migraciones (ver abajo).
+TypeORM **nunca** sincroniza el esquema al arrancar (`synchronize: false` en
+todos los entornos, sin `dropSchema` ni `migrationsRun`). Solo las migraciones
+explícitas cambian el esquema: antes de arrancar por primera vez contra una base
+nueva (local o remota) corre `npm run migration:run` (ver abajo).
 
 ## Variables de entorno
 

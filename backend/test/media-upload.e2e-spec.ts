@@ -32,10 +32,6 @@ const SUPABASE_VARS = ['SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'SUPABASE_STORAGE_
 
 const TEST_BCRYPT_COST = 4;
 const BASE = 'https://api.example.test';
-// What an old row may still hold in the legacy columns that are no longer mapped
-// (they exist physically until the migration that drops them): it must never be served.
-const OLD_IMAGE_URL = 'https://old-provider.example/product-images/old/imagen.webp?v=1';
-const OLD_LOGO_URL = 'https://old-provider.example/product-images/business-logos/old/logo.webp?v=1';
 
 // In-memory stand-in for the Railway Bucket. It records every call so the
 // tests can prove what is — and is not — done: puts happen, deletes can't
@@ -263,15 +259,20 @@ describe('Image uploads -> bucket (e2e, real local Postgres, fake bucket)', () =
       expect(detail.body.imageUrl).toBeNull();
     });
 
-    it('a product without a key has no image — an old value left in the unmapped image_url column is never served', async () => {
-      await dataSource.query(`UPDATE products SET image_url = $1 WHERE id = $2`, [OLD_IMAGE_URL, control.id]);
-
+    it('a product without a key has no image (imageUrl null everywhere) — there is no other source', async () => {
       const detail = await http().get(`/products/${control.id}`).query({ businessSlug: bizA.slug }).expect(200);
       expect(detail.body.imageUrl).toBeNull();
       const list = await http().get('/products').query({ businessSlug: bizA.slug }).expect(200);
-      expect(JSON.stringify(list.body)).not.toContain('old-provider');
+      expect((list.body as Array<{ id: string; imageUrl: string | null }>).find((p) => p.id === control.id)?.imageUrl).toBeNull();
       const admin = await http().get('/products/admin').set(authA()).expect(200);
-      expect(JSON.stringify(admin.body)).not.toContain('old-provider');
+      expect((admin.body.items as Array<{ id: string; imageUrl: string | null }>).find((p) => p.id === control.id)?.imageUrl).toBeNull();
+    });
+
+    it('the legacy image_url column no longer exists in the database', async () => {
+      const cols = await dataSource.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name IN ('image_url', 'image_storage_key')`,
+      );
+      expect(cols.map((c: { column_name: string }) => c.column_name)).toEqual(['image_storage_key']);
     });
 
     it('a bucket failure answers 502 IMAGE_UPLOAD_FAILED and leaves the DB untouched', async () => {
@@ -355,14 +356,17 @@ describe('Image uploads -> bucket (e2e, real local Postgres, fake bucket)', () =
       expect(JSON.stringify(join.body)).not.toMatch(/storage_?key/i);
     });
 
-    it('an old value left in the unmapped logo_url column is never served', async () => {
-      await dataSource.query(`UPDATE businesses SET logo_storage_key = NULL, logo_url = $1 WHERE id = $2`, [OLD_LOGO_URL, bizA.id]);
+    it('the legacy logo_url column no longer exists, and clearing the key leaves no logo anywhere', async () => {
+      const cols = await dataSource.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'businesses' AND column_name IN ('logo_url', 'logo_storage_key')`,
+      );
+      expect(cols.map((c: { column_name: string }) => c.column_name)).toEqual(['logo_storage_key']);
 
+      await dataSource.query(`UPDATE businesses SET logo_storage_key = NULL WHERE id = $1`, [bizA.id]);
       const me = await http().get('/businesses/me').set(authA()).expect(200);
       expect(me.body.logoUrl).toBeNull();
       const join = await http().post('/table-sessions/join').send({ qrToken: 'qr-media-upload' }).expect(200);
       expect(join.body.logoUrl).toBeNull();
-      expect(JSON.stringify([me.body, join.body])).not.toContain('old-provider');
 
       // …and a fresh upload takes over again.
       const res = await uploadLogo().expect(201);

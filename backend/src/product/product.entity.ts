@@ -49,9 +49,6 @@ export class Product {
   // Object key in the Railway Bucket — the only image reference. Internal:
   // written only by server code (never a DTO field) and never sent to clients;
   // ProductPresenter turns it into the /media URL in the response's `imageUrl`.
-  //
-  // The old `image_url` column (legacy Supabase URL) is no longer mapped or read;
-  // it still exists physically in PostgreSQL until the migration that drops it.
   @Column({ type: 'text', name: 'image_storage_key', nullable: true })
   imageStorageKey: string | null;
 
