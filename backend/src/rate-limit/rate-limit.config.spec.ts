@@ -21,6 +21,7 @@ describe('DEFAULT_RATE_LIMITS', () => {
         ip: { limit: 600, ttlMs: minute },
         skipGlobalIp: true,
       },
+      media: { ip: { limit: 1200, ttlMs: minute }, skipGlobalIp: true },
     });
   });
 
