@@ -14,6 +14,7 @@ import { ConvertOrderItemAddedToJsonb1790042735412 } from '../../src/migrations/
 import { AddBusinessConfig1790043637213 } from '../../src/migrations/1790043637213-AddBusinessConfig.js';
 import { AddAuditLog1790100000000 } from '../../src/migrations/1790100000000-AddAuditLog.js';
 import { AddMediaStorageKeys1790200000000 } from '../../src/migrations/1790200000000-AddMediaStorageKeys.js';
+import { DropLegacyMediaUrls1790300000000 } from '../../src/migrations/1790300000000-DropLegacyMediaUrls.js';
 
 // Every real migration file, in timestamp order — the exact same classes
 // that will eventually run against Supabase, imported directly rather than
@@ -23,7 +24,7 @@ import { AddMediaStorageKeys1790200000000 } from '../../src/migrations/179020000
 // Nest boot (compiled .js under dist/), but not from inside a second,
 // separate DataSource in this test process — see the comment on
 // startTestDatabase() for why migrations run this way here instead.
-const ALL_MIGRATIONS = [
+export const ALL_MIGRATIONS = [
   InitialSchema1789675234258,
   AddUsers1789679086923,
   AddSoftDeleteToMenu1789694151867,
@@ -39,6 +40,7 @@ const ALL_MIGRATIONS = [
   AddBusinessConfig1790043637213,
   AddAuditLog1790100000000,
   AddMediaStorageKeys1790200000000,
+  DropLegacyMediaUrls1790300000000,
 ];
 
 // Runs every migration's up() directly against the given DataSource's own
@@ -56,6 +58,26 @@ export async function runAllMigrations(dataSource: DataSource): Promise<void> {
     for (const Migration of ALL_MIGRATIONS) {
       await new Migration().up(queryRunner);
     }
+  } finally {
+    await queryRunner.release();
+  }
+}
+
+// Runs every migration that comes BEFORE `stopBefore`, leaving the schema as it
+// was just prior to it — for tests that exercise that migration's up()/down()
+// against seeded data.
+export async function runMigrationsBefore(
+  dataSource: DataSource,
+  stopBefore: (typeof ALL_MIGRATIONS)[number],
+): Promise<void> {
+  const queryRunner = dataSource.createQueryRunner();
+  try {
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+    for (const Migration of ALL_MIGRATIONS) {
+      if (Migration === stopBefore) return;
+      await new Migration().up(queryRunner);
+    }
+    throw new Error('stopBefore is not one of ALL_MIGRATIONS');
   } finally {
     await queryRunner.release();
   }

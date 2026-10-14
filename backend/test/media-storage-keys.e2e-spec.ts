@@ -14,7 +14,6 @@ import { startTestDatabase, type TestDatabase } from './support/test-database.js
 
 const OTHER_BIZ = 'dddddddd-4444-4abc-8def-444444444abc';
 const OBJ = 'cccccccc-3333-4abc-8def-333333333abc';
-const LEGACY = 'https://legacy.example/product-images/a.webp?v=1';
 
 // Real-database proof of the AddMediaStorageKeys migration: the columns, the
 // CHECK constraints (replaying the exact same case table the unit spec uses
@@ -66,10 +65,6 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
         price: 6900,
       }),
     );
-    // The legacy columns are no longer mapped by the entities but still exist
-    // physically (until the migration that drops them): seed them with raw SQL.
-    await dataSource.query(`UPDATE products SET image_url = $1 WHERE id = $2`, [LEGACY, product.id]);
-    await dataSource.query(`UPDATE businesses SET logo_url = $1 WHERE id = $2`, [LEGACY, business.id]);
   });
 
   afterAll(async () => {
@@ -137,19 +132,11 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
       }
     });
 
-    it('leaves the legacy columns untouched and rows without a key at NULL', async () => {
-      const [p] = await dataSource.query(
-        `SELECT image_url, image_storage_key FROM products WHERE id = $1`,
-        [product.id],
-      );
-      expect(p).toEqual({ image_url: LEGACY, image_storage_key: null });
-      const [b] = await dataSource.query(
-        `SELECT logo_url, logo_storage_key FROM businesses WHERE id = $1`,
-        [business.id],
-      );
-      expect(b).toEqual({ logo_url: LEGACY, logo_storage_key: null });
-      expect(await columnInfo('products', 'image_url')).toBeDefined();
-      expect(await columnInfo('businesses', 'logo_url')).toBeDefined();
+    it('leaves rows without a key at NULL', async () => {
+      const [p] = await dataSource.query(`SELECT image_storage_key FROM products WHERE id = $1`, [product.id]);
+      expect(p).toEqual({ image_storage_key: null });
+      const [b] = await dataSource.query(`SELECT logo_storage_key FROM businesses WHERE id = $1`, [business.id]);
+      expect(b).toEqual({ logo_storage_key: null });
     });
 
     it('creates both named CHECK constraints', async () => {
@@ -183,23 +170,19 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
       ).toBe(true);
     });
 
-    it('lets a key and a legacy URL coexist on the same row', async () => {
+    it('stores a valid key on a row and clears it again', async () => {
       const key = `businesses/${business.id}/products/${product.id}/${OBJ}.webp`;
       await setProductKey(key);
-      const [row] = await dataSource.query(
-        `SELECT image_url, image_storage_key FROM products WHERE id = $1`,
-        [product.id],
-      );
-      expect(row).toEqual({ image_url: LEGACY, image_storage_key: key });
+      const [row] = await dataSource.query(`SELECT image_storage_key FROM products WHERE id = $1`, [product.id]);
+      expect(row).toEqual({ image_storage_key: key });
       await setProductKey(null);
     });
   });
 
-  // The entities no longer map image_url / logo_url, yet the columns still exist
-  // physically: only an explicit migration may remove them. The app booted in
-  // production mode BEFORE the migrations ran, so a startup synchronize would
-  // have created the tables from the entities and the migrations (which CREATE
-  // them) would have failed.
+  // The app booted in production mode BEFORE the migrations ran, so a startup
+  // synchronize would have created the tables from the entities and the
+  // migrations (which CREATE them) would have failed. Only explicit migrations
+  // change the schema.
   describe('startup never touches the physical schema', () => {
     it('TypeORM is configured to never synchronize, drop the schema or auto-run migrations', () => {
       const options = dataSource.options as unknown as Record<string, unknown>;
@@ -208,17 +191,9 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
       expect(options.migrationsRun).toBeFalsy();
     });
 
-    it('the legacy columns are still there, and the pending diff to drop them was never applied', async () => {
-      expect(await columnInfo('products', 'image_url')).toBeDefined();
-      expect(await columnInfo('businesses', 'logo_url')).toBeDefined();
-      const { upQueries } = await dataSource.driver.createSchemaBuilder().log();
-      const sql = upQueries.map((q) => q.query).join('\n');
-      // The mismatch is real (TypeORM WOULD drop them if asked to synchronize)…
-      expect(sql).toMatch(/image_url/);
-      expect(sql).toMatch(/logo_url/);
-      // …and the values written before are intact: nothing applied it.
-      const [p] = await dataSource.query(`SELECT image_url FROM products WHERE id = $1`, [product.id]);
-      expect(p.image_url).toBe(LEGACY);
+    it('the legacy image_url / logo_url columns are gone (dropped by DropLegacyMediaUrls)', async () => {
+      expect(await columnInfo('products', 'image_url')).toBeUndefined();
+      expect(await columnInfo('businesses', 'logo_url')).toBeUndefined();
     });
   });
 
@@ -228,7 +203,7 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
       const sql = upQueries.map((q) => q.query);
       // Nothing about the new columns/checks may be pending (a pending
       // statement would mean `migration:generate` would emit it).
-      expect(sql.filter((q) => /storage_key|CHK_products_image|CHK_businesses_logo/.test(q))).toEqual([]);
+      expect(sql.filter((q) => /storage_key|CHK_products_image|CHK_businesses_logo|image_url|logo_url/.test(q))).toEqual([]);
     });
   });
 
@@ -254,13 +229,8 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
       // that detector can actually fail.
       const { upQueries } = await dataSource.driver.createSchemaBuilder().log();
       const pending = upQueries.map((q) => q.query).filter((q) => /storage_key/.test(q));
-      // (The legacy image_url/logo_url columns still exist but are unmapped, so
-      // TypeORM may express "add the key column" as a rename of one of them.)
-      expect(pending.some((q) => /image_storage_key/.test(q))).toBe(true);
-      expect(pending.some((q) => /logo_storage_key/.test(q))).toBe(true);
-      // Legacy data survives the rollback.
-      const [p] = await dataSource.query(`SELECT image_url FROM products WHERE id = $1`, [product.id]);
-      expect(p.image_url).toBe(LEGACY);
+      expect(pending.some((q) => /ADD "image_storage_key"/.test(q))).toBe(true);
+      expect(pending.some((q) => /ADD "logo_storage_key"/.test(q))).toBe(true);
 
       await run('up');
       expect(await columnInfo('products', 'image_storage_key')).toBeDefined();

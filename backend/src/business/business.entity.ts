@@ -49,9 +49,6 @@ export class Business {
   // POST /businesses/me/logo (BusinessService.uploadLogo), never through the
   // plain PATCH /businesses/me body, and never sent to clients;
   // BusinessPresenter turns it into the /media URL in the response's `logoUrl`.
-  //
-  // The old `logo_url` column (legacy Supabase URL) is no longer mapped or read;
-  // it still exists physically in PostgreSQL until the migration that drops it.
   @Column({ name: 'logo_storage_key', type: 'text', nullable: true })
   logoStorageKey: string | null;
 

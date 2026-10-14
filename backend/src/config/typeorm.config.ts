@@ -15,8 +15,9 @@ export default registerAs(
         url: databaseUrl,
         ssl: { rejectUnauthorized: false },
         autoLoadEntities: true,
-        // Schema changes go exclusively through TypeORM migrations from here
-        // on — synchronize never runs, in dev or production.
+        // Schema changes go exclusively through explicit TypeORM migrations
+        // (`npm run migration:run`). The app never synchronizes, drops the
+        // schema or runs migrations on startup, in any environment.
         synchronize: false,
         extra,
       };
@@ -30,7 +31,8 @@ export default registerAs(
       password: process.env.DB_PASSWORD ?? 'postgres',
       database: process.env.DB_NAME ?? 'brasa47',
       autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV !== 'production',
+      // Same rule for local Postgres: run `npm run migration:run` first.
+      synchronize: false,
       extra,
     };
   },
