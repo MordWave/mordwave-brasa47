@@ -22,15 +22,14 @@ const TEST_BCRYPT_COST = 4;
 const BASE = 'https://api.example.test';
 const LEGACY_PRODUCT = 'https://legacy.example/product-images/p.webp?v=1';
 const LEGACY_LOGO = 'https://legacy.example/product-images/business-logos/b/logo.webp?v=1';
-const STUB_UPLOAD_URL = 'https://stub.example/uploaded.webp';
 const OBJ = 'cccccccc-3333-4abc-8def-333333333abc';
 
 // End-to-end proof of what the API actually puts on the wire for products and
 // businesses: internal storage keys never leak, and the image/logo URL is the
 // legacy one exactly unless a key exists AND MEDIA_PUBLIC_BASE_URL is set.
-// Run once with the variable unset (what production looks like after this PR)
-// and once with it set (what it will look like once /media ships). Supabase is
-// replaced by a stub — nothing here can reach any external service.
+// Run once with the variable unset and once with it set. The image pipeline is
+// replaced by a stub that returns a fresh storage key — nothing here can reach
+// any external service (the real pipeline is covered in media-upload.e2e-spec.ts).
 describe.each([
   { label: 'MEDIA_PUBLIC_BASE_URL unset', base: undefined },
   { label: 'MEDIA_PUBLIC_BASE_URL set', base: BASE },
@@ -44,6 +43,7 @@ describe.each([
   let keyed: Product; // key + legacy URL
   let keyedUrl: string;
   let logoKey: string;
+  let uploadedLogoKey: string;
   let qrToken: string;
   let token: string;
   const admin = { email: 'admin@media-e2e.test', password: 'Sup3rSecret!M' };
@@ -69,8 +69,7 @@ describe.each([
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ImageStorageService)
       .useValue({
-        upload: async () => STUB_UPLOAD_URL,
-        remove: async () => undefined,
+        upload: async (key: string) => key,
       })
       .compile();
     app = moduleFixture.createNestApplication();
@@ -161,9 +160,9 @@ describe.each([
   function expectNoLeak(body: unknown): void {
     const text = JSON.stringify(body);
     expect(text).not.toMatch(/storage_?key/i);
-    const withoutMediaUrls = text.replaceAll(`${BASE}/media/${keyedUrl}`, '').replaceAll(`${BASE}/media/${logoKey}`, '');
-    expect(withoutMediaUrls).not.toContain(keyedUrl);
-    expect(withoutMediaUrls).not.toContain(logoKey);
+    // Any /media URL is fine; a raw key outside one is a leak.
+    const withoutMediaUrls = text.replace(new RegExp(`${BASE}/media/businesses/[a-z0-9/-]+\\.webp`, 'g'), '');
+    expect(withoutMediaUrls).not.toMatch(/businesses\/[0-9a-f-]{36}\//);
   }
 
   describe('products', () => {
@@ -204,15 +203,15 @@ describe.each([
       expect(byId.get(keyed.id)?.imageUrl).toBe(expectedImage(keyed, keyedUrl));
     });
 
-    it('POST /products (create) — response has no key, legacy imageUrl still accepted', async () => {
+    it('POST /products (create) — response has no key and starts without an image', async () => {
       const categoryId = (await dataSource.getRepository(Category).findOneByOrFail({ businessId: business.id })).id;
       const res = await request(app.getHttpServer())
         .post('/products')
         .set(auth())
-        .send({ name: 'Nueva', price: 1000, categoryId, businessId: business.id, imageUrl: 'https://legacy.example/new.webp' })
+        .send({ name: 'Nueva', price: 1000, categoryId, businessId: business.id })
         .expect(201);
       expectNoLeak(res.body);
-      expect(res.body.imageUrl).toBe('https://legacy.example/new.webp');
+      expect(res.body.imageUrl).toBeNull();
     });
 
     it('PATCH /products/:id (update) — response has no key', async () => {
@@ -226,14 +225,21 @@ describe.each([
       expect(res.body.imageUrl).toBe(expectedImage(keyed, keyedUrl));
     });
 
-    it('POST /products/:id/image and DELETE /products/:id/image — responses have no key', async () => {
+    it('POST /products/:id/image keeps the legacy URL and stores a key; DELETE clears both — no key in either response', async () => {
       const up = await request(app.getHttpServer())
         .post(`/products/${legacyOnly.id}/image`)
         .set(auth())
         .attach('file', Buffer.from('fake'), { filename: 'a.png', contentType: 'image/png' })
         .expect(201);
       expectNoLeak(up.body);
-      expect(up.body.imageUrl).toBe(STUB_UPLOAD_URL);
+      const [stored] = await dataSource.query(
+        `SELECT image_url, image_storage_key FROM products WHERE id = $1`,
+        [legacyOnly.id],
+      );
+      expect(stored.image_url).toBe(LEGACY_PRODUCT); // legacy fallback preserved
+      expect(stored.image_storage_key).toMatch(new RegExp(`^businesses/${business.id}/products/${legacyOnly.id}/`));
+      // The presenter prefers the key when /media URLs can be built.
+      expect(up.body.imageUrl).toBe(base ? `${base}/media/${stored.image_storage_key}` : LEGACY_PRODUCT);
 
       const del = await request(app.getHttpServer())
         .delete(`/products/${legacyOnly.id}/image`)
@@ -241,6 +247,22 @@ describe.each([
         .expect(200);
       expectNoLeak(del.body);
       expect(del.body.imageUrl).toBeNull();
+      const [cleared] = await dataSource.query(
+        `SELECT image_url, image_storage_key FROM products WHERE id = $1`,
+        [legacyOnly.id],
+      );
+      expect(cleared).toEqual({ image_url: null, image_storage_key: null });
+    });
+
+    it('imageUrl is not writable through create or update any more', async () => {
+      const categoryId = (await dataSource.getRepository(Category).findOneByOrFail({ businessId: business.id })).id;
+      const evil = { imageUrl: 'https://evil.example/x.png' };
+      await request(app.getHttpServer()).patch(`/products/${keyed.id}`).set(auth()).send(evil).expect(400);
+      await request(app.getHttpServer())
+        .post('/products')
+        .set(auth())
+        .send({ name: 'X', price: 1, categoryId, businessId: business.id, ...evil })
+        .expect(400);
     });
 
     it.each(['imageStorageKey', 'image_storage_key'])(
@@ -278,14 +300,18 @@ describe.each([
       expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : LEGACY_LOGO);
     });
 
-    it('POST /businesses/me/logo — response has no key', async () => {
+    it('POST /businesses/me/logo stores a key, keeps the legacy logo_url, and leaks nothing', async () => {
       const res = await request(app.getHttpServer())
         .post('/businesses/me/logo')
         .set(auth())
         .attach('file', Buffer.from('fake'), { filename: 'a.png', contentType: 'image/png' })
         .expect(201);
       expectNoLeak(res.body);
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : STUB_UPLOAD_URL);
+      const [row] = await dataSource.query(`SELECT logo_url, logo_storage_key FROM businesses WHERE id = $1`, [business.id]);
+      expect(row.logo_url).toBe(LEGACY_LOGO);
+      expect(row.logo_storage_key).toMatch(new RegExp(`^businesses/${business.id}/logo/`));
+      uploadedLogoKey = row.logo_storage_key;
+      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : LEGACY_LOGO);
     });
 
     it.each(['logoStorageKey', 'logo_storage_key'])('a client can never write %s', async (field) => {
@@ -305,8 +331,8 @@ describe.each([
       expect(Object.keys(res.body).sort()).toEqual(
         ['sessionToken', 'tableName', 'businessSlug', 'businessName', 'logoUrl', 'primaryColor', 'accentColor'].sort(),
       );
-      // The earlier test replaced logo_url with the stub value (legacy column).
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : STUB_UPLOAD_URL);
+      // The upload test above replaced the key; the legacy logo_url is untouched.
+      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : LEGACY_LOGO);
     });
   });
 });

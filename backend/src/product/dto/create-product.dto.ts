@@ -28,10 +28,6 @@ export class CreateProductDto {
   price: number;
 
   @IsOptional()
-  @IsString()
-  imageUrl?: string;
-
-  @IsOptional()
   @IsBoolean()
   available?: boolean;
 

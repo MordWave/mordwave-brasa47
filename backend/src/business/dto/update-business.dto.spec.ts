@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { ValidationPipe } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { UpdateBusinessDto } from './update-business.dto.js';
 
@@ -57,5 +58,27 @@ describe('UpdateBusinessDto — color validation', () => {
     const errors = await validate(dto);
 
     expect(errors).toHaveLength(0);
+  });
+});
+
+
+// The logo only ever changes through POST /businesses/me/logo.
+describe('UpdateBusinessDto — logo fields are not client-writable', () => {
+  const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
+  const KEY = 'businesses/aaaaaaaa-1111-4abc-8def-111111111abc/logo/cccccccc-3333-4abc-8def-333333333abc.webp';
+
+  it('the control body (no logo field) is accepted', async () => {
+    await expect(pipe.transform({ hours: 'Lun-Dom' }, { type: 'body', metatype: UpdateBusinessDto })).resolves.toBeDefined();
+  });
+
+  it.each([
+    ['logoUrl', 'https://evil.example/logo.png'],
+    ['logo_url', 'https://evil.example/logo.png'],
+    ['logoStorageKey', KEY],
+    ['logo_storage_key', KEY],
+  ])('rejects %s', async (field, value) => {
+    await expect(
+      pipe.transform({ hours: 'Lun-Dom', [field]: value }, { type: 'body', metatype: UpdateBusinessDto }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 });

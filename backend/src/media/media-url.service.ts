@@ -44,6 +44,13 @@ export class MediaUrlService {
     return url.origin + url.pathname.replace(/\/+$/, '');
   }
 
+  // Whether stable /media URLs can be produced. Writers check this BEFORE
+  // storing a key: a key whose URL can't be built would make the image
+  // vanish from every response.
+  get isConfigured(): boolean {
+    return this.baseUrl !== null;
+  }
+
   // Stable URL for a key, or null when the media URL can't be built.
   urlForKey(storageKey: string | null | undefined): string | null {
     if (!this.baseUrl || !storageKey || !isMediaKey(storageKey)) return null;
