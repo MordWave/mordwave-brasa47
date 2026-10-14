@@ -42,10 +42,8 @@ export interface UploadableFile {
 // only keys and files. Callers (ProductImageService, BusinessService) build
 // the key with media-key.util; a key never comes from a client.
 //
-// Supabase Storage is no longer written to or deleted from here (it stays
-// readable through the legacy URLs still stored in image_url / logo_url).
-// Nothing is ever deleted from the bucket either: replaced and removed
-// images are left for the later orphan cleanup.
+// Nothing is ever deleted from the bucket: replaced and removed images are left
+// for a later orphan cleanup.
 @Injectable()
 export class ImageStorageService {
   private readonly logger = new Logger(ImageStorageService.name);

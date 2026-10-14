@@ -2,10 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { MediaUrlService } from '../media/media-url.service.js';
 import type { Business } from './business.entity.js';
 
-// What the API sends for a business: the entity minus internal storage
-// bookkeeping, with `logoUrl` resolved (media URL when a storage key is
-// usable, otherwise the legacy URL exactly as stored).
-export type BusinessResponse = Omit<Business, 'logoStorageKey'>;
+// What the API sends for a business: the entity minus the internal storage key,
+// plus `logoUrl` — the stable /media URL derived from that key (null when the
+// business has no logo).
+export type BusinessResponse = Omit<Business, 'logoStorageKey'> & { logoUrl: string | null };
 
 // The only place a Business leaves the API (besides the branding subset in
 // the table-session join, which goes through logoUrl() below).
@@ -15,10 +15,10 @@ export class BusinessPresenter {
 
   present(business: Business): BusinessResponse {
     const { logoStorageKey, ...rest } = business;
-    return { ...rest, logoUrl: this.mediaUrls.resolve(logoStorageKey, business.logoUrl) };
+    return { ...rest, logoUrl: this.mediaUrls.resolve(logoStorageKey) };
   }
 
-  logoUrl(business: Pick<Business, 'logoUrl' | 'logoStorageKey'>): string | null {
-    return this.mediaUrls.resolve(business.logoStorageKey, business.logoUrl);
+  logoUrl(business: Pick<Business, 'logoStorageKey'>): string | null {
+    return this.mediaUrls.resolve(business.logoStorageKey);
   }
 }

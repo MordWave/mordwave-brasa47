@@ -51,7 +51,7 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
 
     const businessRepo = dataSource.getRepository(Business);
     business = await businessRepo.save(
-      businessRepo.create({ name: 'Media Co', slug: 'media-co-e2e', logoUrl: LEGACY }),
+      businessRepo.create({ name: 'Media Co', slug: 'media-co-e2e' }),
     );
     const categoryRepo = dataSource.getRepository(Category);
     const category = await categoryRepo.save(
@@ -64,9 +64,12 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
         categoryId: category.id,
         name: 'Clásica',
         price: 6900,
-        imageUrl: LEGACY,
       }),
     );
+    // The legacy columns are no longer mapped by the entities but still exist
+    // physically (until the migration that drops them): seed them with raw SQL.
+    await dataSource.query(`UPDATE products SET image_url = $1 WHERE id = $2`, [LEGACY, product.id]);
+    await dataSource.query(`UPDATE businesses SET logo_url = $1 WHERE id = $2`, [LEGACY, business.id]);
   });
 
   afterAll(async () => {
@@ -192,6 +195,33 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
     });
   });
 
+  // The entities no longer map image_url / logo_url, yet the columns still exist
+  // physically: only an explicit migration may remove them. The app booted in
+  // production mode BEFORE the migrations ran, so a startup synchronize would
+  // have created the tables from the entities and the migrations (which CREATE
+  // them) would have failed.
+  describe('startup never touches the physical schema', () => {
+    it('TypeORM is configured to never synchronize, drop the schema or auto-run migrations', () => {
+      const options = dataSource.options as unknown as Record<string, unknown>;
+      expect(options.synchronize).toBe(false);
+      expect(options.dropSchema).toBeFalsy();
+      expect(options.migrationsRun).toBeFalsy();
+    });
+
+    it('the legacy columns are still there, and the pending diff to drop them was never applied', async () => {
+      expect(await columnInfo('products', 'image_url')).toBeDefined();
+      expect(await columnInfo('businesses', 'logo_url')).toBeDefined();
+      const { upQueries } = await dataSource.driver.createSchemaBuilder().log();
+      const sql = upQueries.map((q) => q.query).join('\n');
+      // The mismatch is real (TypeORM WOULD drop them if asked to synchronize)…
+      expect(sql).toMatch(/image_url/);
+      expect(sql).toMatch(/logo_url/);
+      // …and the values written before are intact: nothing applied it.
+      const [p] = await dataSource.query(`SELECT image_url FROM products WHERE id = $1`, [product.id]);
+      expect(p.image_url).toBe(LEGACY);
+    });
+  });
+
   describe('schema drift', () => {
     it('the entity metadata and the migrated schema agree on the new columns and checks', async () => {
       const { upQueries } = await dataSource.driver.createSchemaBuilder().log();
@@ -224,8 +254,10 @@ describe('Media storage keys schema (e2e, real local Postgres)', () => {
       // that detector can actually fail.
       const { upQueries } = await dataSource.driver.createSchemaBuilder().log();
       const pending = upQueries.map((q) => q.query).filter((q) => /storage_key/.test(q));
-      expect(pending.some((q) => /ADD "image_storage_key"/.test(q))).toBe(true);
-      expect(pending.some((q) => /ADD "logo_storage_key"/.test(q))).toBe(true);
+      // (The legacy image_url/logo_url columns still exist but are unmapped, so
+      // TypeORM may express "add the key column" as a rename of one of them.)
+      expect(pending.some((q) => /image_storage_key/.test(q))).toBe(true);
+      expect(pending.some((q) => /logo_storage_key/.test(q))).toBe(true);
       // Legacy data survives the rollback.
       const [p] = await dataSource.query(`SELECT image_url FROM products WHERE id = $1`, [product.id]);
       expect(p.image_url).toBe(LEGACY);

@@ -29,7 +29,7 @@ export class PublicBusinessResolverService {
   // In-memory, per-process optimization — NOT an authoritative source of
   // truth, just a short-lived shortcut so the two calls that always happen
   // together (categories + products, same slug) don't each pay a full
-  // Railway↔Supabase round trip for the identical lookup. Only ever holds
+  // app↔database round trip for the identical lookup. Only ever holds
   // ALREADY-VALID resolutions (see resolve() below — a NotFound is never
   // cached), so a hit can never make an invalid/inactive slug appear
   // valid, only skip a repeat query for one that already is. Keyed by

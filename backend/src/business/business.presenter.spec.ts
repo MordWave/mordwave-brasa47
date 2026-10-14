@@ -6,7 +6,7 @@ import { BusinessPresenter } from './business.presenter.js';
 
 const BIZ = '11111111-1111-4111-8111-111111111111';
 const KEY = businessLogoKey(BIZ, '33333333-3333-4333-8333-333333333333');
-const LEGACY = 'https://legacy.example/product-images/business-logos/b/logo.webp?v=1';
+const BASE = 'https://api.example.com';
 
 function business(extra: Partial<Business> = {}): Business {
   return {
@@ -17,7 +17,6 @@ function business(extra: Partial<Business> = {}): Business {
     address: null,
     phone: null,
     hours: null,
-    logoUrl: LEGACY,
     logoStorageKey: null,
     primaryColor: '#FF0000',
     accentColor: null,
@@ -38,48 +37,44 @@ afterEach(() => {
 });
 
 describe('BusinessPresenter', () => {
-  it('with a NULL key the JSON is exactly the current entity JSON (same legacy URL, same fields)', () => {
-    const entity = business();
-    const { logoStorageKey: _omit, ...legacyShape } = entity;
-    for (const p of [presenter(), presenter('https://api.example.com')]) {
-      const out = p.present(entity);
-      expect(JSON.parse(JSON.stringify(out))).toEqual(JSON.parse(JSON.stringify(legacyShape)));
-      expect(out.logoUrl).toBe(LEGACY);
-    }
+  it('serves the stable /media URL when the business has a logo key', () => {
+    expect(presenter(BASE).present(business({ logoStorageKey: KEY })).logoUrl).toBe(`${BASE}/media/${KEY}`);
+  });
+
+  it('a business without a logo key has no logo (logoUrl null) — there is no other source', () => {
+    expect(presenter(BASE).present(business()).logoUrl).toBeNull();
+  });
+
+  it('without MEDIA_PUBLIC_BASE_URL a keyed business has no logo either, and the key does not leak', () => {
+    const out = presenter().present(business({ logoStorageKey: KEY }));
+    expect(out.logoUrl).toBeNull();
+    expect(JSON.stringify(out)).not.toContain(KEY);
   });
 
   it('never exposes logoStorageKey, whatever the configuration', () => {
-    for (const p of [presenter(), presenter('https://api.example.com')]) {
+    for (const p of [presenter(), presenter(BASE)]) {
       const out = p.present(business({ logoStorageKey: KEY }));
       expect(out).not.toHaveProperty('logoStorageKey');
       expect(JSON.stringify(out)).not.toContain('logoStorageKey');
     }
   });
 
-  it('uses the stable /media URL when a key exists and the base URL is configured', () => {
-    expect(presenter('https://api.example.com').present(business({ logoStorageKey: KEY })).logoUrl).toBe(
-      `https://api.example.com/media/${KEY}`,
+  it('keeps the response contract: the same fields as before, logoUrl included', () => {
+    const out = presenter(BASE).present(business({ logoStorageKey: KEY }));
+    expect(Object.keys(out).sort()).toEqual(
+      ['id', 'name', 'slug', 'active', 'address', 'phone', 'hours', 'logoUrl', 'primaryColor', 'accentColor', 'createdAt', 'updatedAt'].sort(),
     );
   });
 
-  it('a keyed row NEVER falls back to the legacy URL: without a base URL it has no logo (and leaks no key)', () => {
-    const out = presenter().present(business({ logoStorageKey: KEY }));
-    expect(out.logoUrl).toBeNull();
-    expect(JSON.stringify(out)).not.toContain(KEY);
-    expect(JSON.stringify(out)).not.toContain(LEGACY);
-  });
-
-  it('the legacy URL is only a fallback for rows WITHOUT a storage key', () => {
-    const p = presenter('https://api.example.com');
-    expect(p.present(business({ logoStorageKey: null })).logoUrl).toBe(LEGACY);
-    expect(p.present(business({ logoStorageKey: KEY })).logoUrl).toBe(`https://api.example.com/media/${KEY}`);
+  it('ignores a stray legacy logoUrl on the object: it is never read', () => {
+    const stray = business() as unknown as Record<string, unknown>;
+    stray.logoUrl = 'https://legacy.example/logo.webp';
+    expect(presenter(BASE).present(stray as unknown as Business).logoUrl).toBeNull();
   });
 
   it('logoUrl() (used by the table-session join) applies the same rule', () => {
-    expect(presenter().logoUrl(business())).toBe(LEGACY);
-    expect(presenter().logoUrl(business({ logoUrl: null }))).toBeNull();
-    expect(presenter('https://api.example.com').logoUrl(business({ logoStorageKey: KEY }))).toBe(
-      `https://api.example.com/media/${KEY}`,
-    );
+    expect(presenter(BASE).logoUrl(business())).toBeNull();
+    expect(presenter(BASE).logoUrl(business({ logoStorageKey: KEY }))).toBe(`${BASE}/media/${KEY}`);
+    expect(presenter().logoUrl(business({ logoStorageKey: KEY }))).toBeNull();
   });
 });

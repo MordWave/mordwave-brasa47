@@ -20,16 +20,15 @@ import { startTestDatabase, type TestDatabase } from './support/test-database.js
 
 const TEST_BCRYPT_COST = 4;
 const BASE = 'https://api.example.test';
-const LEGACY_PRODUCT = 'https://legacy.example/product-images/p.webp?v=1';
-const LEGACY_LOGO = 'https://legacy.example/product-images/business-logos/b/logo.webp?v=1';
 const OBJ = 'cccccccc-3333-4abc-8def-333333333abc';
 
-// End-to-end proof of what the API actually puts on the wire for products and
-// businesses: internal storage keys never leak; a row with a key is served from
-// /media (never from the legacy URL), a row without one keeps its legacy URL.
-// Run once with the variable unset and once with it set. The image pipeline is
-// replaced by a stub that returns a fresh storage key — nothing here can reach
-// any external service (the real pipeline is covered in media-upload.e2e-spec.ts).
+// End-to-end proof of what the API puts on the wire for products and
+// businesses: internal storage keys never leak, and `imageUrl` / `logoUrl` are
+// the stable /media URL of the row's storage key — or null when there is no key
+// (or no MEDIA_PUBLIC_BASE_URL to build the URL with). Run once with the
+// variable unset and once with it set. The image pipeline is replaced by a stub
+// that returns the storage key it was given — nothing here can reach any
+// external service (the real pipeline is covered in media-upload.e2e-spec.ts).
 describe.each([
   { label: 'MEDIA_PUBLIC_BASE_URL unset', base: undefined },
   { label: 'MEDIA_PUBLIC_BASE_URL set', base: BASE },
@@ -39,20 +38,17 @@ describe.each([
   let dataSource: DataSource;
 
   let business: Business;
-  let legacyOnly: Product; // no key
-  let keyed: Product; // key + legacy URL
-  let keyedUrl: string;
+  let noImage: Product;
+  let keyed: Product;
+  let keyedKey: string;
   let logoKey: string;
   let uploadedLogoKey: string;
   let qrToken: string;
   let token: string;
   const admin = { email: 'admin@media-e2e.test', password: 'Sup3rSecret!M' };
 
-  // Mirrors the resolution rule: a row WITH a key is served from /media (or has
-  // no image when the base URL is unset) and never from the legacy URL; a row
-  // WITHOUT a key keeps its legacy URL.
-  const expectedImage = (p: Product, key: string | null) =>
-    key ? (base ? `${base}/media/${key}` : null) : p.imageUrl;
+  // What a row with this key must be served as.
+  const mediaUrl = (key: string | null) => (key && base ? `${base}/media/${key}` : null);
 
   beforeAll(async () => {
     testDb = await startTestDatabase();
@@ -84,7 +80,7 @@ describe.each([
 
     const businessRepo = dataSource.getRepository(Business);
     business = await businessRepo.save(
-      businessRepo.create({ name: 'Media Co', slug: 'media-co-presenters', logoUrl: LEGACY_LOGO }),
+      businessRepo.create({ name: 'Media Co', slug: 'media-co-presenters' }),
     );
     logoKey = businessLogoKey(business.id, OBJ);
     await businessRepo.update(business.id, { logoStorageKey: logoKey });
@@ -104,28 +100,14 @@ describe.each([
       categoryRepo.create({ name: 'Burgers', slug: 'burgers', businessId: business.id, sortOrder: 1 }),
     );
     const productRepo = dataSource.getRepository(Product);
-    legacyOnly = await productRepo.save(
-      productRepo.create({
-        businessId: business.id,
-        categoryId: category.id,
-        name: 'Legacy',
-        price: 5000,
-        sortOrder: 1,
-        imageUrl: LEGACY_PRODUCT,
-      }),
+    noImage = await productRepo.save(
+      productRepo.create({ businessId: business.id, categoryId: category.id, name: 'Sin imagen', price: 5000, sortOrder: 1 }),
     );
     keyed = await productRepo.save(
-      productRepo.create({
-        businessId: business.id,
-        categoryId: category.id,
-        name: 'Keyed',
-        price: 6000,
-        sortOrder: 2,
-        imageUrl: LEGACY_PRODUCT,
-      }),
+      productRepo.create({ businessId: business.id, categoryId: category.id, name: 'Con imagen', price: 6000, sortOrder: 2 }),
     );
-    keyedUrl = productImageKey(business.id, keyed.id, OBJ);
-    await productRepo.update(keyed.id, { imageStorageKey: keyedUrl });
+    keyedKey = productImageKey(business.id, keyed.id, OBJ);
+    await productRepo.update(keyed.id, { imageStorageKey: keyedKey });
 
     qrToken = 'qr-token-media-presenters';
     const tableRepo = dataSource.getRepository(RestaurantTable);
@@ -158,7 +140,7 @@ describe.each([
   const auth = () => ({ Authorization: `Bearer ${token}` });
 
   // Nothing internal may ever appear in a response body, by field name or by
-  // value, and the raw key may only ever show up inside a /media URL.
+  // value, and a raw key may only ever show up inside a /media URL.
   function expectNoLeak(body: unknown): void {
     const text = JSON.stringify(body);
     expect(text).not.toMatch(/storage_?key/i);
@@ -166,6 +148,12 @@ describe.each([
     const withoutMediaUrls = text.replace(new RegExp(`${BASE}/media/businesses/[a-z0-9/-]+\\.webp`, 'g'), '');
     expect(withoutMediaUrls).not.toMatch(/businesses\/[0-9a-f-]{36}\//);
   }
+
+  const PRODUCT_FIELDS = [
+    'id', 'name', 'description', 'price', 'imageUrl', 'available', 'active', 'sortOrder', 'tag',
+    'ingredients', 'removableIngredients', 'addOns', 'businessId', 'categoryId', 'createdAt',
+    'updatedAt', 'deletedAt',
+  ].sort();
 
   describe('products', () => {
     it('GET /products (public list)', async () => {
@@ -175,25 +163,18 @@ describe.each([
         .expect(200);
       expectNoLeak(res.body);
       const byId = new Map<string, { imageUrl: string | null }>(res.body.map((p: { id: string }) => [p.id, p]));
-      expect(byId.get(legacyOnly.id)?.imageUrl).toBe(LEGACY_PRODUCT);
-      expect(byId.get(keyed.id)?.imageUrl).toBe(expectedImage(keyed, keyedUrl));
+      expect(byId.get(noImage.id)?.imageUrl).toBeNull();
+      expect(byId.get(keyed.id)?.imageUrl).toBe(mediaUrl(keyedKey));
     });
 
-    it('GET /products/:id (public detail)', async () => {
+    it('GET /products/:id (public detail) keeps the response contract', async () => {
       const res = await request(app.getHttpServer())
         .get(`/products/${keyed.id}`)
         .query({ businessSlug: business.slug })
         .expect(200);
       expectNoLeak(res.body);
-      expect(res.body.imageUrl).toBe(expectedImage(keyed, keyedUrl));
-      // Same field set as before the keys existed, minus nothing else.
-      expect(Object.keys(res.body).sort()).toEqual(
-        [
-          'id', 'name', 'description', 'price', 'imageUrl', 'available', 'active', 'sortOrder', 'tag',
-          'ingredients', 'removableIngredients', 'addOns', 'businessId', 'categoryId', 'createdAt',
-          'updatedAt', 'deletedAt',
-        ].sort(),
-      );
+      expect(res.body.imageUrl).toBe(mediaUrl(keyedKey));
+      expect(Object.keys(res.body).sort()).toEqual(PRODUCT_FIELDS);
     });
 
     it('GET /products/admin (paginated)', async () => {
@@ -201,8 +182,8 @@ describe.each([
       expectNoLeak(res.body);
       expect(res.body).toMatchObject({ page: 1 });
       const byId = new Map<string, { imageUrl: string | null }>(res.body.items.map((p: { id: string }) => [p.id, p]));
-      expect(byId.get(legacyOnly.id)?.imageUrl).toBe(LEGACY_PRODUCT);
-      expect(byId.get(keyed.id)?.imageUrl).toBe(expectedImage(keyed, keyedUrl));
+      expect(byId.get(noImage.id)?.imageUrl).toBeNull();
+      expect(byId.get(keyed.id)?.imageUrl).toBe(mediaUrl(keyedKey));
     });
 
     it('POST /products (create) — response has no key and starts without an image', async () => {
@@ -214,71 +195,53 @@ describe.each([
         .expect(201);
       expectNoLeak(res.body);
       expect(res.body.imageUrl).toBeNull();
+      expect(Object.keys(res.body).sort()).toEqual(PRODUCT_FIELDS);
     });
 
     it('PATCH /products/:id (update) — response has no key', async () => {
       const res = await request(app.getHttpServer())
         .patch(`/products/${keyed.id}`)
         .set(auth())
-        .send({ name: 'Keyed 2' })
+        .send({ name: 'Con imagen 2' })
         .expect(200);
       expectNoLeak(res.body);
-      expect(res.body.name).toBe('Keyed 2');
-      expect(res.body.imageUrl).toBe(expectedImage(keyed, keyedUrl));
+      expect(res.body.name).toBe('Con imagen 2');
+      expect(res.body.imageUrl).toBe(mediaUrl(keyedKey));
     });
 
-    it('POST /products/:id/image keeps the legacy URL and stores a key; DELETE clears both — no key in either response', async () => {
+    it('POST /products/:id/image stores a key; DELETE clears it — no key in either response', async () => {
       const up = await request(app.getHttpServer())
-        .post(`/products/${legacyOnly.id}/image`)
+        .post(`/products/${noImage.id}/image`)
         .set(auth())
         .attach('file', Buffer.from('fake'), { filename: 'a.png', contentType: 'image/png' })
         .expect(201);
       expectNoLeak(up.body);
-      const [stored] = await dataSource.query(
-        `SELECT image_url, image_storage_key FROM products WHERE id = $1`,
-        [legacyOnly.id],
-      );
-      expect(stored.image_url).toBe(LEGACY_PRODUCT); // legacy fallback preserved
-      expect(stored.image_storage_key).toMatch(new RegExp(`^businesses/${business.id}/products/${legacyOnly.id}/`));
-      // The presenter prefers the key when /media URLs can be built.
-      expect(up.body.imageUrl).toBe(base ? `${base}/media/${stored.image_storage_key}` : null);
+      const [stored] = await dataSource.query(`SELECT image_storage_key FROM products WHERE id = $1`, [noImage.id]);
+      expect(stored.image_storage_key).toMatch(new RegExp(`^businesses/${business.id}/products/${noImage.id}/`));
+      expect(up.body.imageUrl).toBe(mediaUrl(stored.image_storage_key));
 
       const del = await request(app.getHttpServer())
-        .delete(`/products/${legacyOnly.id}/image`)
+        .delete(`/products/${noImage.id}/image`)
         .set(auth())
         .expect(200);
       expectNoLeak(del.body);
       expect(del.body.imageUrl).toBeNull();
-      const [cleared] = await dataSource.query(
-        `SELECT image_url, image_storage_key FROM products WHERE id = $1`,
-        [legacyOnly.id],
-      );
-      expect(cleared).toEqual({ image_url: null, image_storage_key: null });
+      const [cleared] = await dataSource.query(`SELECT image_storage_key FROM products WHERE id = $1`, [noImage.id]);
+      expect(cleared.image_storage_key).toBeNull();
     });
 
-    it('imageUrl is not writable through create or update any more', async () => {
-      const categoryId = (await dataSource.getRepository(Category).findOneByOrFail({ businessId: business.id })).id;
-      const evil = { imageUrl: 'https://evil.example/x.png' };
-      await request(app.getHttpServer()).patch(`/products/${keyed.id}`).set(auth()).send(evil).expect(400);
-      await request(app.getHttpServer())
-        .post('/products')
-        .set(auth())
-        .send({ name: 'X', price: 1, categoryId, businessId: business.id, ...evil })
-        .expect(400);
-    });
-
-    it.each(['imageStorageKey', 'image_storage_key'])(
-      'a client can never write %s (create and update both reject it)',
+    it.each(['imageUrl', 'image_url', 'imageStorageKey', 'image_storage_key'])(
+      'a client can never send %s on create or update',
       async (field) => {
         const categoryId = (await dataSource.getRepository(Category).findOneByOrFail({ businessId: business.id })).id;
         const body = { [field]: productImageKey(business.id, keyed.id, OBJ) };
-        await request(app.getHttpServer()).patch(`/products/${legacyOnly.id}`).set(auth()).send(body).expect(400);
+        await request(app.getHttpServer()).patch(`/products/${noImage.id}`).set(auth()).send(body).expect(400);
         const valid = { name: 'X', price: 1, categoryId, businessId: business.id };
         // Control: the same body without the forbidden field is accepted, so
         // the 400 below can only be about that field.
         await request(app.getHttpServer()).post('/products').set(auth()).send(valid).expect(201);
         await request(app.getHttpServer()).post('/products').set(auth()).send({ ...valid, ...body }).expect(400);
-        const [row] = await dataSource.query(`SELECT image_storage_key FROM products WHERE id = $1`, [legacyOnly.id]);
+        const [row] = await dataSource.query(`SELECT image_storage_key FROM products WHERE id = $1`, [noImage.id]);
         expect(row.image_storage_key).toBeNull();
       },
     );
@@ -288,7 +251,7 @@ describe.each([
     it('GET /businesses/me', async () => {
       const res = await request(app.getHttpServer()).get('/businesses/me').set(auth()).expect(200);
       expectNoLeak(res.body);
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : null);
+      expect(res.body.logoUrl).toBe(mediaUrl(logoKey));
     });
 
     it('PATCH /businesses/me', async () => {
@@ -299,24 +262,23 @@ describe.each([
         .expect(200);
       expectNoLeak(res.body);
       expect(res.body.hours).toBe('Lun-Dom 12:00-23:00');
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : null);
+      expect(res.body.logoUrl).toBe(mediaUrl(logoKey));
     });
 
-    it('POST /businesses/me/logo stores a key, keeps the legacy logo_url, and leaks nothing', async () => {
+    it('POST /businesses/me/logo stores a key and leaks nothing', async () => {
       const res = await request(app.getHttpServer())
         .post('/businesses/me/logo')
         .set(auth())
         .attach('file', Buffer.from('fake'), { filename: 'a.png', contentType: 'image/png' })
         .expect(201);
       expectNoLeak(res.body);
-      const [row] = await dataSource.query(`SELECT logo_url, logo_storage_key FROM businesses WHERE id = $1`, [business.id]);
-      expect(row.logo_url).toBe(LEGACY_LOGO);
+      const [row] = await dataSource.query(`SELECT logo_storage_key FROM businesses WHERE id = $1`, [business.id]);
       expect(row.logo_storage_key).toMatch(new RegExp(`^businesses/${business.id}/logo/`));
       uploadedLogoKey = row.logo_storage_key;
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : null);
+      expect(res.body.logoUrl).toBe(mediaUrl(uploadedLogoKey));
     });
 
-    it.each(['logoStorageKey', 'logo_storage_key'])('a client can never write %s', async (field) => {
+    it.each(['logoUrl', 'logo_url', 'logoStorageKey', 'logo_storage_key'])('a client can never write %s', async (field) => {
       await request(app.getHttpServer())
         .patch('/businesses/me')
         .set(auth())
@@ -333,8 +295,8 @@ describe.each([
       expect(Object.keys(res.body).sort()).toEqual(
         ['sessionToken', 'tableName', 'businessSlug', 'businessName', 'logoUrl', 'primaryColor', 'accentColor'].sort(),
       );
-      // The upload test above replaced the key; the legacy logo_url is untouched.
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : null);
+      // The upload test above replaced the key.
+      expect(res.body.logoUrl).toBe(mediaUrl(uploadedLogoKey));
     });
   });
 });

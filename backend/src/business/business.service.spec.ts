@@ -44,7 +44,7 @@ describe('BusinessService', () => {
     address: null,
     phone: null,
     hours: null,
-    logoUrl: null,
+    logoStorageKey: null,
     primaryColor: null,
     accentColor: null,
   };
@@ -163,7 +163,6 @@ describe('BusinessService', () => {
     const BIZ2 = 'dddddddd-4444-4abc-8def-444444444abc';
     const LOGO_KEY = `businesses/${BIZ1}/logo/cccccccc-3333-4abc-8def-333333333abc.webp`;
     const LOGO_KEY_2 = `businesses/${BIZ1}/logo/eeeeeeee-5555-4abc-8def-555555555abc.webp`;
-    const LEGACY = 'https://project.supabase.co/storage/v1/object/public/product-images/business-logos/biz/logo.webp?v=1';
     const uuidAdmin: SafeUser = { ...admin, businessId: BIZ1 };
 
     it('uploads under a key built from the resolved businessId and saves logoStorageKey', async () => {
@@ -177,17 +176,7 @@ describe('BusinessService', () => {
       expect(passedFile).toBe(file);
       expect(businessRepo.save).toHaveBeenCalledWith(expect.objectContaining({ logoStorageKey: key }));
       expect(result.logoStorageKey).toBe(key);
-      expect(result.logoUrl).toBeNull();
-    });
-
-    it('keeps the legacy logoUrl as a fallback when it already existed', async () => {
-      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1, logoUrl: LEGACY });
-      imageStorage.upload.mockResolvedValue(LOGO_KEY);
-
-      const result = await service.uploadLogo({}, uuidAdmin, file);
-
-      expect(result.logoUrl).toBe(LEGACY);
-      expect(result.logoStorageKey).toBe(LOGO_KEY);
+      expect(businessRepo.save.mock.calls[0][0]).not.toHaveProperty('logoUrl');
     });
 
     it('re-uploading stores a different key each time (nothing is overwritten or deleted)', async () => {
@@ -220,7 +209,7 @@ describe('BusinessService', () => {
     });
 
     it('a DB failure after a successful upload is reported and deletes nothing', async () => {
-      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1, logoUrl: LEGACY });
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1, logoStorageKey: LOGO_KEY_2 });
       imageStorage.upload.mockResolvedValue(LOGO_KEY);
       businessRepo.save.mockRejectedValueOnce(new Error('db down'));
 

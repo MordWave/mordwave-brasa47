@@ -7,7 +7,7 @@ import { ProductPresenter } from './product.presenter.js';
 const BIZ = '11111111-1111-4111-8111-111111111111';
 const PROD = '22222222-2222-4222-8222-222222222222';
 const KEY = productImageKey(BIZ, PROD, '33333333-3333-4333-8333-333333333333');
-const LEGACY = 'https://legacy.example/product-images/a.webp?v=1';
+const BASE = 'https://api.example.com';
 
 function product(extra: Partial<Product> = {}): Product {
   return {
@@ -15,7 +15,6 @@ function product(extra: Partial<Product> = {}): Product {
     name: 'Clásica',
     description: null,
     price: 6900,
-    imageUrl: LEGACY,
     imageStorageKey: null,
     available: true,
     active: true,
@@ -44,58 +43,56 @@ afterEach(() => {
 });
 
 describe('ProductPresenter', () => {
-  it('with a NULL key the JSON is exactly the current entity JSON (same legacy URL, same fields)', () => {
-    const entity = product();
-    const { imageStorageKey: _omit, ...legacyShape } = entity;
-    for (const p of [presenter(), presenter('https://api.example.com')]) {
-      const out = p.present(entity);
-      expect(JSON.parse(JSON.stringify(out))).toEqual(JSON.parse(JSON.stringify(legacyShape)));
-      expect(out.imageUrl).toBe(LEGACY);
-    }
+  it('serves the stable /media URL when the product has a storage key', () => {
+    expect(presenter(BASE).present(product({ imageStorageKey: KEY })).imageUrl).toBe(`${BASE}/media/${KEY}`);
   });
 
-  it('keeps a null legacy URL null', () => {
-    expect(presenter().present(product({ imageUrl: null })).imageUrl).toBeNull();
+  it('a product without a storage key has no image (imageUrl null) — there is no other source', () => {
+    expect(presenter(BASE).present(product()).imageUrl).toBeNull();
+  });
+
+  it('without MEDIA_PUBLIC_BASE_URL a keyed product has no image either, and the key does not leak', () => {
+    const out = presenter().present(product({ imageStorageKey: KEY }));
+    expect(out.imageUrl).toBeNull();
+    expect(JSON.stringify(out)).not.toContain(KEY);
   });
 
   it('never exposes imageStorageKey, whatever the configuration', () => {
-    for (const p of [presenter(), presenter('https://api.example.com')]) {
+    for (const p of [presenter(), presenter(BASE)]) {
       const out = p.present(product({ imageStorageKey: KEY }));
       expect(out).not.toHaveProperty('imageStorageKey');
       expect(JSON.stringify(out)).not.toContain('imageStorageKey');
     }
   });
 
-  it('uses the stable /media URL when a key exists and the base URL is configured', () => {
-    const out = presenter('https://api.example.com').present(product({ imageStorageKey: KEY }));
-    expect(out.imageUrl).toBe(`https://api.example.com/media/${KEY}`);
+  it('keeps the response contract: the same fields as before, imageUrl included', () => {
+    const out = presenter(BASE).present(product({ imageStorageKey: KEY }));
+    expect(Object.keys(out).sort()).toEqual(
+      [
+        'id', 'name', 'description', 'price', 'imageUrl', 'available', 'active', 'sortOrder', 'tag',
+        'ingredients', 'removableIngredients', 'addOns', 'businessId', 'categoryId', 'createdAt',
+        'updatedAt', 'deletedAt',
+      ].sort(),
+    );
   });
 
-  it('a keyed row NEVER falls back to the legacy URL: without a base URL it has no image (and leaks no key)', () => {
-    const out = presenter().present(product({ imageStorageKey: KEY }));
-    expect(out.imageUrl).toBeNull();
-    expect(JSON.stringify(out)).not.toContain(KEY);
-    expect(JSON.stringify(out)).not.toContain(LEGACY);
-  });
-
-  it('the legacy URL is only a fallback for rows WITHOUT a storage key', () => {
-    const p = presenter('https://api.example.com');
-    expect(p.present(product({ imageStorageKey: null })).imageUrl).toBe(LEGACY);
-    expect(p.present(product({ imageStorageKey: KEY })).imageUrl).toBe(`https://api.example.com/media/${KEY}`);
+  it('ignores a stray legacy imageUrl on the object: it is never read', () => {
+    const stray = product({ imageStorageKey: null }) as unknown as Record<string, unknown>;
+    stray.imageUrl = 'https://legacy.example/old.webp';
+    expect(presenter(BASE).present(stray as unknown as Product).imageUrl).toBeNull();
   });
 
   it('does not mutate the entity it is given', () => {
     const entity = product({ imageStorageKey: KEY });
-    presenter('https://api.example.com').present(entity);
+    presenter(BASE).present(entity);
     expect(entity.imageStorageKey).toBe(KEY);
-    expect(entity.imageUrl).toBe(LEGACY);
+    expect(entity).not.toHaveProperty('imageUrl');
   });
 
   it('presentMany / presentPage map every item and keep the page metadata', () => {
-    const p = presenter('https://api.example.com');
+    const p = presenter(BASE);
     const rows = [product({ imageStorageKey: KEY }), product({ id: 'x' })];
-    const many = p.presentMany(rows);
-    expect(many.map((r) => r.imageUrl)).toEqual([`https://api.example.com/media/${KEY}`, LEGACY]);
+    expect(p.presentMany(rows).map((r) => r.imageUrl)).toEqual([`${BASE}/media/${KEY}`, null]);
     const page = p.presentPage({ items: rows, page: 2, limit: 10, total: 12, totalPages: 2, hasMore: false });
     expect(page).toMatchObject({ page: 2, limit: 10, total: 12, totalPages: 2, hasMore: false });
     expect(page.items).toHaveLength(2);

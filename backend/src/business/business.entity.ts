@@ -45,16 +45,13 @@ export class Business {
   @Column({ type: 'text', nullable: true })
   hours: string | null;
 
-  // Set only via POST /businesses/me/logo (BusinessService.uploadLogo) —
-  // never written through the plain PATCH /businesses/me body, same
-  // separation as Product.imageUrl vs POST /products/:id/image.
-  @Column({ name: 'logo_url', type: 'text', nullable: true })
-  logoUrl: string | null;
-
-  // Object key in the Railway Bucket. Internal: written only by server code
-  // and never sent to clients — BusinessPresenter turns it into the /media
-  // URL in `logoUrl`. `logoUrl` above is the legacy Supabase URL, kept during
-  // the transition.
+  // Object key in the Railway Bucket — the only logo reference. Set only via
+  // POST /businesses/me/logo (BusinessService.uploadLogo), never through the
+  // plain PATCH /businesses/me body, and never sent to clients;
+  // BusinessPresenter turns it into the /media URL in the response's `logoUrl`.
+  //
+  // The old `logo_url` column (legacy Supabase URL) is no longer mapped or read;
+  // it still exists physically in PostgreSQL until the migration that drops it.
   @Column({ name: 'logo_storage_key', type: 'text', nullable: true })
   logoStorageKey: string | null;
 

@@ -390,9 +390,8 @@ export class ProductService {
   // image of a product in their own business.
   //
   // New image: upload to the bucket under a brand-new key, THEN point the row
-  // at it. image_url (the legacy Supabase URL) is left untouched as a
-  // fallback; ProductPresenter prefers the key. The previous object, in the
-  // bucket or in Supabase, is never deleted here.
+  // at it. The previous object is never deleted here (left for a later orphan
+  // cleanup).
   //
   // If the DB save fails after a successful upload, nothing references the new
   // object (the row still has its old values): it is only an orphan candidate,
@@ -412,15 +411,13 @@ export class ProductService {
     }
   }
 
-  // Detaches the image: both the key and the legacy URL are cleared. No object
-  // is deleted anywhere (bucket or Supabase) — physical cleanup is a separate,
-  // later step.
+  // Detaches the image by clearing its storage key. No object is deleted from
+  // the bucket — physical cleanup is a separate, later step.
   async removeImage(id: string, user: SafeUser): Promise<Product> {
     const product = await this.findOne(id);
     resolveBusinessIdForUpdate(user, product.businessId, undefined);
 
     product.imageStorageKey = null;
-    product.imageUrl = null;
     return this.productRepository.save(product);
   }
 }

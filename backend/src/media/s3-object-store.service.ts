@@ -34,11 +34,10 @@ function isNotFound(error: unknown): boolean {
 }
 
 // Thin, generic wrapper over the Railway Bucket (S3 API): head, presignGet and
-// put. There is deliberately NO delete: during the Supabase -> Railway
-// transition nothing removes objects (cleanup is a separate, reviewed step).
-// It knows nothing about products, businesses or Supabase, and does not decide
-// which keys are valid media keys — callers (MediaController, ImageStorageService)
-// do that.
+// put. There is deliberately NO delete: nothing removes objects (cleanup is a
+// separate, reviewed step). It knows nothing about products or businesses and
+// does not decide which keys are valid media keys — callers (MediaController,
+// ImageStorageService) do that.
 @Injectable()
 export class S3ObjectStoreService implements OnModuleInit {
   private readonly logger = new Logger(S3ObjectStoreService.name);

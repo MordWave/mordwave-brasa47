@@ -1159,7 +1159,6 @@ describe('ProductService', () => {
     const file = { buffer: Buffer.from('bytes'), size: 100 };
     const NEW_KEY = 'businesses/aaaaaaaa-1111-4abc-8def-111111111abc/products/bbbbbbbb-2222-4abc-8def-222222222abc/cccccccc-3333-4abc-8def-333333333abc.webp';
     const NEWER_KEY = NEW_KEY.replace('cccccccc', 'dddddddd');
-    const LEGACY = 'https://project.supabase.co/storage/v1/object/public/product-images/biz-1/p1/imagen.webp?v=1';
 
     it('rejects attaching an image to a product belonging to another business', async () => {
       productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
@@ -1170,8 +1169,8 @@ describe('ProductService', () => {
       expect(productImageService.upload).not.toHaveBeenCalled();
     });
 
-    it('uploads for the product\'s own business and saves the new storageKey only after the upload succeeds', async () => {
-      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageUrl: null, imageStorageKey: null });
+    it("uploads for the product's own business and saves the new storageKey only after the upload succeeds", async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: null });
       productImageService.upload.mockResolvedValue(NEW_KEY);
 
       const result = await service.attachImage('p1', admin, file);
@@ -1179,22 +1178,19 @@ describe('ProductService', () => {
       expect(productImageService.upload).toHaveBeenCalledWith('biz-1', 'p1', file);
       expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ imageStorageKey: NEW_KEY }));
       expect(result.imageStorageKey).toBe(NEW_KEY);
-      expect(result.imageUrl).toBeNull();
     });
 
-    it('keeps the legacy imageUrl as a fallback when it already existed', async () => {
-      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageUrl: LEGACY, imageStorageKey: null });
+    it('writes only the storage key: no legacy URL field is ever set', async () => {
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: null });
       productImageService.upload.mockResolvedValue(NEW_KEY);
 
-      const result = await service.attachImage('p1', admin, file);
+      await service.attachImage('p1', admin, file);
 
-      expect(result.imageUrl).toBe(LEGACY);
-      expect(result.imageStorageKey).toBe(NEW_KEY);
+      expect(productRepo.save.mock.calls[0][0]).not.toHaveProperty('imageUrl');
     });
 
     it('replacing again stores a different key and never deletes anything', async () => {
-      const row = { id: 'p1', businessId: 'biz-1', imageUrl: LEGACY, imageStorageKey: NEW_KEY };
-      productRepo.findOne.mockResolvedValue(row);
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: NEW_KEY });
       productImageService.upload.mockResolvedValue(NEWER_KEY);
 
       const result = await service.attachImage('p1', admin, file);
@@ -1205,12 +1201,7 @@ describe('ProductService', () => {
     });
 
     it('leaves the row untouched when the upload fails (storage error never modifies the DB)', async () => {
-      productRepo.findOne.mockResolvedValue({
-        id: 'p1',
-        businessId: 'biz-1',
-        imageUrl: LEGACY,
-        imageStorageKey: NEW_KEY,
-      });
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: NEW_KEY });
       productImageService.upload.mockRejectedValue(new Error('storage down'));
 
       await expect(service.attachImage('p1', admin, file)).rejects.toThrow('storage down');
@@ -1219,8 +1210,7 @@ describe('ProductService', () => {
     });
 
     it('a DB failure after a successful upload is reported, leaves no dangling reference, and deletes nothing', async () => {
-      const row = { id: 'p1', businessId: 'biz-1', imageUrl: LEGACY, imageStorageKey: null };
-      productRepo.findOne.mockResolvedValue(row);
+      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: null });
       productImageService.upload.mockResolvedValue(NEW_KEY);
       productRepo.save.mockRejectedValueOnce(new Error('db down'));
 
@@ -1241,20 +1231,17 @@ describe('ProductService', () => {
       expect(productRepo.save).not.toHaveBeenCalled();
     });
 
-    it('clears BOTH imageStorageKey and imageUrl and deletes no object anywhere', async () => {
+    it('clears imageStorageKey (the only image reference), never touches a legacy column, and deletes no object', async () => {
       productRepo.findOne.mockResolvedValue({
         id: 'p1',
         businessId: 'biz-1',
-        imageUrl: 'https://project.supabase.co/storage/v1/object/public/product-images/biz-1/p1/imagen.webp?v=1',
         imageStorageKey: 'businesses/aaaaaaaa-1111-4abc-8def-111111111abc/products/bbbbbbbb-2222-4abc-8def-222222222abc/cccccccc-3333-4abc-8def-333333333abc.webp',
       });
 
       const result = await service.removeImage('p1', admin);
 
-      expect(productRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ imageUrl: null, imageStorageKey: null }),
-      );
-      expect(result.imageUrl).toBeNull();
+      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ imageStorageKey: null }));
+      expect(productRepo.save.mock.calls[0][0]).not.toHaveProperty('imageUrl');
       expect(result.imageStorageKey).toBeNull();
       expect(productImageService.upload).not.toHaveBeenCalled();
       expect(productImageService).not.toHaveProperty('remove');

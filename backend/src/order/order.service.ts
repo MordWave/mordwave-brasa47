@@ -167,9 +167,9 @@ export class OrderService {
         if (existing) return existing;
 
         // One batched lookup instead of one findOne() per cart line — each
-        // extra sequential round trip here paid the full Railway↔Supabase
-        // network cost (measured ~120ms/query in production), which used
-        // to multiply by cart size. Deduplicated ids: the same product can
+        // extra sequential round trip here paid the full app↔database
+        // network cost (measured ~120ms/query when the database was remote),
+        // which used to multiply by cart size. Deduplicated ids: the same product can
         // legitimately appear as more than one cart line (e.g. two
         // differently-customized orders of the same burger), and fetching
         // it twice would be wasted work for no extra correctness.
