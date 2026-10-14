@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   DeleteDateColumn,
@@ -11,6 +12,7 @@ import {
 } from 'typeorm';
 import { Business } from '../business/business.entity.js';
 import { Category } from '../category/category.entity.js';
+import { PRODUCT_IMAGE_KEY_PATTERN } from '../media/media-key.util.js';
 
 // A customer-selectable extra, with its own price (CLP integer, no cents —
 // same convention as Product.price). Resolved and priced server-side at
@@ -20,6 +22,13 @@ export interface ProductAddOn {
   price: number;
 }
 
+// Same shape check as the AddMediaStorageKeys migration (declared here too so
+// `migration:generate` doesn't propose dropping it). Shape only — see the
+// migration for why it is not tied to business_id.
+@Check(
+  'CHK_products_image_storage_key',
+  `"image_storage_key" IS NULL OR "image_storage_key" ~ '${PRODUCT_IMAGE_KEY_PATTERN}'`,
+)
 @Entity('products')
 export class Product {
   @PrimaryGeneratedColumn('uuid')
@@ -37,8 +46,17 @@ export class Product {
   @Column({ type: 'integer' })
   price: number;
 
+  // Legacy: the Supabase public URL. Kept during the Supabase Storage ->
+  // Railway Bucket transition; responses use imageStorageKey instead when it
+  // is set (see ProductPresenter).
   @Column({ type: 'text', name: 'image_url', nullable: true })
   imageUrl: string | null;
+
+  // Object key in the Railway Bucket. Internal: written only by server code
+  // (never a DTO field) and never sent to clients — ProductPresenter turns it
+  // into the /media URL in `imageUrl`.
+  @Column({ type: 'text', name: 'image_storage_key', nullable: true })
+  imageStorageKey: string | null;
 
   @Column({ default: true })
   available: boolean;

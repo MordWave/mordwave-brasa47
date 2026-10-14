@@ -5,6 +5,8 @@ import { DataSource } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessPresenter } from '../business/business.presenter.js';
+import { MediaUrlService } from '../media/media-url.service.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { RestaurantTable } from './table.entity.js';
 import { TableSession } from './table-session.entity.js';
@@ -73,6 +75,8 @@ describe('TableSessionService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         TableSessionService,
+        BusinessPresenter,
+        MediaUrlService,
         { provide: getRepositoryToken(RestaurantTable), useValue: tableRepo },
         { provide: getRepositoryToken(TableSession), useValue: sessionRepo },
         { provide: getRepositoryToken(Business), useValue: businessRepo },

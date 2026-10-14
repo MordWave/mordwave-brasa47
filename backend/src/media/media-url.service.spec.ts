@@ -1,0 +1,69 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { businessLogoKey, productImageKey } from './media-key.util.js';
+import { MediaUrlService } from './media-url.service.js';
+
+const BIZ = '11111111-1111-4111-8111-111111111111';
+const PROD = '22222222-2222-4222-8222-222222222222';
+const OBJ = '33333333-3333-4333-8333-333333333333';
+const KEY = productImageKey(BIZ, PROD, OBJ);
+const LEGACY = 'https://legacy.example/product-images/a.webp?v=1';
+
+function serviceWith(base: string | undefined): MediaUrlService {
+  if (base === undefined) delete process.env.MEDIA_PUBLIC_BASE_URL;
+  else process.env.MEDIA_PUBLIC_BASE_URL = base;
+  return new MediaUrlService();
+}
+
+afterEach(() => {
+  delete process.env.MEDIA_PUBLIC_BASE_URL;
+});
+
+describe('MediaUrlService.parseBaseUrl', () => {
+  it.each([[undefined], [''], ['   ']])('treats %j as "not configured"', (raw) => {
+    expect(MediaUrlService.parseBaseUrl(raw)).toBeNull();
+  });
+
+  it('normalises the origin and strips trailing slashes', () => {
+    expect(MediaUrlService.parseBaseUrl(' https://api.example.com/ ')).toBe('https://api.example.com');
+    expect(MediaUrlService.parseBaseUrl('http://localhost:3000')).toBe('http://localhost:3000');
+  });
+
+  it.each([
+    ['not-a-url'],
+    ['ftp://api.example.com'],
+    ['https://user:pw@api.example.com'],
+    ['https://api.example.com/?a=1'],
+    ['https://api.example.com/#x'],
+  ])('rejects %j so a typo fails the boot', (raw) => {
+    expect(() => MediaUrlService.parseBaseUrl(raw)).toThrow(/MEDIA_PUBLIC_BASE_URL/);
+  });
+});
+
+describe('MediaUrlService.resolve', () => {
+  it('returns the legacy URL untouched when there is no storage key', () => {
+    const svc = serviceWith('https://api.example.com');
+    expect(svc.resolve(null, LEGACY)).toBe(LEGACY);
+    expect(svc.resolve(undefined, LEGACY)).toBe(LEGACY);
+    expect(svc.resolve(null, null)).toBeNull();
+  });
+
+  it('returns the stable /media URL when a key exists and the base URL is configured', () => {
+    const svc = serviceWith('https://api.example.com/');
+    expect(svc.resolve(KEY, LEGACY)).toBe(`https://api.example.com/media/${KEY}`);
+    expect(svc.resolve(KEY, null)).toBe(`https://api.example.com/media/${KEY}`);
+    const logo = businessLogoKey(BIZ, OBJ);
+    expect(svc.resolve(logo, null)).toBe(`https://api.example.com/media/${logo}`);
+  });
+
+  it('keeps returning the legacy URL while the base URL is not configured, even if a key exists', () => {
+    const svc = serviceWith(undefined);
+    expect(svc.resolve(KEY, LEGACY)).toBe(LEGACY);
+    expect(svc.resolve(KEY, null)).toBeNull();
+  });
+
+  it('never builds a URL from a malformed key (falls back to legacy)', () => {
+    const svc = serviceWith('https://api.example.com');
+    expect(svc.resolve('../../etc/passwd', LEGACY)).toBe(LEGACY);
+    expect(svc.resolve('', LEGACY)).toBe(LEGACY);
+  });
+});

@@ -26,7 +26,7 @@ import { UploadTimeout } from '../common/http/request-timeout.decorator.js';
 import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { BusinessService } from './business.service.js';
-import { Business } from './business.entity.js';
+import { BusinessPresenter, type BusinessResponse } from './business.presenter.js';
 import { IMAGE_MULTER_HARD_LIMIT_BYTES } from '../common/limits/resource-limits.const.js';
 import { BusinessQueryDto } from './dto/business-query.dto.js';
 import { UpdateBusinessDto } from './dto/update-business.dto.js';
@@ -45,13 +45,17 @@ export class BusinessController {
   constructor(
     private readonly businessService: BusinessService,
     private readonly auditService: AuditService,
+    private readonly presenter: BusinessPresenter,
   ) {}
 
   @Get('me')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  getMe(@Query() query: BusinessQueryDto, @CurrentUser() user: SafeUser): Promise<Business> {
-    return this.businessService.getMe(query, user);
+  async getMe(
+    @Query() query: BusinessQueryDto,
+    @CurrentUser() user: SafeUser,
+  ): Promise<BusinessResponse> {
+    return this.presenter.present(await this.businessService.getMe(query, user));
   }
 
   @Patch('me')
@@ -62,7 +66,7 @@ export class BusinessController {
     @Body() dto: UpdateBusinessDto,
     @CurrentUser() user: SafeUser,
     @Req() req: Request,
-  ): Promise<Business> {
+  ): Promise<BusinessResponse> {
     const updated = await this.businessService.updateMe(query, dto, user);
     void this.auditService.record({
       businessId: updated.id,
@@ -74,7 +78,7 @@ export class BusinessController {
       metadata: dto,
       ...extractClientInfo(req),
     });
-    return updated;
+    return this.presenter.present(updated);
   }
 
   @Post('me/logo')
@@ -93,7 +97,7 @@ export class BusinessController {
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: SafeUser,
     @Req() req: Request,
-  ): Promise<Business> {
+  ): Promise<BusinessResponse> {
     if (!file) {
       throw new BadRequestException({
         message: 'No file uploaded',
@@ -112,6 +116,6 @@ export class BusinessController {
       metadata: { originalName: file.originalname, mimeType: file.mimetype, sizeBytes: file.size },
       ...extractClientInfo(req),
     });
-    return updated;
+    return this.presenter.present(updated);
   }
 }
