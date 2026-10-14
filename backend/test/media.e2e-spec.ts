@@ -115,16 +115,31 @@ describe('GET/HEAD /media/<key> (e2e, real local Postgres, fake S3)', () => {
       expect(res.headers.location).toBe(signedUrlFor(LOGO_KEY));
     });
 
-    it('HEAD answers the equivalent 302 without a body', async () => {
-      const res = await http().head(`/media/${KEY}`).set(asIp(nextIp())).redirects(0).expect(302);
-      expect(res.headers.location).toBe(signedUrlFor(KEY));
+    // A presigned URL is signed for GET only: redirecting a HEAD to it would
+    // make the bucket answer 403. HEAD must answer directly and never sign.
+    it('HEAD answers 200 directly (no redirect, no body) and never presigns', async () => {
+      const res = await http().head(`/media/${KEY}`).set(asIp(nextIp())).redirects(0).expect(200);
+      expect(res.headers.location).toBeUndefined();
       expect(res.headers['cache-control']).toBe('public, max-age=1800');
+      expect(res.headers['content-type']).toBe('image/webp');
+      expect(res.headers['content-length']).toBe('10');
       expect(res.text ?? '').toBe('');
       expect(store.head).toHaveBeenCalledWith(KEY);
+      expect(store.presignGet).not.toHaveBeenCalled();
     });
 
-    it('HEAD on a missing object is a 404 as well', async () => {
-      await http().head(`/media/${MISSING_KEY}`).set(asIp(nextIp())).redirects(0).expect(404);
+    it('GET still redirects after a HEAD of the same key (no shared state)', async () => {
+      const ip = nextIp();
+      await http().head(`/media/${KEY}`).set(asIp(ip)).redirects(0).expect(200);
+      const res = await http().get(`/media/${KEY}`).set(asIp(ip)).redirects(0).expect(302);
+      expect(res.headers.location).toBe(signedUrlFor(KEY));
+      expect(store.presignGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('HEAD on a missing object is a 404 and never presigns', async () => {
+      const res = await http().head(`/media/${MISSING_KEY}`).set(asIp(nextIp())).redirects(0).expect(404);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(store.presignGet).not.toHaveBeenCalled();
     });
   });
 
@@ -163,6 +178,13 @@ describe('GET/HEAD /media/<key> (e2e, real local Postgres, fake S3)', () => {
         .redirects(0)
         .expect(404);
       expect(store.head).not.toHaveBeenCalled();
+    });
+
+    it.each(cases.slice(0, 6))('HEAD: %s -> 404, S3 never called', async (_label, path) => {
+      const res = await http().head(path).set(asIp(nextIp())).redirects(0).expect(404);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(store.head).not.toHaveBeenCalled();
+      expect(store.presignGet).not.toHaveBeenCalled();
     });
 
     it('a bare /media/ is not a key either', async () => {
@@ -212,8 +234,9 @@ describe('GET/HEAD /media/<key> (e2e, real local Postgres, fake S3)', () => {
     it('its own per-IP limit ends in 429 RATE_LIMITED with Retry-After, GET and HEAD sharing it', async () => {
       const ip = nextIp();
       for (let i = 0; i < MEDIA_LIMIT; i += 1) {
-        const verb = i % 2 === 0 ? http().get(`/media/${KEY}`) : http().head(`/media/${KEY}`);
-        await verb.set(asIp(ip)).redirects(0).expect(302);
+        const even = i % 2 === 0;
+        const verb = even ? http().get(`/media/${KEY}`) : http().head(`/media/${KEY}`);
+        await verb.set(asIp(ip)).redirects(0).expect(even ? 302 : 200);
       }
       const res = await http().get(`/media/${KEY}`).set(asIp(ip)).redirects(0).expect(429);
       expect(res.body).toEqual({ statusCode: 429, errorCode: 'RATE_LIMITED', message: 'Too many requests' });
