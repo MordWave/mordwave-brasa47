@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -8,10 +9,17 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Category } from '../category/category.entity.js';
+import { BUSINESS_LOGO_KEY_PATTERN } from '../media/media-key.util.js';
 import { Order } from '../order/order.entity.js';
 import { Product } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
 
+// Same shape check as the AddMediaStorageKeys migration (declared here too so
+// `migration:generate` doesn't propose dropping it).
+@Check(
+  'CHK_businesses_logo_storage_key',
+  `"logo_storage_key" IS NULL OR "logo_storage_key" ~ '${BUSINESS_LOGO_KEY_PATTERN}'`,
+)
 @Entity('businesses')
 export class Business {
   @PrimaryGeneratedColumn('uuid')
@@ -42,6 +50,13 @@ export class Business {
   // separation as Product.imageUrl vs POST /products/:id/image.
   @Column({ name: 'logo_url', type: 'text', nullable: true })
   logoUrl: string | null;
+
+  // Object key in the Railway Bucket. Internal: written only by server code
+  // and never sent to clients — BusinessPresenter turns it into the /media
+  // URL in `logoUrl`. `logoUrl` above is the legacy Supabase URL, kept during
+  // the transition.
+  @Column({ name: 'logo_storage_key', type: 'text', nullable: true })
+  logoStorageKey: string | null;
 
   // "#RRGGBB" hex strings, validated in UpdateBusinessDto — a business
   // that hasn't set these yet is null, and the frontend falls back to the

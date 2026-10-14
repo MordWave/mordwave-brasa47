@@ -36,7 +36,7 @@ import { ProductAdminQueryDto } from './dto/product-admin-query.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
 import { ProductSummaryQueryDto } from './dto/product-summary-query.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
-import { Product } from './product.entity.js';
+import { ProductPresenter, type ProductResponse } from './product.presenter.js';
 import { UploadTimeout } from '../common/http/request-timeout.decorator.js';
 import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { ProductService, type ProductAdminSummary } from './product.service.js';
@@ -46,17 +46,18 @@ export class ProductController {
   constructor(
     private readonly productService: ProductService,
     private readonly auditService: AuditService,
+    private readonly presenter: ProductPresenter,
   ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @Audit(AUDIT_ACTIONS.PRODUCT_CREATED, AUDIT_ENTITY_TYPES.PRODUCT)
-  create(
+  async create(
     @Body() dto: CreateProductDto,
     @CurrentUser() user: SafeUser,
-  ): Promise<Product> {
-    return this.productService.create(dto, user);
+  ): Promise<ProductResponse> {
+    return this.presenter.present(await this.productService.create(dto, user));
   }
 
   // Must be declared before the ":id" route below, or Nest would try to
@@ -64,11 +65,11 @@ export class ProductController {
   @Get('admin')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  findAllAdmin(
+  async findAllAdmin(
     @Query() query: ProductAdminQueryDto,
     @CurrentUser() user: SafeUser,
-  ): Promise<Paginated<Product>> {
-    return this.productService.findAllAdmin(query, user);
+  ): Promise<Paginated<ProductResponse>> {
+    return this.presenter.presentPage(await this.productService.findAllAdmin(query, user));
   }
 
   @Get('admin/summary')
@@ -83,17 +84,17 @@ export class ProductController {
 
   @Get()
   @RateLimit('publicMenu')
-  findAll(@Query() query: ProductQueryDto): Promise<Product[]> {
-    return this.productService.findAllPublic(query);
+  async findAll(@Query() query: ProductQueryDto): Promise<ProductResponse[]> {
+    return this.presenter.presentMany(await this.productService.findAllPublic(query));
   }
 
   @Get(':id')
   @RateLimit('publicMenu')
-  findOne(
+  async findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: ProductQueryDto,
-  ): Promise<Product> {
-    return this.productService.findOnePublic(id, query);
+  ): Promise<ProductResponse> {
+    return this.presenter.present(await this.productService.findOnePublic(id, query));
   }
 
   // Not @Audit(...): this one route covers both a plain edit and a
@@ -108,7 +109,7 @@ export class ProductController {
     @Body() dto: UpdateProductDto,
     @CurrentUser() user: SafeUser,
     @Req() req: Request,
-  ): Promise<Product> {
+  ): Promise<ProductResponse> {
     const updated = await this.productService.update(id, dto, user);
     void this.auditService.record({
       businessId: updated.businessId,
@@ -120,7 +121,7 @@ export class ProductController {
       metadata: dto,
       ...extractClientInfo(req),
     });
-    return updated;
+    return this.presenter.present(updated);
   }
 
   @Delete(':id')
@@ -156,27 +157,27 @@ export class ProductController {
       limits: { fileSize: IMAGE_MULTER_HARD_LIMIT_BYTES },
     }),
   )
-  uploadImage(
+  async uploadImage(
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: SafeUser,
-  ): Promise<Product> {
+  ): Promise<ProductResponse> {
     if (!file) {
       throw new BadRequestException({
         message: 'No file uploaded',
         errorCode: 'IMAGE_INVALID_FORMAT',
       });
     }
-    return this.productService.attachImage(id, user, file);
+    return this.presenter.present(await this.productService.attachImage(id, user, file));
   }
 
   @Delete(':id/image')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  removeImage(
+  async removeImage(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: SafeUser,
-  ): Promise<Product> {
-    return this.productService.removeImage(id, user);
+  ): Promise<ProductResponse> {
+    return this.presenter.present(await this.productService.removeImage(id, user));
   }
 }

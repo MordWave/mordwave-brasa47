@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { resolveBusinessIdForUpdate } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { BusinessPresenter } from '../business/business.presenter.js';
 import { RestaurantTable } from './table.entity.js';
 import { TableSession } from './table-session.entity.js';
 import { TableSessionStatus } from './table-session-status.enum.js';
@@ -54,6 +55,7 @@ export class TableSessionService {
     @InjectRepository(Business)
     private readonly businessRepository: Repository<Business>,
     private readonly dataSource: DataSource,
+    private readonly businessPresenter: BusinessPresenter,
   ) {}
 
   private async findOwnedTable(tableId: string, user: SafeUser): Promise<RestaurantTable> {
@@ -121,7 +123,7 @@ export class TableSessionService {
       tableName: table.name,
       businessSlug: business.slug,
       businessName: business.name,
-      logoUrl: business.logoUrl,
+      logoUrl: this.businessPresenter.logoUrl(business),
       primaryColor: business.primaryColor,
       accentColor: business.accentColor,
     };
