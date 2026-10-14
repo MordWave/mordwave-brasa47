@@ -12,7 +12,6 @@ import resourceLimitsConfig from './config/resource-limits.config.js';
 import databaseConfig from './config/typeorm.config.js';
 import jwtConfig from './config/jwt.config.js';
 import securityConfig from './config/security.config.js';
-import supabaseConfig from './config/supabase.config.js';
 import { MediaModule } from './media/media.module.js';
 import { OrderModule } from './order/order.module.js';
 import { ProductModule } from './product/product.module.js';
@@ -24,7 +23,7 @@ import { UserModule } from './user/user.module.js';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, supabaseConfig, securityConfig, resourceLimitsConfig],
+      load: [databaseConfig, jwtConfig, securityConfig, resourceLimitsConfig],
     }),
     TypeOrmModule.forRootAsync({
       inject: [databaseConfig.KEY],

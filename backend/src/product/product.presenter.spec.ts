@@ -71,10 +71,17 @@ describe('ProductPresenter', () => {
     expect(out.imageUrl).toBe(`https://api.example.com/media/${KEY}`);
   });
 
-  it('keeps the legacy URL for a keyed row while the base URL is not configured', () => {
+  it('a keyed row NEVER falls back to the legacy URL: without a base URL it has no image (and leaks no key)', () => {
     const out = presenter().present(product({ imageStorageKey: KEY }));
-    expect(out.imageUrl).toBe(LEGACY);
+    expect(out.imageUrl).toBeNull();
     expect(JSON.stringify(out)).not.toContain(KEY);
+    expect(JSON.stringify(out)).not.toContain(LEGACY);
+  });
+
+  it('the legacy URL is only a fallback for rows WITHOUT a storage key', () => {
+    const p = presenter('https://api.example.com');
+    expect(p.present(product({ imageStorageKey: null })).imageUrl).toBe(LEGACY);
+    expect(p.present(product({ imageStorageKey: KEY })).imageUrl).toBe(`https://api.example.com/media/${KEY}`);
   });
 
   it('does not mutate the entity it is given', () => {

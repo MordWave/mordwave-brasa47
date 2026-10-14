@@ -5,6 +5,14 @@ Copies images that still live only in Supabase Storage (`image_url` /
 the new `image_storage_key` / `logo_storage_key`. Legacy URLs, Supabase objects
 and bucket objects are **never** deleted or modified.
 
+## Supabase is only needed here
+
+This tool is the only code that reads `SUPABASE_URL` / `SUPABASE_SECRET_KEY` /
+`SUPABASE_STORAGE_BUCKET` or imports `@supabase/supabase-js` (a test enforces
+that boundary). The API itself boots and serves, uploads, replaces and removes
+media without any of them; they are only injected when this script is run by
+hand.
+
 ## Commands
 
 Both run from `backend/` and need the Railway Postgres **public** URL (TCP

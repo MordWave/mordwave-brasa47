@@ -62,10 +62,17 @@ describe('BusinessPresenter', () => {
     );
   });
 
-  it('keeps the legacy URL for a keyed row while the base URL is not configured', () => {
+  it('a keyed row NEVER falls back to the legacy URL: without a base URL it has no logo (and leaks no key)', () => {
     const out = presenter().present(business({ logoStorageKey: KEY }));
-    expect(out.logoUrl).toBe(LEGACY);
+    expect(out.logoUrl).toBeNull();
     expect(JSON.stringify(out)).not.toContain(KEY);
+    expect(JSON.stringify(out)).not.toContain(LEGACY);
+  });
+
+  it('the legacy URL is only a fallback for rows WITHOUT a storage key', () => {
+    const p = presenter('https://api.example.com');
+    expect(p.present(business({ logoStorageKey: null })).logoUrl).toBe(LEGACY);
+    expect(p.present(business({ logoStorageKey: KEY })).logoUrl).toBe(`https://api.example.com/media/${KEY}`);
   });
 
   it('logoUrl() (used by the table-session join) applies the same rule', () => {

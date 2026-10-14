@@ -25,8 +25,8 @@ const LEGACY_LOGO = 'https://legacy.example/product-images/business-logos/b/logo
 const OBJ = 'cccccccc-3333-4abc-8def-333333333abc';
 
 // End-to-end proof of what the API actually puts on the wire for products and
-// businesses: internal storage keys never leak, and the image/logo URL is the
-// legacy one exactly unless a key exists AND MEDIA_PUBLIC_BASE_URL is set.
+// businesses: internal storage keys never leak; a row with a key is served from
+// /media (never from the legacy URL), a row without one keeps its legacy URL.
 // Run once with the variable unset and once with it set. The image pipeline is
 // replaced by a stub that returns a fresh storage key — nothing here can reach
 // any external service (the real pipeline is covered in media-upload.e2e-spec.ts).
@@ -48,9 +48,11 @@ describe.each([
   let token: string;
   const admin = { email: 'admin@media-e2e.test', password: 'Sup3rSecret!M' };
 
-  // Mirrors the resolution rule: key wins only when the base URL is set.
+  // Mirrors the resolution rule: a row WITH a key is served from /media (or has
+  // no image when the base URL is unset) and never from the legacy URL; a row
+  // WITHOUT a key keeps its legacy URL.
   const expectedImage = (p: Product, key: string | null) =>
-    base && key ? `${base}/media/${key}` : p.imageUrl;
+    key ? (base ? `${base}/media/${key}` : null) : p.imageUrl;
 
   beforeAll(async () => {
     testDb = await startTestDatabase();
@@ -239,7 +241,7 @@ describe.each([
       expect(stored.image_url).toBe(LEGACY_PRODUCT); // legacy fallback preserved
       expect(stored.image_storage_key).toMatch(new RegExp(`^businesses/${business.id}/products/${legacyOnly.id}/`));
       // The presenter prefers the key when /media URLs can be built.
-      expect(up.body.imageUrl).toBe(base ? `${base}/media/${stored.image_storage_key}` : LEGACY_PRODUCT);
+      expect(up.body.imageUrl).toBe(base ? `${base}/media/${stored.image_storage_key}` : null);
 
       const del = await request(app.getHttpServer())
         .delete(`/products/${legacyOnly.id}/image`)
@@ -286,7 +288,7 @@ describe.each([
     it('GET /businesses/me', async () => {
       const res = await request(app.getHttpServer()).get('/businesses/me').set(auth()).expect(200);
       expectNoLeak(res.body);
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : LEGACY_LOGO);
+      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : null);
     });
 
     it('PATCH /businesses/me', async () => {
@@ -297,7 +299,7 @@ describe.each([
         .expect(200);
       expectNoLeak(res.body);
       expect(res.body.hours).toBe('Lun-Dom 12:00-23:00');
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : LEGACY_LOGO);
+      expect(res.body.logoUrl).toBe(base ? `${base}/media/${logoKey}` : null);
     });
 
     it('POST /businesses/me/logo stores a key, keeps the legacy logo_url, and leaks nothing', async () => {
@@ -311,7 +313,7 @@ describe.each([
       expect(row.logo_url).toBe(LEGACY_LOGO);
       expect(row.logo_storage_key).toMatch(new RegExp(`^businesses/${business.id}/logo/`));
       uploadedLogoKey = row.logo_storage_key;
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : LEGACY_LOGO);
+      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : null);
     });
 
     it.each(['logoStorageKey', 'logo_storage_key'])('a client can never write %s', async (field) => {
@@ -332,7 +334,7 @@ describe.each([
         ['sessionToken', 'tableName', 'businessSlug', 'businessName', 'logoUrl', 'primaryColor', 'accentColor'].sort(),
       );
       // The upload test above replaced the key; the legacy logo_url is untouched.
-      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : LEGACY_LOGO);
+      expect(res.body.logoUrl).toBe(base ? `${base}/media/${uploadedLogoKey}` : null);
     });
   });
 });
