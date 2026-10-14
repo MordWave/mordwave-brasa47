@@ -26,6 +26,11 @@ describe('MediaUrlService.parseBaseUrl', () => {
   it('normalises the origin and strips trailing slashes', () => {
     expect(MediaUrlService.parseBaseUrl(' https://api.example.com/ ')).toBe('https://api.example.com');
     expect(MediaUrlService.parseBaseUrl('http://localhost:3000')).toBe('http://localhost:3000');
+    expect(MediaUrlService.parseBaseUrl('http://127.0.0.1:3000/')).toBe('http://127.0.0.1:3000');
+  });
+
+  it('requires https for any non-local host (mixed content would block http:// images)', () => {
+    expect(() => MediaUrlService.parseBaseUrl('http://api.example.com')).toThrow(/https/);
   });
 
   it.each([

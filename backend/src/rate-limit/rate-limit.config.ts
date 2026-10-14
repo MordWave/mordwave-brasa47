@@ -34,7 +34,8 @@ export type RateLimitPolicyName =
   | 'upload'
   | 'ordersCreate'
   | 'tableJoin'
-  | 'tableStatus';
+  | 'tableStatus'
+  | 'media';
 
 export interface RateLimitConfig {
   // Every route, per IP — general anti-abuse ceiling.
@@ -69,5 +70,10 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
     // devices at a table share one sessionToken, so 60 leaves room for
     // several devices plus bursts/retries.
     tableStatus: { session: perMinute(60), ip: perMinute(600), skipGlobalIp: true },
+    // GET/HEAD /media/<key> — one 302 per image. A 50-product menu opened on
+    // several phones behind one venue Wi-Fi legitimately produces hundreds of
+    // redirects, so it must not eat the global 300/min/IP ceiling; it still
+    // has its own (higher) per-IP cap, so it is never unlimited.
+    media: { ip: perMinute(1200), skipGlobalIp: true },
   },
 };

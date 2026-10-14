@@ -36,6 +36,7 @@ const REDUCED: RateLimitConfig = {
     ordersCreate: { session: bucket(3), ip: bucket(6) },
     tableJoin: { ip: bucket(3) },
     tableStatus: { session: bucket(4), ip: bucket(8), skipGlobalIp: true },
+    media: { ip: bucket(8), skipGlobalIp: true },
   },
 };
 

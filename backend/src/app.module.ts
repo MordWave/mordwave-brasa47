@@ -13,6 +13,7 @@ import databaseConfig from './config/typeorm.config.js';
 import jwtConfig from './config/jwt.config.js';
 import securityConfig from './config/security.config.js';
 import supabaseConfig from './config/supabase.config.js';
+import { MediaModule } from './media/media.module.js';
 import { OrderModule } from './order/order.module.js';
 import { ProductModule } from './product/product.module.js';
 import { RateLimitModule } from './rate-limit/rate-limit.module.js';
@@ -33,6 +34,7 @@ import { UserModule } from './user/user.module.js';
     RateLimitModule,
     HttpProtectionModule,
     BusinessModule,
+    MediaModule,
     CategoryModule,
     ProductModule,
     OrderModule,
