@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, NotFoundExc
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
 import { BusinessPresenter } from '../business/business.presenter.js';
@@ -12,6 +12,9 @@ import { RestaurantTable } from './table.entity.js';
 import { TableSession } from './table-session.entity.js';
 import { TableSessionStatus } from './table-session-status.enum.js';
 import { TableSessionService } from './table-session.service.js';
+
+const LOGO_KEY =
+  'businesses/aaaaaaaa-1111-4abc-8def-111111111abc/logo/cccccccc-3333-4abc-8def-333333333abc.webp';
 
 function createRepoMock() {
   return {
@@ -43,7 +46,12 @@ describe('TableSessionService', () => {
     active: true,
   };
 
+  afterEach(() => {
+    delete process.env.MEDIA_PUBLIC_BASE_URL;
+  });
+
   beforeEach(async () => {
+    process.env.MEDIA_PUBLIC_BASE_URL = 'https://api.example.test';
     tableRepo = createRepoMock();
     sessionRepo = createRepoMock();
     businessRepo = createRepoMock();
@@ -51,7 +59,7 @@ describe('TableSessionService', () => {
       id: 'biz-1',
       slug: 'brasa-47',
       name: 'Brasa 47',
-      logoUrl: null,
+      logoStorageKey: null,
       primaryColor: null,
       accentColor: null,
     });
@@ -287,7 +295,7 @@ describe('TableSessionService', () => {
         id: 'biz-1',
         slug: 'brasa-47',
         name: 'Brasa 47',
-        logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=1',
+        logoStorageKey: LOGO_KEY,
         primaryColor: '#D94A2B',
         accentColor: '#E9B44C',
       });
@@ -297,7 +305,7 @@ describe('TableSessionService', () => {
       expect(result).toEqual(
         expect.objectContaining({
           businessName: 'Brasa 47',
-          logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=1',
+          logoUrl: `https://api.example.test/media/${LOGO_KEY}`,
           primaryColor: '#D94A2B',
           accentColor: '#E9B44C',
         }),

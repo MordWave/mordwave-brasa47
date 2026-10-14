@@ -57,10 +57,9 @@ export class BusinessService {
   }
 
   // New logo: upload to the bucket under a brand-new key (businesses/<id>/logo/
-  // <uuid>.webp), THEN point the row at it. logo_url (the legacy Supabase URL)
-  // is left untouched as a fallback; BusinessPresenter prefers the key. The
-  // previous logo object is never deleted here, and a DB failure after the
-  // upload only leaves a logged orphan candidate.
+  // <uuid>.webp), THEN point the row at it. The previous logo object is never
+  // deleted here, and a DB failure after the upload only leaves a logged orphan
+  // candidate.
   async uploadLogo(query: BusinessQueryDto, user: SafeUser, file: UploadableFile): Promise<Business> {
     const businessId = this.resolveTargetBusinessId(user, query.businessId);
     const business = await this.findOrThrow(businessId);

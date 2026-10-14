@@ -3,10 +3,10 @@ import type { Paginated } from '../common/pagination.util.js';
 import { MediaUrlService } from '../media/media-url.service.js';
 import type { Product } from './product.entity.js';
 
-// What the API sends for a product: the entity minus internal storage
-// bookkeeping, with `imageUrl` resolved (media URL when a storage key is
-// usable, otherwise the legacy URL exactly as stored).
-export type ProductResponse = Omit<Product, 'imageStorageKey'>;
+// What the API sends for a product: the entity minus the internal storage key,
+// plus `imageUrl` — the stable /media URL derived from that key (null when the
+// product has no image).
+export type ProductResponse = Omit<Product, 'imageStorageKey'> & { imageUrl: string | null };
 
 // The only place a Product leaves the API. Controllers never return the
 // entity directly, so a new internal column can't leak by default.
@@ -16,7 +16,7 @@ export class ProductPresenter {
 
   present(product: Product): ProductResponse {
     const { imageStorageKey, ...rest } = product;
-    return { ...rest, imageUrl: this.mediaUrls.resolve(imageStorageKey, product.imageUrl) };
+    return { ...rest, imageUrl: this.mediaUrls.resolve(imageStorageKey) };
   }
 
   presentMany(products: Product[]): ProductResponse[] {

@@ -104,6 +104,31 @@ describe('TypeORM database config (app DataSource)', () => {
     expect((databaseConfig() as { synchronize: boolean }).synchronize).toBe(false);
   });
 
+  // Only explicit migrations may change the physical schema. TypeORM's
+  // synchronize / dropSchema / migrationsRun would silently add or DROP columns
+  // (e.g. the unmapped legacy image_url / logo_url) at startup.
+  it.each([
+    ['production, DATABASE_URL (the Railway setup)', { NODE_ENV: 'production', DATABASE_URL: 'postgresql://u:p@db.example.test:5432/railway' }],
+    ['production, DB_* host', { NODE_ENV: 'production', DATABASE_URL: undefined }],
+    ['no NODE_ENV, DATABASE_URL', { NODE_ENV: undefined, DATABASE_URL: 'postgresql://u:p@db.example.test:5432/railway' }],
+  ])('never synchronizes, drops the schema or auto-runs migrations at startup (%s)', (_label, env) => {
+    for (const [name, value] of Object.entries(env)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    const config = databaseConfig() as Record<string, unknown>;
+    expect(config.synchronize).toBe(false);
+    expect(config.dropSchema).toBeUndefined();
+    expect(config.migrationsRun).toBeUndefined();
+    expect(config.migrations).toBeUndefined();
+  });
+
+  it('the migration CLI DataSource does not synchronize or drop the schema either', async () => {
+    const { default: cli } = await import('./data-source.js');
+    expect(cli.options.synchronize).toBe(false);
+    expect((cli.options as { dropSchema?: boolean }).dropSchema).toBeUndefined();
+  });
+
   it('refuses to build the config (app does not start) on an invalid value', () => {
     process.env.DB_POOL_MAX = 'lots';
     expect(() => databaseConfig()).toThrow(/DB_POOL_MAX/);

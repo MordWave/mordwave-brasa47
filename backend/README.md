@@ -15,16 +15,17 @@ eso será una fase aparte.
 - Node.js 20+ (probado en Node 24)
 - Una base PostgreSQL. Dos formas de conseguir una:
 
-  **Opción A — Supabase (recomendado si vas a desplegar):**
+  **Opción A — Railway PostgreSQL (producción):**
 
-  1. Entra a [supabase.com](https://supabase.com) e inicia sesión.
-  2. Crea un proyecto nuevo (elige una contraseña de base de datos y
-     guárdala).
-  3. Ve a **Project Settings → Database → Connection string**, pestaña
-     **URI**. Copia esa cadena (empieza con `postgresql://postgres:...`).
-  4. Pégala como `DATABASE_URL` en tu `.env` (ver sección abajo). Reemplaza
-     `[PASSWORD]` por la contraseña que definiste en el paso 2.
-  5. No la subas nunca a Git — `.env` ya está en `.gitignore`.
+  1. Crea un servicio PostgreSQL en tu proyecto de [Railway](https://railway.com).
+  2. En el servicio del backend, define `DATABASE_URL` como una *Variable
+     Reference* al servicio de Postgres (usa la red privada
+     `*.railway.internal`; no copies la contraseña).
+  3. Para correr migraciones desde tu máquina hace falta abrir
+     temporalmente el *TCP Proxy* del servicio de Postgres y cerrarlo al
+     terminar. No lo dejes habilitado.
+  4. No subas nunca una cadena de conexión a Git — `.env` ya está en
+     `.gitignore`.
 
   **Opción B — Postgres local (para desarrollo sin depender de internet):**
 
@@ -43,7 +44,7 @@ eso será una fase aparte.
 ```bash
 cd backend
 npm install
-cp .env.example .env   # completa DATABASE_URL (Supabase) o deja los DB_* para Postgres local
+cp .env.example .env   # completa DATABASE_URL (Railway) o deja los DB_* para Postgres local
 npm run start:dev
 ```
 
@@ -62,7 +63,7 @@ migraciones (ver abajo).
 | `NODE_ENV`      | `development` en local; controla `synchronize`                    |
 | `PORT`          | Puerto del servidor (default `3000`)                               |
 | `FRONTEND_URL`  | Origen permitido por CORS (default `http://localhost:5173`)        |
-| `DATABASE_URL`  | Connection string de Supabase/Postgres hosteado (activa SSL)       |
+| `DATABASE_URL`  | Connection string de Postgres hosteado, p. ej. Railway (activa SSL) |
 | `DB_HOST` etc.  | Alternativa a `DATABASE_URL` para Postgres local (sin SSL)          |
 
 No se necesitan ambas cosas: si `DATABASE_URL` está definida, tiene
@@ -138,8 +139,23 @@ npm run seed
    curl http://localhost:3000/products
    ```
 
-4. Para confirmarlo en Supabase: entra al proyecto → **Table Editor** →
-   tabla `products` → debería aparecer la fila recién creada.
+4. Para confirmarlo en la base: consulta la tabla `products` (con `psql` o
+   el visor de datos de Railway) → debería aparecer la fila recién creada.
+
+## Imágenes (Railway Bucket + `/media`)
+
+Las imágenes de productos y logos viven en un Railway Bucket privado (API
+S3). La base guarda solo la *storage key* (`products.image_storage_key`,
+`businesses.logo_storage_key`); la API responde `imageUrl` / `logoUrl` con la
+URL estable `MEDIA_PUBLIC_BASE_URL/media/<key>`, que redirige (302) a una URL
+firmada temporal del bucket. Subir o reemplazar una imagen siempre genera una
+clave nueva y no borra la anterior.
+
+| Variable | Uso |
+| --- | --- |
+| `AWS_ENDPOINT_URL`, `AWS_S3_BUCKET_NAME`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credenciales del bucket (en Railway, referencias al servicio del bucket). Si falta la configuración, `/media` responde 503 |
+| `AWS_S3_FORCE_PATH_STYLE` | Opcional, `true`/`false` (default `false`, estilo virtual-hosted) |
+| `MEDIA_PUBLIC_BASE_URL` | Origen público de esta API (en Railway: `https://${{RAILWAY_PUBLIC_DOMAIN}}`). Obligatoria para subir imágenes |
 
 ## Migraciones
 

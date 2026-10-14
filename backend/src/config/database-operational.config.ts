@@ -1,5 +1,5 @@
 // Operational (per-environment) Postgres pool/timeout settings. Everything
-// here may legitimately differ between Supabase today, a local Postgres and
+// here may legitimately differ between Railway PostgreSQL, a local Postgres and
 // AWS RDS later, so it comes from env vars with safe defaults. Static
 // product rules (per-Business limits, pagination, body size…) live elsewhere
 // and are not configurable per environment.
@@ -86,8 +86,8 @@ export function loadDbOperationalConfig(env: NodeJS.ProcessEnv = process.env): D
 //     SHOW statement_timeout;      -- expect "15s" (DB_STATEMENT_TIMEOUT_MS)
 // Optionally also confirm enforcement with a harmless
 //     SELECT pg_sleep(20);         -- expect SQLSTATE 57014 after ~15s
-// If Supabase's pooler ignores the startup parameter (SHOW reports "0"),
-// evaluate `ALTER ROLE <app role> SET statement_timeout = ...` as a separate,
+// If a pooler in front of the database ignores the startup parameter (SHOW
+// reports "0"), evaluate `ALTER ROLE <app role> SET statement_timeout = ...` as a separate,
 // explicit change. Until then DB_QUERY_TIMEOUT_MS is the only active guard.
 export function buildPgPoolExtra(config: DbOperationalConfig) {
   return {

@@ -6,7 +6,6 @@ const BIZ = '11111111-1111-4111-8111-111111111111';
 const PROD = '22222222-2222-4222-8222-222222222222';
 const OBJ = '33333333-3333-4333-8333-333333333333';
 const KEY = productImageKey(BIZ, PROD, OBJ);
-const LEGACY = 'https://legacy.example/product-images/a.webp?v=1';
 
 function serviceWith(base: string | undefined): MediaUrlService {
   if (base === undefined) delete process.env.MEDIA_PUBLIC_BASE_URL;
@@ -45,35 +44,29 @@ describe('MediaUrlService.parseBaseUrl', () => {
 });
 
 describe('MediaUrlService.resolve', () => {
-  it('returns the legacy URL untouched when there is no storage key', () => {
-    const svc = serviceWith('https://api.example.com');
-    expect(svc.resolve(null, LEGACY)).toBe(LEGACY);
-    expect(svc.resolve(undefined, LEGACY)).toBe(LEGACY);
-    expect(svc.resolve(null, null)).toBeNull();
-  });
-
   it('returns the stable /media URL when a key exists and the base URL is configured', () => {
     const svc = serviceWith('https://api.example.com/');
-    expect(svc.resolve(KEY, LEGACY)).toBe(`https://api.example.com/media/${KEY}`);
-    expect(svc.resolve(KEY, null)).toBe(`https://api.example.com/media/${KEY}`);
+    expect(svc.resolve(KEY)).toBe(`https://api.example.com/media/${KEY}`);
     const logo = businessLogoKey(BIZ, OBJ);
-    expect(svc.resolve(logo, null)).toBe(`https://api.example.com/media/${logo}`);
+    expect(svc.resolve(logo)).toBe(`https://api.example.com/media/${logo}`);
   });
 
-  it('a row WITH a key never falls back to the legacy URL: no base URL -> no image', () => {
-    const svc = serviceWith(undefined);
-    expect(svc.resolve(KEY, LEGACY)).toBeNull();
-    expect(svc.resolve(KEY, null)).toBeNull();
+  it.each([[null], [undefined], ['']])('has no image when the key is %j', (key) => {
+    expect(serviceWith('https://api.example.com').resolve(key)).toBeNull();
   });
 
-  it('never builds a URL from a malformed key, and does not leak the legacy URL either', () => {
+  it('has no image when the base URL is not configured (there is no other source)', () => {
+    expect(serviceWith(undefined).resolve(KEY)).toBeNull();
+  });
+
+  it('never builds a URL from a malformed key', () => {
     const svc = serviceWith('https://api.example.com');
-    expect(svc.resolve('../../etc/passwd', LEGACY)).toBeNull();
+    for (const bad of ['../../etc/passwd', 'businesses/x/y.webp', KEY.toUpperCase(), 'https://evil.example/x.png']) {
+      expect(svc.resolve(bad)).toBeNull();
+    }
   });
 
-  it('an empty key counts as "no key": the legacy URL is the fallback', () => {
-    const svc = serviceWith('https://api.example.com');
-    expect(svc.resolve('', LEGACY)).toBe(LEGACY);
-    expect(svc.resolve(null, LEGACY)).toBe(LEGACY);
+  it('takes a single argument: no legacy URL can be passed in', () => {
+    expect(serviceWith('https://api.example.com').resolve.length).toBe(1);
   });
 });
