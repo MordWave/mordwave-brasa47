@@ -1,0 +1,28 @@
+{
+	admin off
+	persist_config off
+	auto_https off
+}
+
+:{$PORT:3000} {
+	root * /app/dist
+	encode zstd gzip
+
+	header X-Content-Type-Options nosniff
+
+	# Real static files only: a missing asset must be a 404, never index.html.
+	handle /assets/* {
+		file_server
+	}
+
+	handle /images/* {
+		file_server
+	}
+
+	# Everything else is the SPA: existing root files (favicon, ...) are served
+	# as-is, any other route (/admin, /admin/login, /?t=...) falls back to index.html.
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
