@@ -3,11 +3,13 @@ import { isMediaKey } from './media-key.util.js';
 
 // Turns what the DB stores into the URL the API puts in a response.
 //
-// The one rule, used by every presenter: a storage key wins when it can be
-// turned into a /media URL; otherwise the legacy URL is returned untouched.
-// "Can be turned into a URL" means MEDIA_PUBLIC_BASE_URL is configured and the
-// key has a valid shape. Until the /media endpoint ships and that variable is
-// set, every response is byte-for-byte what it was before the keys existed.
+// The one rule, used by every presenter:
+//   - a row WITH a storage key is served from /media (or no image at all if the
+//     /media URL can't be built: MEDIA_PUBLIC_BASE_URL unset or a malformed
+//     key). It never falls back to the legacy URL: Supabase is not part of the
+//     normal media flow any more.
+//   - a row WITHOUT a storage key keeps its legacy URL untouched (the rollback
+//     copy / rows not migrated yet).
 //
 // MEDIA_PUBLIC_BASE_URL is the public origin of THIS API (e.g.
 // https://api.example.com), not the bucket: the bucket is private and /media
@@ -58,6 +60,7 @@ export class MediaUrlService {
   }
 
   resolve(storageKey: string | null | undefined, legacyUrl: string | null | undefined): string | null {
-    return this.urlForKey(storageKey) ?? legacyUrl ?? null;
+    if (storageKey) return this.urlForKey(storageKey);
+    return legacyUrl ?? null;
   }
 }

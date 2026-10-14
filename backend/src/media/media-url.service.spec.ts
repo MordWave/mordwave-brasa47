@@ -60,15 +60,20 @@ describe('MediaUrlService.resolve', () => {
     expect(svc.resolve(logo, null)).toBe(`https://api.example.com/media/${logo}`);
   });
 
-  it('keeps returning the legacy URL while the base URL is not configured, even if a key exists', () => {
+  it('a row WITH a key never falls back to the legacy URL: no base URL -> no image', () => {
     const svc = serviceWith(undefined);
-    expect(svc.resolve(KEY, LEGACY)).toBe(LEGACY);
+    expect(svc.resolve(KEY, LEGACY)).toBeNull();
     expect(svc.resolve(KEY, null)).toBeNull();
   });
 
-  it('never builds a URL from a malformed key (falls back to legacy)', () => {
+  it('never builds a URL from a malformed key, and does not leak the legacy URL either', () => {
     const svc = serviceWith('https://api.example.com');
-    expect(svc.resolve('../../etc/passwd', LEGACY)).toBe(LEGACY);
+    expect(svc.resolve('../../etc/passwd', LEGACY)).toBeNull();
+  });
+
+  it('an empty key counts as "no key": the legacy URL is the fallback', () => {
+    const svc = serviceWith('https://api.example.com');
     expect(svc.resolve('', LEGACY)).toBe(LEGACY);
+    expect(svc.resolve(null, LEGACY)).toBe(LEGACY);
   });
 });

@@ -5,7 +5,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import sharp from 'sharp';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { Business } from '../src/business/business.entity.js';
 import { Category } from '../src/category/category.entity.js';
@@ -18,6 +18,17 @@ import { TableSession } from '../src/table/table-session.entity.js';
 import { TableSessionStatus } from '../src/table/table-session-status.enum.js';
 import { runAllMigrations } from './support/run-all-migrations.js';
 import { startTestDatabase, type TestDatabase } from './support/test-database.js';
+
+// The API runtime must not use Supabase at all: any attempt to create a client
+// fails loudly and is recorded.
+const { createClient } = vi.hoisted(() => ({
+  createClient: vi.fn(() => {
+    throw new Error('Supabase must not be used by the API runtime');
+  }),
+}));
+vi.mock('@supabase/supabase-js', () => ({ createClient }));
+
+const SUPABASE_VARS = ['SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'SUPABASE_STORAGE_BUCKET'];
 
 const TEST_BCRYPT_COST = 4;
 const BASE = 'https://api.example.test';
@@ -101,6 +112,8 @@ describe('Image uploads -> bucket (e2e, real local Postgres, fake bucket)', () =
     process.env.DB_NAME = 'postgres';
     process.env.DB_POOL_MAX = '1';
     process.env.MEDIA_PUBLIC_BASE_URL = BASE;
+    // The whole suite runs WITHOUT any SUPABASE_* variable (a developer's .env may define them).
+    for (const name of SUPABASE_VARS) delete process.env[name];
 
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(S3ObjectStoreService)
@@ -363,6 +376,29 @@ describe('Image uploads -> bucket (e2e, real local Postgres, fake bucket)', () =
         await http().patch('/businesses/me').set(authA()).send({ [field]: 'x' }).expect(400);
       },
     );
+  });
+
+  describe('Supabase is not part of the API runtime', () => {
+    it('the app booted without SUPABASE_URL, SUPABASE_SECRET_KEY or SUPABASE_STORAGE_BUCKET', async () => {
+      for (const name of SUPABASE_VARS) expect(process.env[name]).toBeUndefined();
+      await http().get('/health').expect(200);
+    });
+
+    it('serves the public menu and uploads/replaces/removes product and logo images with no Supabase client ever created', async () => {
+      await http().get('/products').query({ businessSlug: bizA.slug }).expect(200);
+      await upload(noImage.id).expect(201);
+      await http().delete(`/products/${noImage.id}/image`).set(authA()).expect(200);
+      await uploadLogo().expect(201);
+      expect(createClient).not.toHaveBeenCalled();
+    });
+
+    it('the image pipeline writes to the bucket (S3), not to Supabase', async () => {
+      const before = bucket.putKeys.length;
+      await upload(noImage.id).expect(201);
+      await uploadLogo().expect(201);
+      expect(bucket.putKeys.length).toBe(before + 2);
+      expect(createClient).not.toHaveBeenCalled();
+    });
   });
 
   it('nothing in this flow ever deleted an object: the bucket only grew', () => {
