@@ -1,4 +1,4 @@
-import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { describe, expect, it, vi } from 'vitest';
 import { ObjectStoreUnavailableError, S3ObjectStoreService } from './s3-object-store.service.js';
 import type { S3Config } from './s3.config.js';
@@ -101,6 +101,64 @@ describe('S3ObjectStoreService.head', () => {
   });
 });
 
+describe('S3ObjectStoreService.put', () => {
+  const body = Buffer.from('webp-bytes');
+
+  it('sends one PutObject with bucket, key, body, content type and cache control', async () => {
+    const client = fakeClient(() => ({}));
+    const service = new S3ObjectStoreService(CONFIG, client);
+
+    await service.put(KEY, body, 'image/webp', 'public, max-age=31536000, immutable');
+
+    expect(client.send).toHaveBeenCalledTimes(1);
+    const command = client.send.mock.calls[0][0] as PutObjectCommand;
+    expect(command).toBeInstanceOf(PutObjectCommand);
+    expect(command.input).toEqual({
+      Bucket: 'mordwave-media-test',
+      Key: KEY,
+      Body: body,
+      ContentType: 'image/webp',
+      CacheControl: 'public, max-age=31536000, immutable',
+    });
+  });
+
+  it('forwards optional metadata when given', async () => {
+    const client = fakeClient(() => ({}));
+    const service = new S3ObjectStoreService(CONFIG, client);
+
+    await service.put(KEY, body, 'image/webp', 'public', { purpose: 'test' });
+
+    expect((client.send.mock.calls[0][0] as PutObjectCommand).input.Metadata).toEqual({ purpose: 'test' });
+  });
+
+  it('maps any S3 failure to ObjectStoreUnavailableError without leaking details', async () => {
+    const service = new S3ObjectStoreService(
+      CONFIG,
+      fakeClient(() => {
+        throw new Error('AccessDenied: secret detail');
+      }),
+    );
+
+    const failure = await service.put(KEY, body, 'image/webp', 'public').catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(ObjectStoreUnavailableError);
+    expect((failure as Error).message).toBe('S3 PutObject failed');
+  });
+
+  it('rejects a malformed key before calling S3', async () => {
+    const client = fakeClient(() => ({}));
+    const service = new S3ObjectStoreService(CONFIG, client);
+    await expect(service.put('a/../b', body, 'image/webp', 'public')).rejects.toThrow(RangeError);
+    expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it('exposes no delete operation (nothing is removed during the transition)', () => {
+    const service = new S3ObjectStoreService(CONFIG, fakeClient(() => ({}))) as unknown as Record<string, unknown>;
+    expect(service.delete).toBeUndefined();
+    expect(service.remove).toBeUndefined();
+  });
+});
+
 describe('S3ObjectStoreService when not configured', () => {
   const service = new S3ObjectStoreService(null);
 
@@ -108,5 +166,8 @@ describe('S3ObjectStoreService when not configured', () => {
     expect(service.isConfigured).toBe(false);
     await expect(service.head(KEY)).rejects.toBeInstanceOf(ObjectStoreUnavailableError);
     await expect(service.presignGet(KEY, 60)).rejects.toBeInstanceOf(ObjectStoreUnavailableError);
+    await expect(service.put(KEY, Buffer.from('x'), 'image/webp', 'public')).rejects.toBeInstanceOf(
+      ObjectStoreUnavailableError,
+    );
   });
 });

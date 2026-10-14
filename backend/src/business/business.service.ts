@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { resolveBusinessIdForRead } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import { businessLogoKey } from '../media/media-key.util.js';
 import { ImageStorageService, type UploadableFile } from '../storage/image-storage.service.js';
 import { Business } from './business.entity.js';
 import { BusinessQueryDto } from './dto/business-query.dto.js';
@@ -10,6 +11,8 @@ import { UpdateBusinessDto } from './dto/update-business.dto.js';
 
 @Injectable()
 export class BusinessService {
+  private readonly logger = new Logger(BusinessService.name);
+
   constructor(
     @InjectRepository(Business)
     private readonly businessRepository: Repository<Business>,
@@ -53,24 +56,23 @@ export class BusinessService {
     return this.businessRepository.save(business);
   }
 
-  // Distinct storage prefix from Product's own ({businessId}/{productId}/
-  // imagen.webp) — nothing to disambiguate by id here (one logo per
-  // business), just a fixed name under its own top-level folder so it can
-  // never collide with a product image path.
-  private buildLogoPath(businessId: string): string {
-    return `business-logos/${businessId}/logo.webp`;
-  }
-
+  // New logo: upload to the bucket under a brand-new key (businesses/<id>/logo/
+  // <uuid>.webp), THEN point the row at it. logo_url (the legacy Supabase URL)
+  // is left untouched as a fallback; BusinessPresenter prefers the key. The
+  // previous logo object is never deleted here, and a DB failure after the
+  // upload only leaves a logged orphan candidate.
   async uploadLogo(query: BusinessQueryDto, user: SafeUser, file: UploadableFile): Promise<Business> {
     const businessId = this.resolveTargetBusinessId(user, query.businessId);
     const business = await this.findOrThrow(businessId);
 
-    // upsert:true (inside ImageStorageService) means re-uploading a logo
-    // overwrites the previous object at this same fixed path — no
-    // separate "delete the old one first" step needed, same as products.
-    const logoUrl = await this.imageStorage.upload(this.buildLogoPath(businessId), file);
+    const storageKey = await this.imageStorage.upload(businessLogoKey(businessId), file);
 
-    business.logoUrl = logoUrl;
-    return this.businessRepository.save(business);
+    business.logoStorageKey = storageKey;
+    try {
+      return await this.businessRepository.save(business);
+    } catch (error) {
+      this.logger.error(`Logo uploaded but not saved; orphan candidate key=${storageKey}`);
+      throw error;
+    }
   }
 }

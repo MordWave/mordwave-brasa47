@@ -14,5 +14,10 @@ if (REDIRECT_CACHE_TTL_SECONDS >= PRESIGNED_GET_TTL_SECONDS) {
   throw new Error('REDIRECT_CACHE_TTL_SECONDS must be lower than PRESIGNED_GET_TTL_SECONDS');
 }
 
+// Every uploaded image is re-encoded to WebP and stored under a fresh uuid
+// key that is never overwritten, so the object is immutable for good.
+export const MEDIA_OBJECT_CONTENT_TYPE = 'image/webp';
+export const MEDIA_OBJECT_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 export const MEDIA_NOT_FOUND_ERROR_CODE = 'MEDIA_NOT_FOUND';
 export const MEDIA_UNAVAILABLE_ERROR_CODE = 'MEDIA_UNAVAILABLE';

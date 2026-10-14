@@ -1,5 +1,10 @@
-import { BadGatewayException, BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
 import {
@@ -8,7 +13,10 @@ import {
   IMAGE_MAX_OUTPUT_DIMENSION,
   IMAGE_OUTPUT_QUALITY,
 } from '../common/limits/resource-limits.const.js';
-import supabaseConfig from '../config/supabase.config.js';
+import { MEDIA_OBJECT_CACHE_CONTROL, MEDIA_OBJECT_CONTENT_TYPE } from '../media/media.const.js';
+import { isMediaKey } from '../media/media-key.util.js';
+import { MediaUrlService } from '../media/media-url.service.js';
+import { ObjectStoreUnavailableError, S3ObjectStoreService } from '../media/s3-object-store.service.js';
 
 // HEIC/HEIF (iPhone) is allowed through this check, but whether sharp can
 // actually decode it depends on how it was built (libvips w/ libheif) — that
@@ -27,29 +35,43 @@ export interface UploadableFile {
   size: number;
 }
 
-// Generic Supabase Storage image pipeline: validate, optimize, upload/
-// remove at a given path. Extracted from ProductImageService (Fase 4) so
-// the business logo upload (Fase 7) can reuse the exact same validation/
-// sharp/Supabase-client logic without duplicating it — this service knows
-// nothing about products or businesses, only paths and files. Callers
-// (ProductImageService, BusinessService) own their own path-building.
+// Generic image pipeline: validate, optimize, and store in the Railway Bucket
+// under a caller-supplied storage key. Extracted from ProductImageService
+// (Fase 4) so the business logo upload can reuse the exact same validation /
+// sharp logic — this service knows nothing about products or businesses,
+// only keys and files. Callers (ProductImageService, BusinessService) build
+// the key with media-key.util; a key never comes from a client.
+//
+// Supabase Storage is no longer written to or deleted from here (it stays
+// readable through the legacy URLs still stored in image_url / logo_url).
+// Nothing is ever deleted from the bucket either: replaced and removed
+// images are left for the later orphan cleanup.
 @Injectable()
 export class ImageStorageService {
-  private readonly client: SupabaseClient;
-  private readonly bucket: string;
+  private readonly logger = new Logger(ImageStorageService.name);
 
   constructor(
-    @Inject(supabaseConfig.KEY)
-    config: ReturnType<typeof supabaseConfig>,
-  ) {
-    this.client = createClient(config.url, config.secretKey);
-    this.bucket = config.bucket;
-  }
+    private readonly store: S3ObjectStoreService,
+    private readonly mediaUrls: MediaUrlService,
+  ) {}
 
-  // Validates, optimizes, and uploads. Returns the public URL (with a
-  // cache-busting query param) only once the file actually exists in
-  // Storage — callers should not persist anything until this resolves.
-  async upload(path: string, file: UploadableFile): Promise<string> {
+  // Validates, optimizes, and uploads. Resolves with the storage key only once
+  // the object really is in the bucket — callers must not persist anything
+  // before this resolves.
+  async upload(key: string, file: UploadableFile): Promise<string> {
+    // Programming-error guard (the key is built server-side), not user input.
+    if (!isMediaKey(key)) {
+      throw new Error('upload() requires a valid media storage key');
+    }
+    // Fail closed BEFORE doing any work: storing a key whose /media URL can't
+    // be built would make the image disappear from every API response.
+    if (!this.store.isConfigured || !this.mediaUrls.isConfigured) {
+      throw new ServiceUnavailableException({
+        message: 'Image storage is not configured',
+        errorCode: 'IMAGE_STORAGE_UNAVAILABLE',
+      });
+    }
+
     if (file.size > IMAGE_MAX_FILE_SIZE_BYTES) {
       throw new BadRequestException({
         message: 'Uploaded file exceeds the maximum allowed size (10 MB)',
@@ -89,30 +111,21 @@ export class ImageStorageService {
       });
     }
 
-    const { error } = await this.client.storage
-      .from(this.bucket)
-      .upload(path, webpBuffer, { contentType: 'image/webp', upsert: true });
-
-    if (error) {
-      throw new BadGatewayException({
-        message: 'Failed to upload the image to storage',
-        errorCode: 'IMAGE_UPLOAD_FAILED',
-      });
+    try {
+      await this.store.put(key, webpBuffer, MEDIA_OBJECT_CONTENT_TYPE, MEDIA_OBJECT_CACHE_CONTROL);
+    } catch (error) {
+      if (error instanceof ObjectStoreUnavailableError) {
+        // The cause stays in the server log; the client only gets a generic
+        // message.
+        this.logger.error(`Failed to upload ${key} to the bucket`, error.cause as Error | undefined);
+        throw new BadGatewayException({
+          message: 'Failed to upload the image to storage',
+          errorCode: 'IMAGE_UPLOAD_FAILED',
+        });
+      }
+      throw error;
     }
 
-    const { data } = this.client.storage.from(this.bucket).getPublicUrl(path);
-    // Cache-busting: the Storage path is fixed and reused on every
-    // replace (upsert), so the query param is what actually changes.
-    return `${data.publicUrl}?v=${Date.now()}`;
-  }
-
-  async remove(path: string): Promise<void> {
-    const { error } = await this.client.storage.from(this.bucket).remove([path]);
-    if (error) {
-      throw new BadGatewayException({
-        message: 'Failed to remove the image from storage',
-        errorCode: 'IMAGE_UPLOAD_FAILED',
-      });
-    }
+    return key;
   }
 }

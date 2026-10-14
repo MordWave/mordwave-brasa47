@@ -1,4 +1,4 @@
-import { HeadObjectCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Inject, Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
 import { describeS3Config, S3_CONFIG, type S3Config } from './s3.config.js';
@@ -33,10 +33,12 @@ function isNotFound(error: unknown): boolean {
   );
 }
 
-// Thin, generic wrapper over the Railway Bucket (S3 API). Read side only for
-// now: no put/delete exist on purpose, nothing writes to the bucket yet. It
-// knows nothing about products, businesses or Supabase, and does not decide
-// which keys are valid media keys — callers (MediaController) do that.
+// Thin, generic wrapper over the Railway Bucket (S3 API): head, presignGet and
+// put. There is deliberately NO delete: during the Supabase -> Railway
+// transition nothing removes objects (cleanup is a separate, reviewed step).
+// It knows nothing about products, businesses or Supabase, and does not decide
+// which keys are valid media keys — callers (MediaController, ImageStorageService)
+// do that.
 @Injectable()
 export class S3ObjectStoreService implements OnModuleInit {
   private readonly logger = new Logger(S3ObjectStoreService.name);
@@ -104,6 +106,33 @@ export class S3ObjectStoreService implements OnModuleInit {
     } catch (error) {
       if (isNotFound(error)) return null;
       throw new ObjectStoreUnavailableError('S3 HeadObject failed', { cause: error });
+    }
+  }
+
+  // Writes one object. Always a plain PutObject of an in-memory buffer; the
+  // caller owns the key (unique per upload) and the content/cache headers.
+  async put(
+    key: string,
+    body: Buffer,
+    contentType: string,
+    cacheControl: string,
+    metadata?: Record<string, string>,
+  ): Promise<void> {
+    this.assertKey(key);
+    const { client, bucket } = this.requireConfigured();
+    try {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+          CacheControl: cacheControl,
+          ...(metadata ? { Metadata: metadata } : {}),
+        }),
+      );
+    } catch (error) {
+      throw new ObjectStoreUnavailableError('S3 PutObject failed', { cause: error });
     }
   }
 

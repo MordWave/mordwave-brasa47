@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import {
@@ -31,6 +31,8 @@ export interface ProductAdminSummary {
 
 @Injectable()
 export class ProductService {
+  private readonly logger = new Logger(ProductService.name);
+
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
@@ -385,29 +387,39 @@ export class ProductService {
   }
 
   // Same ownership check as update()/remove() — an ADMIN can only touch the
-  // image of a product in their own business. imageUrl is only written
-  // after ProductImageService confirms the file actually exists in
-  // Storage; if it throws, this never reaches the save().
+  // image of a product in their own business.
+  //
+  // New image: upload to the bucket under a brand-new key, THEN point the row
+  // at it. image_url (the legacy Supabase URL) is left untouched as a
+  // fallback; ProductPresenter prefers the key. The previous object, in the
+  // bucket or in Supabase, is never deleted here.
+  //
+  // If the DB save fails after a successful upload, nothing references the new
+  // object (the row still has its old values): it is only an orphan candidate,
+  // logged for the later cleanup — never auto-deleted during the transition.
   async attachImage(id: string, user: SafeUser, file: UploadableFile): Promise<Product> {
     const product = await this.findOne(id);
-    const businessId = resolveBusinessIdForUpdate(user, product.businessId, undefined);
+    resolveBusinessIdForUpdate(user, product.businessId, undefined);
 
-    const imageUrl = await this.productImageService.upload(businessId, product.id, file);
+    const storageKey = await this.productImageService.upload(product.businessId, product.id, file);
 
-    product.imageUrl = imageUrl;
-    return this.productRepository.save(product);
+    product.imageStorageKey = storageKey;
+    try {
+      return await this.productRepository.save(product);
+    } catch (error) {
+      this.logger.error(`Product image uploaded but not saved; orphan candidate key=${storageKey}`);
+      throw error;
+    }
   }
 
-  // Deliberately different from soft-deleting the product itself: this is
-  // an explicit, standalone action on a still-existing product, so the
-  // Storage object is actually removed (not preserved the way a soft
-  // delete's image is).
+  // Detaches the image: both the key and the legacy URL are cleared. No object
+  // is deleted anywhere (bucket or Supabase) — physical cleanup is a separate,
+  // later step.
   async removeImage(id: string, user: SafeUser): Promise<Product> {
     const product = await this.findOne(id);
-    const businessId = resolveBusinessIdForUpdate(user, product.businessId, undefined);
+    resolveBusinessIdForUpdate(user, product.businessId, undefined);
 
-    await this.productImageService.remove(businessId, product.id);
-
+    product.imageStorageKey = null;
     product.imageUrl = null;
     return this.productRepository.save(product);
   }

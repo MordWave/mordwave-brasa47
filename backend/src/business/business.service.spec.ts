@@ -18,7 +18,7 @@ function createRepoMock() {
 describe('BusinessService', () => {
   let service: BusinessService;
   let businessRepo: ReturnType<typeof createRepoMock>;
-  let imageStorage: { upload: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
+  let imageStorage: { upload: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -51,7 +51,7 @@ describe('BusinessService', () => {
 
   beforeEach(async () => {
     businessRepo = createRepoMock();
-    imageStorage = { upload: vi.fn(), remove: vi.fn() };
+    imageStorage = { upload: vi.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -159,66 +159,92 @@ describe('BusinessService', () => {
 
   describe('uploadLogo', () => {
     const file = { buffer: Buffer.from('png-bytes'), size: 100 };
+    const BIZ1 = 'aaaaaaaa-1111-4abc-8def-111111111abc';
+    const BIZ2 = 'dddddddd-4444-4abc-8def-444444444abc';
+    const LOGO_KEY = `businesses/${BIZ1}/logo/cccccccc-3333-4abc-8def-333333333abc.webp`;
+    const LOGO_KEY_2 = `businesses/${BIZ1}/logo/eeeeeeee-5555-4abc-8def-555555555abc.webp`;
+    const LEGACY = 'https://project.supabase.co/storage/v1/object/public/product-images/business-logos/biz/logo.webp?v=1';
+    const uuidAdmin: SafeUser = { ...admin, businessId: BIZ1 };
 
-    it('uploads to a path built from the resolved businessId and updates logoUrl', async () => {
-      businessRepo.findOne.mockResolvedValue({ ...existingBusiness });
-      imageStorage.upload.mockResolvedValue('https://cdn.example/business-logos/biz-1/logo.webp?v=1');
+    it('uploads under a key built from the resolved businessId and saves logoStorageKey', async () => {
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1 });
+      imageStorage.upload.mockImplementation(async (key: string) => key);
 
-      const result = await service.uploadLogo({}, admin, file);
+      const result = await service.uploadLogo({}, uuidAdmin, file);
 
-      expect(imageStorage.upload).toHaveBeenCalledWith('business-logos/biz-1/logo.webp', file);
-      expect(businessRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=1' }),
-      );
-      expect(result).toEqual(
-        expect.objectContaining({ logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=1' }),
-      );
+      const [key, passedFile] = imageStorage.upload.mock.calls[0];
+      expect(key).toMatch(new RegExp(`^businesses/${BIZ1}/logo/[0-9a-f-]{36}\\.webp$`));
+      expect(passedFile).toBe(file);
+      expect(businessRepo.save).toHaveBeenCalledWith(expect.objectContaining({ logoStorageKey: key }));
+      expect(result.logoStorageKey).toBe(key);
+      expect(result.logoUrl).toBeNull();
     });
 
-    it('re-uploading replaces the previous logo (new URL overwrites the old one)', async () => {
-      businessRepo.findOne.mockResolvedValue({
-        ...existingBusiness,
-        logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=1',
-      });
-      imageStorage.upload.mockResolvedValue('https://cdn.example/business-logos/biz-1/logo.webp?v=2');
+    it('keeps the legacy logoUrl as a fallback when it already existed', async () => {
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1, logoUrl: LEGACY });
+      imageStorage.upload.mockResolvedValue(LOGO_KEY);
 
-      const result = await service.uploadLogo({}, admin, file);
+      const result = await service.uploadLogo({}, uuidAdmin, file);
 
-      expect(result).toEqual(
-        expect.objectContaining({ logoUrl: 'https://cdn.example/business-logos/biz-1/logo.webp?v=2' }),
-      );
+      expect(result.logoUrl).toBe(LEGACY);
+      expect(result.logoStorageKey).toBe(LOGO_KEY);
     });
 
-    it('propagates a validation/processing rejection from ImageStorageService unchanged (e.g. invalid format)', async () => {
-      businessRepo.findOne.mockResolvedValue({ ...existingBusiness });
+    it('re-uploading stores a different key each time (nothing is overwritten or deleted)', async () => {
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1, logoStorageKey: LOGO_KEY });
+      imageStorage.upload.mockResolvedValue(LOGO_KEY_2);
+
+      const result = await service.uploadLogo({}, uuidAdmin, file);
+
+      expect(result.logoStorageKey).toBe(LOGO_KEY_2);
+      expect(imageStorage).not.toHaveProperty('remove');
+    });
+
+    it('two uploads ask the storage for two different keys', async () => {
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1 });
+      imageStorage.upload.mockImplementation(async (key: string) => key);
+
+      await service.uploadLogo({}, uuidAdmin, file);
+      await service.uploadLogo({}, uuidAdmin, file);
+
+      expect(imageStorage.upload.mock.calls[0][0]).not.toBe(imageStorage.upload.mock.calls[1][0]);
+    });
+
+    it('propagates a validation/processing/storage rejection unchanged and never touches the DB', async () => {
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1 });
       const rejection = new Error('IMAGE_INVALID_FORMAT');
       imageStorage.upload.mockRejectedValue(rejection);
 
-      await expect(service.uploadLogo({}, admin, file)).rejects.toBe(rejection);
+      await expect(service.uploadLogo({}, uuidAdmin, file)).rejects.toBe(rejection);
       expect(businessRepo.save).not.toHaveBeenCalled();
     });
 
-    it("never exposes Supabase credentials — the service only ever passes the path and file to ImageStorageService", async () => {
-      businessRepo.findOne.mockResolvedValue({ ...existingBusiness });
-      imageStorage.upload.mockResolvedValue('https://cdn.example/business-logos/biz-1/logo.webp?v=1');
+    it('a DB failure after a successful upload is reported and deletes nothing', async () => {
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1, logoUrl: LEGACY });
+      imageStorage.upload.mockResolvedValue(LOGO_KEY);
+      businessRepo.save.mockRejectedValueOnce(new Error('db down'));
 
-      await service.uploadLogo({}, admin, file);
+      await expect(service.uploadLogo({}, uuidAdmin, file)).rejects.toThrow('db down');
+      expect(imageStorage).not.toHaveProperty('remove');
+    });
 
-      // BusinessService never touches SUPABASE_SECRET_KEY/config directly —
-      // it only calls the injected ImageStorageService with a path + file,
-      // confirmed by the mock's exact call signature above (no third
-      // argument, nothing resembling a secret).
+    it('only passes the key and file to ImageStorageService (no credentials, nothing client-supplied)', async () => {
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ1 });
+      imageStorage.upload.mockResolvedValue(LOGO_KEY);
+
+      await service.uploadLogo({}, uuidAdmin, file);
+
       expect(imageStorage.upload).toHaveBeenCalledTimes(1);
       expect(imageStorage.upload.mock.calls[0]).toHaveLength(2);
     });
 
     it('SUPER_ADMIN uploads a logo for a specific business via ?businessId=', async () => {
-      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: 'biz-2' });
-      imageStorage.upload.mockResolvedValue('https://cdn.example/business-logos/biz-2/logo.webp?v=1');
+      businessRepo.findOne.mockResolvedValue({ ...existingBusiness, id: BIZ2 });
+      imageStorage.upload.mockImplementation(async (key: string) => key);
 
-      await service.uploadLogo({ businessId: 'biz-2' }, superAdmin, file);
+      await service.uploadLogo({ businessId: BIZ2 }, superAdmin, file);
 
-      expect(imageStorage.upload).toHaveBeenCalledWith('business-logos/biz-2/logo.webp', file);
+      expect(imageStorage.upload.mock.calls[0][0]).toMatch(new RegExp(`^businesses/${BIZ2}/logo/`));
     });
   });
 });
