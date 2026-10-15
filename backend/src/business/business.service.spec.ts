@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,9 +11,16 @@ import { BusinessService } from './business.service.js';
 function createRepoMock() {
   return {
     findOne: vi.fn(),
+    create: vi.fn((entity: unknown) => ({ ...(entity as object) })),
     save: vi.fn(async (entity: unknown) => entity),
+    insert: vi.fn(async () => ({
+      identifiers: [{ id: 'new-id' }],
+      generatedMaps: [{ id: 'new-id', createdAt: new Date(0), updatedAt: new Date(0) }],
+    })),
   };
 }
+
+const SLUG_CONSTRAINT = 'UQ_82ca19bc20713fdfa72626a5da0';
 
 describe('BusinessService', () => {
   let service: BusinessService;
@@ -234,6 +241,95 @@ describe('BusinessService', () => {
       await service.uploadLogo({ businessId: BIZ2 }, superAdmin, file);
 
       expect(imageStorage.upload.mock.calls[0][0]).toMatch(new RegExp(`^businesses/${BIZ2}/logo/`));
+    });
+  });
+
+  describe('create', () => {
+    const dto = { name: 'Nuevo Grill', slug: 'nuevo-grill' };
+
+    it('inserts exactly the DTO fields plus explicit server-side defaults', async () => {
+      const result = await service.create({ ...dto, address: 'Calle 1', phone: '+56 9 0000', hours: 'Lun-Dom' });
+
+      expect(businessRepo.create).toHaveBeenCalledWith({
+        name: 'Nuevo Grill',
+        slug: 'nuevo-grill',
+        active: true,
+        address: 'Calle 1',
+        phone: '+56 9 0000',
+        hours: 'Lun-Dom',
+        logoStorageKey: null,
+        primaryColor: null,
+        accentColor: null,
+      });
+      expect(businessRepo.insert).toHaveBeenCalledTimes(1);
+      expect(businessRepo.save).not.toHaveBeenCalled();
+      // the generated id and timestamps come back from the INSERT ... RETURNING
+      expect(result).toMatchObject({ id: 'new-id', slug: 'nuevo-grill', createdAt: new Date(0) });
+    });
+
+    it('optional fields default to null and no id is ever supplied', async () => {
+      await service.create(dto);
+
+      const created = businessRepo.create.mock.calls[0]![0] as Record<string, unknown>;
+      expect(created.address).toBeNull();
+      expect(created.phone).toBeNull();
+      expect(created.hours).toBeNull();
+      expect(created).not.toHaveProperty('id');
+      expect(businessRepo.findOne).not.toHaveBeenCalled(); // no read-then-write race
+    });
+
+    it('a unique violation (23505) becomes 409 BUSINESS_SLUG_TAKEN', async () => {
+      businessRepo.insert.mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505', constraint: SLUG_CONSTRAINT }));
+
+      const error = await service.create(dto).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({ errorCode: 'BUSINESS_SLUG_TAKEN' });
+    });
+
+    it('a race: the database lets exactly one INSERT win, every loser becomes 409 and nothing is read first', async () => {
+      // Model of N requests for the same slug reaching the INSERT together: UNIQUE(slug) accepts the first and
+      // answers every other with 23505. The service must turn exactly those into 409 — and must never have
+      // looked the slug up beforehand (a read-then-write check would let two requests both pass).
+      let taken = false;
+      businessRepo.insert.mockImplementation(async () => {
+        await Promise.resolve();
+        if (taken) throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505', constraint: SLUG_CONSTRAINT });
+        taken = true;
+        return { identifiers: [{ id: 'winner' }], generatedMaps: [{ id: 'winner', createdAt: new Date(0), updatedAt: new Date(0) }] };
+      });
+
+      const results = await Promise.allSettled(Array.from({ length: 8 }, () => service.create(dto)));
+
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      expect(rejected).toHaveLength(7);
+      for (const r of rejected) {
+        expect(r.reason).toBeInstanceOf(ConflictException);
+        expect((r.reason as ConflictException).getResponse()).toMatchObject({ errorCode: 'BUSINESS_SLUG_TAKEN' });
+      }
+      expect(businessRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a different unique constraint', { code: '23505', constraint: 'UQ_some_other_constraint' }],
+      ['a unique violation with no constraint information', { code: '23505' }],
+      ['another integrity error (not null)', { code: '23502', constraint: SLUG_CONSTRAINT }],
+    ])('%s is NOT reported as a taken slug', async (_label, fields) => {
+      const original = Object.assign(new Error('db error'), fields);
+      businessRepo.insert.mockRejectedValueOnce(original);
+
+      const error = await service.create(dto).catch((err: unknown) => err);
+
+      expect(error).toBe(original);
+      expect(error).not.toBeInstanceOf(ConflictException);
+    });
+
+    it('any other database error is not disguised as a conflict', async () => {
+      const boom = Object.assign(new Error('connection lost'), { code: '08006' });
+      businessRepo.insert.mockRejectedValueOnce(boom);
+
+      await expect(service.create(dto)).rejects.toBe(boom);
     });
   });
 });
