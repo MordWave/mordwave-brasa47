@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
+import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import PrintQr from '../../components/admin/tables/PrintQr'
 import TableFormModal from '../../components/admin/tables/TableFormModal'
 import TableList from '../../components/admin/tables/TableList'
@@ -23,7 +24,8 @@ function mapDeleteError(err) {
 }
 
 export default function AdminTables({ businessName }) {
-  const { token, user } = useAuth()
+  const { token } = useAuth()
+  const { scopePath, scopeBody } = useActiveBusiness()
   const confirm = useConfirm()
   const toast = useToast()
   const [tables, setTables] = useState([])
@@ -48,7 +50,7 @@ export default function AdminTables({ businessName }) {
   const loadTables = useCallback(
     async ({ silent = false } = {}) => {
       try {
-        const data = await apiFetch('/tables/admin', { token })
+        const data = await apiFetch(scopePath('/tables/admin'), { token })
         setTables(data)
         setError('')
       } catch (err) {
@@ -57,7 +59,7 @@ export default function AdminTables({ businessName }) {
         setLoading(false)
       }
     },
-    [token],
+    [token, scopePath],
   )
 
   useEffect(() => {
@@ -66,13 +68,11 @@ export default function AdminTables({ businessName }) {
     return () => clearInterval(interval)
   }, [loadTables])
 
-  // businessId is required by the backend DTO but is only ever read from
-  // the caller's own token server-side for an ADMIN — sending the admin's
-  // own (already-known) businessId here isn't the frontend "choosing" a
-  // tenant, it's just satisfying that required field with the value the
-  // backend will use regardless of what's sent.
+  // businessId is required by the backend DTO. scopeBody() (useActiveBusiness) fills it: an ADMIN's own business
+  // (the backend ignores whatever is sent for an ADMIN and uses the token's), a SUPER_ADMIN's explicitly chosen
+  // one. Updates never send it.
   async function handleSaveTable(payload, editingId) {
-    const body = editingId ? payload : { ...payload, businessId: user.businessId }
+    const body = editingId ? payload : scopeBody(payload)
     await apiFetch(editingId ? `/tables/${editingId}` : '/tables', {
       method: editingId ? 'PATCH' : 'POST',
       token,

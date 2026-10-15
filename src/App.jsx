@@ -2,6 +2,7 @@ import { useLayoutEffect } from 'react'
 import { AuthProvider } from './context/AuthContext'
 import { DevToolsProvider } from './devtools/DevToolsProvider'
 import { DEV_TOOLS_BUILD_ENABLED } from './devtools/buildFlag.js'
+import { BusinessContextProvider } from './tenant/BusinessContextProvider'
 import AdminPanel from './pages/admin/AdminPanel'
 import CustomerApp from './pages/CustomerApp'
 
@@ -17,9 +18,11 @@ export default function App() {
   if (!isAdmin) return <CustomerApp />
   return (
     <AuthProvider>
-      <DevToolsProvider enabled={DEV_TOOLS_BUILD_ENABLED}>
-        <AdminPanel />
-      </DevToolsProvider>
+      <BusinessContextProvider>
+        <DevToolsProvider enabled={DEV_TOOLS_BUILD_ENABLED}>
+          <AdminPanel />
+        </DevToolsProvider>
+      </BusinessContextProvider>
     </AuthProvider>
   )
 }

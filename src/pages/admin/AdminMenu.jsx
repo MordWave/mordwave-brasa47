@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
+import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import Pager from '../../components/admin/Pager'
 import CategoryFilterBar from '../../components/admin/menu/CategoryFilterBar'
 import CategoryFormModal from '../../components/admin/menu/CategoryFormModal'
@@ -18,7 +19,8 @@ const SEARCH_DEBOUNCE_MS = 300
 const EMPTY_SUMMARY = { total: 0, byCategory: {} }
 
 export default function AdminMenu() {
-  const { token, user } = useAuth()
+  const { token } = useAuth()
+  const { scopePath, scopeBody } = useActiveBusiness()
   const confirm = useConfirm()
   const toast = useToast()
   const [categories, setCategories] = useState([])
@@ -64,12 +66,12 @@ export default function AdminMenu() {
   const loadCategories = useCallback(async () => {
     const requestId = ++categoriesRequestRef.current
     try {
-      const cats = await apiFetch('/categories/admin', { token })
+      const cats = await apiFetch(scopePath('/categories/admin'), { token })
       if (requestId === categoriesRequestRef.current) setCategories(cats)
     } catch (err) {
       if (requestId === categoriesRequestRef.current) setError(translateApiError(err))
     }
-  }, [token])
+  }, [token, scopePath])
 
   // Per-category counts of the products matching the current search/active/
   // available filters, across ALL categories (categoryId and page are
@@ -83,12 +85,12 @@ export default function AdminMenu() {
       if (activeFilter !== 'all') params.set('active', activeFilter)
       if (availableFilter !== 'all') params.set('available', availableFilter)
       const query = params.toString()
-      const counts = await apiFetch(`/products/admin/summary${query ? `?${query}` : ''}`, { token })
+      const counts = await apiFetch(scopePath(`/products/admin/summary${query ? `?${query}` : ''}`), { token })
       if (requestId === summaryRequestRef.current) setSummary(counts)
     } catch (err) {
       if (requestId === summaryRequestRef.current) setError(translateApiError(err))
     }
-  }, [token, search, activeFilter, availableFilter])
+  }, [token, scopePath, search, activeFilter, availableFilter])
 
   // Only ever fetches the CURRENT page (PRODUCTS_PAGE_SIZE rows) for the
   // current filters. The request counter discards a response that a newer
@@ -104,7 +106,7 @@ export default function AdminMenu() {
       if (activeFilter !== 'all') params.set('active', activeFilter)
       if (availableFilter !== 'all') params.set('available', availableFilter)
 
-      const result = await apiFetch(`/products/admin?${params}`, { token })
+      const result = await apiFetch(scopePath(`/products/admin?${params}`), { token })
       if (requestId !== productsRequestRef.current) return
 
       // The page we were on is now empty although earlier ones aren't — a
@@ -126,7 +128,7 @@ export default function AdminMenu() {
         setInitialLoading(false)
       }
     }
-  }, [token, page, productCategoryFilter, search, activeFilter, availableFilter])
+  }, [token, scopePath, page, productCategoryFilter, search, activeFilter, availableFilter])
 
   useEffect(() => {
     loadCategories()
@@ -191,13 +193,11 @@ export default function AdminMenu() {
     if (!stillActive) changeCategoryFilter('all')
   }, [categories, productCategoryFilter])
 
-  // businessId is required by the backend DTO but is only ever read from
-  // the caller's own token server-side for an ADMIN — sending the admin's
-  // own (already-known) businessId here isn't the frontend "choosing" a
-  // tenant, it's just satisfying that required field with the value the
-  // backend will use regardless of what's sent.
+  // businessId is required by the backend DTO. scopeBody() (useActiveBusiness) fills it: an ADMIN's own business
+  // (the backend ignores whatever is sent for an ADMIN and uses the token's), a SUPER_ADMIN's explicitly chosen
+  // one. Updates never send it.
   async function handleSaveCategory(payload, editingId) {
-    const body = editingId ? payload : { ...payload, businessId: user.businessId }
+    const body = editingId ? payload : scopeBody(payload)
     await apiFetch(editingId ? `/categories/${editingId}` : '/categories', {
       method: editingId ? 'PATCH' : 'POST',
       token,
@@ -245,7 +245,7 @@ export default function AdminMenu() {
   }
 
   async function handleSaveProduct(payload, editingId, pendingImageFile) {
-    const body = editingId ? payload : { ...payload, businessId: user.businessId }
+    const body = editingId ? payload : scopeBody(payload)
     const result = await apiFetch(editingId ? `/products/${editingId}` : '/products', {
       method: editingId ? 'PATCH' : 'POST',
       token,

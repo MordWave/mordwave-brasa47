@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useConfirm } from '../context/ConfirmContext'
 import { useToast } from '../context/ToastContext'
+import { useActiveBusiness } from '../tenant/useActiveBusiness'
 import { apiFetch } from '../services/api'
 import { translateApiError } from '../services/errorMessages'
 import OrderCard from '../components/admin/OrderCard'
@@ -17,6 +18,7 @@ const CANCELLED_RECENT_LIMIT = 10
 
 export default function AdminApp({ businessName }) {
   const { token } = useAuth()
+  const { scopePath } = useActiveBusiness()
   const confirm = useConfirm()
   const toast = useToast()
   const [newOrders, setNewOrders] = useState([])
@@ -40,23 +42,23 @@ export default function AdminApp({ businessName }) {
 
   const loadNew = useCallback(async () => {
     try {
-      const data = await apiFetch('/orders/admin?status=NEW', { token })
+      const data = await apiFetch(scopePath('/orders/admin?status=NEW'), { token })
       setNewOrders(data)
     } catch (err) {
       setError(translateApiError(err))
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [token, scopePath])
 
   const loadDelivered = useCallback(async () => {
     try {
-      const data = await apiFetch(`/orders/admin?status=DELIVERED&limit=${DELIVERED_RECENT_LIMIT}`, { token })
+      const data = await apiFetch(scopePath(`/orders/admin?status=DELIVERED&limit=${DELIVERED_RECENT_LIMIT}`), { token })
       setDeliveredOrders(data)
     } catch (err) {
       setError(translateApiError(err))
     }
-  }, [token])
+  }, [token, scopePath])
 
   // Nuevos: cola activa, se refresca seguido. Entregados: se carga al
   // montar y se refresca cada bastante más — ya no se borran, así que solo
@@ -126,7 +128,7 @@ export default function AdminApp({ businessName }) {
     setCancelledOpen(opening)
     if (!opening) return
     try {
-      const data = await apiFetch(`/orders/admin?status=CANCELLED&limit=${CANCELLED_RECENT_LIMIT}`, { token })
+      const data = await apiFetch(scopePath(`/orders/admin?status=CANCELLED&limit=${CANCELLED_RECENT_LIMIT}`), { token })
       setCancelledOrders(data)
     } catch (err) {
       toast.error(translateApiError(err))
