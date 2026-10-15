@@ -1,5 +1,7 @@
 import { useLayoutEffect } from 'react'
 import { AuthProvider } from './context/AuthContext'
+import { DevToolsProvider } from './devtools/DevToolsProvider'
+import { DEV_TOOLS_BUILD_ENABLED } from './devtools/buildFlag.js'
 import AdminPanel from './pages/admin/AdminPanel'
 import CustomerApp from './pages/CustomerApp'
 
@@ -15,7 +17,9 @@ export default function App() {
   if (!isAdmin) return <CustomerApp />
   return (
     <AuthProvider>
-      <AdminPanel />
+      <DevToolsProvider enabled={DEV_TOOLS_BUILD_ENABLED}>
+        <AdminPanel />
+      </DevToolsProvider>
     </AuthProvider>
   )
 }
