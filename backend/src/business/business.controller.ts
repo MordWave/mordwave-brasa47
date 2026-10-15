@@ -26,8 +26,10 @@ import { UploadTimeout } from '../common/http/request-timeout.decorator.js';
 import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { BusinessService } from './business.service.js';
-import { BusinessPresenter, type BusinessResponse } from './business.presenter.js';
+import { BusinessPresenter, type BusinessListItem, type BusinessResponse } from './business.presenter.js';
+import { buildPaginated, type Paginated } from '../common/pagination.util.js';
 import { IMAGE_MULTER_HARD_LIMIT_BYTES } from '../common/limits/resource-limits.const.js';
+import { BusinessListQueryDto } from './dto/business-list-query.dto.js';
 import { BusinessQueryDto } from './dto/business-query.dto.js';
 import { UpdateBusinessDto } from './dto/update-business.dto.js';
 
@@ -47,6 +49,23 @@ export class BusinessController {
     private readonly auditService: AuditService,
     private readonly presenter: BusinessPresenter,
   ) {}
+
+  // The one deliberately GLOBAL (cross-tenant) read in this controller: it lists the businesses themselves, which is
+  // what a SUPER_ADMIN's business picker needs. SUPER_ADMIN only: an ADMIN gets 403, no JWT gets 401. It does not
+  // look at the caller's businessId, and `?businessId=` is rejected by the whitelist (see BusinessListQueryDto).
+  // Reads are not audited in this project, so nothing is recorded here either.
+  @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  async findAll(@Query() query: BusinessListQueryDto): Promise<Paginated<BusinessListItem>> {
+    const page = await this.businessService.findAll(query);
+    return buildPaginated(
+      page.items.map((row) => this.presenter.presentListItem(row)),
+      page.page,
+      page.limit,
+      page.total,
+    );
+  }
 
   @Get('me')
   @UseGuards(JwtAuthGuard, RolesGuard)
