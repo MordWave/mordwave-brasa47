@@ -1,33 +1,32 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from '../src/app.module.js';
+import { countRows, startIsolatedApp, type IsolatedApp } from './support/isolated-e2e-app.js';
 
 // Guard/validation-layer only, no seeded data relied upon — same approach
-// as auth.e2e-spec.ts and public-menu.e2e-spec.ts.
+// as auth.e2e-spec.ts and public-menu.e2e-spec.ts. Runs against an isolated,
+// ephemeral local Postgres (PGlite), never an external database.
 describe('Orders (e2e)', () => {
+  let isolated: IsolatedApp;
   let app: INestApplication<App>;
 
   const UNKNOWN_UUID = '00000000-0000-0000-0000-000000000000';
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
+  beforeAll(async () => {
     // These tests exercise DTO-level validation (@MaxLength, @Max, etc.),
     // which only runs through the global ValidationPipe main.ts installs in
-    // production — not enabled by default on a bare test app.
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-    );
-    await app.init();
-  });
+    // production — startIsolatedApp({ validation: true }) installs the same one.
+    isolated = await startIsolatedApp({ validation: true });
+    app = isolated.app;
+  }, 60_000);
 
-  afterEach(async () => {
-    await app.close();
+  afterAll(async () => {
+    try {
+      // No test in this file writes anything, so the isolated database must still be exactly as migrated.
+      if (isolated) expect(Object.values(await countRows(isolated.dataSource)).every((n) => n === 0)).toBe(true);
+    } finally {
+      await isolated?.stop();
+    }
   });
 
   it('GET /orders/admin without a token is rejected with 401', () => {

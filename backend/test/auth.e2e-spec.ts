@@ -1,25 +1,27 @@
 import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from '../src/app.module.js';
+import { countRows, startIsolatedApp, type IsolatedApp } from './support/isolated-e2e-app.js';
 
 // These only ever hit the guard layer (no valid token is ever sent), so no
-// data is read or written against the connected database.
+// data is read or written. The app runs against an isolated, ephemeral local
+// Postgres (PGlite), never an external database.
 describe('Auth guards (e2e)', () => {
+  let isolated: IsolatedApp;
   let app: INestApplication<App>;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+  beforeAll(async () => {
+    isolated = await startIsolatedApp();
+    app = isolated.app;
+  }, 60_000);
 
-    app = moduleFixture.createNestApplication();
-    await app.init();
-  });
-
-  afterEach(async () => {
-    await app.close();
+  afterAll(async () => {
+    try {
+      // No test in this file writes anything, so the isolated database must still be exactly as migrated.
+      if (isolated) expect(Object.values(await countRows(isolated.dataSource)).every((n) => n === 0)).toBe(true);
+    } finally {
+      await isolated?.stop();
+    }
   });
 
   it('POST /products without a token is rejected with 401', () => {

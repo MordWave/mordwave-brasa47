@@ -1,30 +1,33 @@
 import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from '../src/app.module.js';
+import { countRows, startIsolatedApp, type IsolatedApp } from './support/isolated-e2e-app.js';
 
 // Public (unauthenticated) menu reads must always be scoped to exactly one
 // business. These only exercise the validation/resolution layer with
 // identifiers that can't legitimately match anything real — no fixture data
-// is seeded or relied upon, matching auth.e2e-spec.ts's approach.
+// is seeded or relied upon, matching auth.e2e-spec.ts's approach. Runs against
+// an isolated, ephemeral local Postgres (PGlite), never an external database:
+// the "unknown business" cases are answered by a real (empty) businesses table.
 describe('Public menu tenant scoping (e2e)', () => {
+  let isolated: IsolatedApp;
   let app: INestApplication<App>;
 
   const UNKNOWN_UUID = '00000000-0000-0000-0000-000000000000';
   const UNKNOWN_SLUG = 'not-a-real-business-slug';
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+  beforeAll(async () => {
+    isolated = await startIsolatedApp();
+    app = isolated.app;
+  }, 60_000);
 
-    app = moduleFixture.createNestApplication();
-    await app.init();
-  });
-
-  afterEach(async () => {
-    await app.close();
+  afterAll(async () => {
+    try {
+      // No test in this file writes anything, so the isolated database must still be exactly as migrated.
+      if (isolated) expect(Object.values(await countRows(isolated.dataSource)).every((n) => n === 0)).toBe(true);
+    } finally {
+      await isolated?.stop();
+    }
   });
 
   it('GET /products with neither businessId nor businessSlug is rejected with 400', () => {

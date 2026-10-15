@@ -1,34 +1,34 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from '../src/app.module.js';
+import { countRows, startIsolatedApp, type IsolatedApp } from './support/isolated-e2e-app.js';
 
 // Guard/validation-layer only, no seeded data relied upon — same approach
 // as orders.e2e-spec.ts. A qrToken that can't possibly exist is enough to
-// prove the "unavailable" path without depending on real fixtures.
+// prove the "unavailable" path without depending on real fixtures. Runs
+// against an isolated, ephemeral local Postgres (PGlite), never an external
+// database.
 describe('Public table sessions (e2e)', () => {
+  let isolated: IsolatedApp;
   let app: INestApplication<App>;
 
   const UNKNOWN_QR_TOKEN = 'not-a-real-qr-token';
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
+  beforeAll(async () => {
     // These tests exercise DTO-level validation (@MaxLength) — only
     // enforced through the global ValidationPipe main.ts installs in
-    // production, not enabled by default on a bare test app.
-    app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-    );
-    await app.init();
-  });
+    // production; startIsolatedApp({ validation: true }) installs the same one.
+    isolated = await startIsolatedApp({ validation: true });
+    app = isolated.app;
+  }, 60_000);
 
-  afterEach(async () => {
-    await app.close();
+  afterAll(async () => {
+    try {
+      // No test in this file writes anything, so the isolated database must still be exactly as migrated.
+      if (isolated) expect(Object.values(await countRows(isolated.dataSource)).every((n) => n === 0)).toBe(true);
+    } finally {
+      await isolated?.stop();
+    }
   });
 
   it('POST /table-sessions/join with an unknown qrToken is rejected with 404 TABLE_SESSION_UNAVAILABLE', async () => {
