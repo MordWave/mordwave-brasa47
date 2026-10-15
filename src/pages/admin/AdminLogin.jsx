@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import ThemeToggle from '../../components/ThemeToggle'
 import { translateApiError } from '../../services/errorMessages'
 
 export default function AdminLogin() {
@@ -24,6 +25,9 @@ export default function AdminLogin() {
 
   return (
     <div className="admin-login">
+      <div className="admin-login__theme">
+        <ThemeToggle />
+      </div>
       <form className="admin-login__form" onSubmit={handleSubmit}>
         {/* No tenant is known before login — this is MordWave's own neutral
             branding, never a business name (see Fase 7 design notes). */}
