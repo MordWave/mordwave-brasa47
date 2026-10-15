@@ -14,6 +14,7 @@ import { translateApiError } from '../services/errorMessages'
 import { clearStoredSession, readStoredSession, writeStoredSession } from '../utils/qrSession'
 import { generateUuid } from '../utils/uuid'
 import { brandingStyleVars } from '../theme/brandStyle.js'
+import { useTheme } from '../theme/useTheme.js'
 
 const STATUS_POLL_MS = 12000
 
@@ -38,6 +39,7 @@ function buildCheckoutFingerprint(sessionToken, note, items) {
 const EMPTY_CHECKOUT = { clientRequestId: null, fingerprint: null }
 
 function CustomerFlow() {
+  const { resolvedTheme } = useTheme()
   const [session, setSession] = useState({ status: 'loading' })
   const [step, setStep] = useState('home')
   // Snapshot of the order just submitted — while set, OrderSuccessModal is
@@ -222,7 +224,7 @@ function CustomerFlow() {
   // active session). null/unset falls straight through to the app's own
   // default palette, since these custom properties then simply aren't
   // overridden on this subtree.
-  const brandingStyle = brandingStyleVars(session)
+  const brandingStyle = brandingStyleVars(session, resolvedTheme)
 
   let content
   if (step === 'home') {

@@ -66,24 +66,24 @@ p {
 }
 
 .btn--primary {
-  background: var(--control-bg, var(--primary));
-  color: var(--control-text, #fff);
+  background: var(--primary-control);
+  color: var(--on-primary-control);
 }
 
 @media (hover: hover) {
   .btn--primary:hover:not(:disabled) {
-    background: var(--control-bg-hover, var(--primary-dark));
-    box-shadow: 0 6px 16px rgba(217, 74, 43, 0.28);
+    background: var(--primary-control-hover);
+    box-shadow: 0 6px 16px rgb(var(--shadow-rgb) / 0.22);
   }
 }
 
-/* Hover colour derived from the CURRENT brand at the point of use (a custom property computed on :root would keep
-   the default red for a restaurant that overrides --primary lower in the tree). Static --primary-dark stays as
-   the fallback for engines without color-mix. */
+/* The hover colour is derived from the CURRENT brand in JS (theme/brandStyle.js) and arrives as a custom property
+   on the customer wrapper, so it follows each restaurant's colours. Only the shadow tint needs color-mix; engines
+   without it keep the neutral shadow above. */
 @supports (color: color-mix(in srgb, red 50%, blue)) {
   @media (hover: hover) {
     .btn--primary:hover:not(:disabled) {
-      background: var(--control-bg-hover, color-mix(in srgb, var(--primary) 82%, #000));
+      box-shadow: 0 6px 16px color-mix(in srgb, var(--primary-control) 30%, transparent);
     }
   }
 }
@@ -144,19 +144,31 @@ p {
   padding: 12px 14px;
   font-size: 14px;
   resize: none;
-  background: var(--surface);
+  background: var(--field-bg);
   color: var(--text);
 }
 
 .field__textarea:focus {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
+}
+
+/* Keyboard focus in the customer menu and its portalled success modal. --focus-ring is brand-aware (>= 3:1 on the
+   surfaces, see theme/brandStyle.js). Scoped to the customer app: the Admin styles its own focus states. */
+:root[data-app="customer"] :focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* ============ Home ============ */
 .home {
   height: 100dvh;
   overflow: hidden;
+}
+
+/* the hero is a photo with intentional dark gradients in every theme: its focus ring is white */
+:root[data-app="customer"] .home :focus-visible {
+  outline-color: #fff;
 }
 
 .home__hero {
@@ -366,15 +378,29 @@ p {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  gap: 12px;
   padding: 20px 20px 14px;
+}
+
+.menu__header-text {
+  min-width: 0;
 }
 
 .menu__eyebrow {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--primary);
+  color: var(--primary-text);
   text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+/* theme selector (only rendered once dark mode is rolled out) next to the table pill */
+.menu__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .menu__title {
@@ -384,8 +410,8 @@ p {
 }
 
 .menu__mesa {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--inverse-surface);
+  color: var(--inverse-text);
   font-size: 12px;
   font-weight: 700;
   padding: 6px 12px;
@@ -429,7 +455,7 @@ p {
 
 .menu-nav__item--active {
   color: var(--text);
-  border-bottom-color: var(--primary);
+  border-bottom-color: var(--primary-ui);
 }
 
 /* ============ Category section ============ */
@@ -479,13 +505,15 @@ p {
 
 @media (hover: hover) {
   .product-tile:hover {
-    border-color: var(--primary);
-    box-shadow: 0 8px 18px rgba(23, 23, 20, 0.1);
+    border-color: var(--primary-ui);
+    box-shadow: var(--shadow-tile);
     transform: translateY(-1px);
   }
+}
 
+@media (hover: hover) {
   .product-tile:hover .product-tile__add {
-    background: var(--primary-dark);
+    background: var(--primary-control-hover);
   }
 }
 
@@ -586,32 +614,39 @@ p {
   font-family: var(--font-display);
   font-weight: 400;
   font-size: 15px;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .product-tile__add {
   width: 30px;
   height: 30px;
   border-radius: 999px;
-  background: var(--primary);
-  color: #fff;
+  background: var(--primary-control);
+  color: var(--on-primary-control);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 16px;
   line-height: 1;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(217, 74, 43, 0.35);
+  box-shadow: 0 2px 6px rgb(var(--shadow-rgb) / 0.25);
   transition: background 0.15s ease, transform 0.15s ease;
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .product-tile__add {
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--primary-control) 35%, transparent);
+  }
 }
 
 .product-tile:active .product-tile__add {
   transform: scale(0.88);
 }
 
-.product-tile__add--disabled {
-  background: var(--border);
-  color: var(--text-secondary);
+.product-tile__add--disabled,
+.product-tile:hover .product-tile__add--disabled {
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
   box-shadow: none;
 }
 
@@ -635,13 +670,13 @@ p {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--text);
-  color: #fff;
+  background: var(--inverse-surface);
+  color: var(--inverse-text);
   font-size: 13px;
   font-weight: 600;
   padding: 11px 18px;
   border-radius: 999px;
-  box-shadow: 0 8px 24px rgba(23, 23, 20, 0.28);
+  box-shadow: var(--shadow-float);
   z-index: 30;
   animation: toast-in 0.22s ease-out;
   max-width: calc(100% - 32px);
@@ -651,7 +686,7 @@ p {
 }
 
 .toast__icon {
-  color: var(--success);
+  color: var(--success-on-inverse);
   font-weight: 800;
   flex-shrink: 0;
 }
@@ -661,21 +696,22 @@ p {
   left: 16px;
   right: 16px;
   bottom: 16px;
-  background: var(--text);
-  color: #fff;
+  background: var(--inverse-surface);
+  color: var(--inverse-text);
   border: none;
   border-radius: var(--radius-lg);
   padding: 14px 18px;
   display: flex;
   align-items: center;
   gap: 12px;
-  box-shadow: 0 8px 24px rgba(23, 23, 20, 0.28);
+  box-shadow: var(--shadow-float);
   z-index: 20;
 }
 
 .cart-bar__count {
-  background: var(--primary);
-  color: #fff;
+  background: var(--primary-control);
+  color: var(--on-primary-control);
+  box-shadow: 0 0 0 2px var(--cart-badge-edge);
   width: 24px;
   height: 24px;
   border-radius: 999px;
@@ -703,7 +739,7 @@ p {
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(23, 23, 20, 0.45);
+  background: var(--overlay);
   display: flex;
   align-items: flex-end;
   z-index: 40;
@@ -713,7 +749,8 @@ p {
   position: relative;
   width: 100%;
   max-height: 88dvh;
-  background: var(--surface);
+  background: var(--surface-elevated);
+  box-shadow: 0 -1px 0 var(--surface-edge);
   border-radius: 20px 20px 0 0;
   display: flex;
   flex-direction: column;
@@ -789,7 +826,7 @@ p {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--primary-text);
   text-align: center;
   margin-bottom: 4px;
 }
@@ -817,7 +854,7 @@ p {
   font-weight: 800;
   font-size: 18px;
   margin-top: 8px;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .sheet__section {
@@ -849,8 +886,10 @@ p {
 }
 
 .ingredient-tag--removed {
+  /* struck through + hollow instead of faded: `opacity` would also fade the text below AA */
   text-decoration: line-through;
-  opacity: 0.5;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .chip-group {
@@ -870,15 +909,15 @@ p {
 }
 
 .chip--active-remove {
-  border-color: var(--primary);
-  background: #FBEAE4;
-  color: var(--primary-dark);
+  border-color: var(--primary-ui);
+  background: var(--primary-tint);
+  color: var(--primary-text);
   text-decoration: line-through;
 }
 
 .chip--active-add {
   border-color: var(--success);
-  background: #E7F2EB;
+  background: var(--success-tint);
   color: var(--success);
 }
 
@@ -957,6 +996,7 @@ p {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
+  color: var(--text);
   font-size: 16px;
   flex-shrink: 0;
 }
@@ -989,7 +1029,7 @@ p {
 .screen__error {
   font-size: 13px;
   font-weight: 600;
-  color: var(--primary-dark);
+  color: var(--danger);
   margin: 0 0 10px;
   text-align: center;
 }
@@ -1256,7 +1296,7 @@ p {
 .order-success-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(23, 23, 20, 0.5);
+  background: var(--overlay);
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   display: flex;
@@ -1268,7 +1308,8 @@ p {
 .order-success-modal {
   width: 100%;
   max-height: 90dvh;
-  background: var(--surface);
+  background: var(--surface-elevated);
+  box-shadow: 0 -1px 0 var(--surface-edge);
   border-radius: 20px 20px 0 0;
   overflow-y: auto;
   padding: 8px 20px calc(20px + env(safe-area-inset-bottom));
@@ -1289,7 +1330,7 @@ p {
   height: 56px;
   border-radius: 999px;
   background: var(--success);
-  color: #fff;
+  color: var(--on-success);
   font-size: 24px;
   display: flex;
   align-items: center;
@@ -1369,7 +1410,7 @@ p {
 
 .order-success-modal__item-qty {
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-text);
   flex-shrink: 0;
 }
 
@@ -1412,7 +1453,7 @@ p {
   font-size: 19px;
   font-weight: 800;
   font-family: var(--font-display);
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .order-success-modal__cta {

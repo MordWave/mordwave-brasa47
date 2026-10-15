@@ -27,9 +27,10 @@ const STRUCTURAL = [
   '--danger', '--danger-hover', '--danger-tint', '--danger-border', '--shadow-danger', '--success', '--success-tint', '--warning', '--warning-tint',
   '--on-danger', '--on-success', '--on-warning', '--inverse-surface', '--inverse-text',
   '--dimmed-surface', '--dimmed-text', '--dim-media-opacity', '--shadow-rgb', '--shadow-popover', '--shadow-modal', '--shadow-card',
-  '--primary-tint', '--primary-tint-strong', '--primary-text',
+  '--primary-tint', '--primary-tint-strong', '--primary-text', '--primary-ui', '--accent-text',
+  '--field-bg', '--surface-edge', '--success-on-inverse', '--shadow-tile', '--shadow-float',
 ]
-const BRAND = ['--primary', '--primary-dark', '--accent', '--on-primary', '--on-accent']
+const BRAND = ['--primary', '--accent', '--on-primary', '--on-accent']
 
 test('every semantic token exists in both themes (no theme can miss one)', () => {
   for (const name of STRUCTURAL) {
@@ -50,7 +51,6 @@ test('light layer is the original palette (light mode is visually unchanged), ex
   assert.equal(light['--text-muted'], '#6E6A60')
   assert.equal(light['--border'], '#DED8CC')
   assert.equal(light['--primary'], '#D94A2B')
-  assert.equal(light['--primary-dark'], '#B93B20')
   assert.equal(light['--accent'], '#E9B44C')
   assert.equal(light['--success'], '#377855') // was #397A57: minimal darkening so success-on-tint reaches AA (4.47 -> 4.60)
   assert.equal(light['--text-secondary'], 'var(--text-muted)', 'legacy alias keeps old selectors working')

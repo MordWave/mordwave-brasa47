@@ -65,16 +65,14 @@ test('focus rings in the Admin go through --focus-ring', () => {
 test('form controls in the Admin use --input-bg; placeholders use --placeholder', () => {
   assert.doesNotMatch(adminScreenCss, /(input|select|textarea)[^{]*\{[^}]*background:\s*var\(--bg\)/)
   assert.match(adminScreenCss, /\.admin-login__field input\s*\{[^}]*background:\s*var\(--input-bg\)/)
-  assert.match(tokens, /:root\[data-app="admin"\] ::placeholder\s*\{[^}]*color:\s*var\(--placeholder\)/)
+  assert.match(tokens, /\n::placeholder\s*\{[^}]*color:\s*var\(--placeholder\)/)
 })
 
-test('primary buttons take their colours from the control tokens with the old values as fallback (customer unchanged)', () => {
-  assert.match(css, /\.btn--primary \{[^}]*background:\s*var\(--control-bg, var\(--primary\)\)/)
-  assert.match(css, /\.btn--primary \{[^}]*color:\s*var\(--control-text, #fff\)/)
-  // --control-* only exist under the admin scope
-  assert.match(tokens, /:root\[data-app="admin"\] \{[^}]*--control-bg:\s*var\(--primary-control\)/)
-  const beforeAdminScope = tokens.slice(0, tokens.indexOf(':root[data-app="admin"]'))
-  assert.doesNotMatch(beforeAdminScope, /--control-bg\s*:/)
+test('primary buttons read the brand-aware control tokens directly (Admin and customer share one rule)', () => {
+  assert.match(css, /\.btn--primary \{[^}]*background:\s*var\(--primary-control\)/)
+  assert.match(css, /\.btn--primary \{[^}]*color:\s*var\(--on-primary-control\)/)
+  // the old Admin-only indirection (resolved on <html>, so blind to a restaurant's own brand) is gone
+  assert.doesNotMatch(css + tokens, /--control-(bg|text)/)
 })
 
 test('print blocks stay light: the print override exists and resets every structural token', () => {

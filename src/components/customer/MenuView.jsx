@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { translateApiError } from '../../services/errorMessages'
 import { fetchPublicCategories, fetchPublicProducts } from '../../services/menuApi'
 import { adaptPublicProduct } from '../../utils/adaptProduct'
+import ThemeToggle from '../ThemeToggle'
 import CategoryTabs from './CategoryTabs'
 import ProductTile from './ProductTile'
 import ProductModal from './ProductModal'
@@ -94,11 +95,14 @@ export default function MenuView({ tableName, businessSlug, businessName }) {
   return (
     <div className="menu">
       <header className="menu__header">
-        <div>
+        <div className="menu__header-text">
           <p className="menu__eyebrow">{businessName || FALLBACK_NAME}</p>
           <h1 className="menu__title">Menú</h1>
         </div>
-        <span className="menu__mesa">{tableName}</span>
+        <div className="menu__header-actions">
+          <ThemeToggle variant="compact" />
+          <span className="menu__mesa">{tableName}</span>
+        </div>
       </header>
 
       {loading && <p className="empty-state">Cargando el menú…</p>}

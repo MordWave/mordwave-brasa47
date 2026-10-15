@@ -63,8 +63,9 @@ test('placement: Admin header and login mount it; no floating preview dock remai
   assert.doesNotMatch(read('./ThemeProvider.jsx'), /theme-dock|ThemeToggle/)
   assert.doesNotMatch(read('../styles/theme-toggle.css'), /theme-dock/)
   assert.doesNotMatch(read('./flag.js'), /isPreviewDockEnabled/)
-  // customer menu is 8B.3: it must not mount the selector yet
-  for (const f of ['../pages/CustomerApp.jsx', '../components/customer/MenuView.jsx', '../components/customer/HomeScreen.jsx']) {
+  // customer menu (8B.3): compact selector inside the menu header, nowhere else (hero / cart / modals stay clean)
+  assert.match(read('../components/customer/MenuView.jsx'), /<header className="menu__header">[\s\S]*<ThemeToggle variant="compact" \/>[\s\S]*<\/header>/)
+  for (const f of ['../pages/CustomerApp.jsx', '../components/customer/HomeScreen.jsx', '../components/customer/CartBar.jsx', '../components/customer/OrderSuccessModal.jsx']) {
     assert.doesNotMatch(read(f), /ThemeToggle/, f)
   }
 })

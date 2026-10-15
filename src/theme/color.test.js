@@ -103,21 +103,23 @@ test('ensureContrastOnAll lifts a colour until it passes on every surface', () =
 })
 
 test('brandingStyleVars keeps brand separate from structure and never rewrites the stored value', () => {
-  assert.deepEqual(brandingStyleVars({ primaryColor: '#D94A2B', accentColor: '#E9B44C' }), {
-    '--primary': '#D94A2B', // exactly as stored
-    '--on-primary': '#FFFFFF',
-    '--primary-control': '#CE4629', // render-time AA variant for buttons
-    '--on-primary-control': '#FFFFFF',
-    '--accent': '#E9B44C',
-    '--on-accent': '#171714',
-  })
+  const vars = brandingStyleVars({ primaryColor: '#D94A2B', accentColor: '#E9B44C' })
+  assert.equal(vars['--primary'], '#D94A2B') // exactly as stored
+  assert.equal(vars['--on-primary'], '#FFFFFF')
+  assert.equal(vars['--primary-control'], '#CE4629') // render-time AA variant for buttons
+  assert.equal(vars['--on-primary-control'], '#FFFFFF')
+  assert.equal(vars['--accent'], '#E9B44C')
+  assert.equal(vars['--on-accent'], '#171714')
   assert.deepEqual(brandingStyleVars({ primaryColor: null, accentColor: '' }), {})
   assert.deepEqual(brandingStyleVars(), {})
   // an unreadable value is passed through untouched and just gets no derived colours
   assert.deepEqual(brandingStyleVars({ primaryColor: 'weird' }), { '--primary': 'weird' })
-  const vars = brandingStyleVars({ primaryColor: '#123456', accentColor: '#ffcc00' })
-  const allowed = ['--primary', '--on-primary', '--primary-control', '--on-primary-control', '--accent', '--on-accent']
-  for (const key of Object.keys(vars)) assert.ok(allowed.includes(key), `${key}: structural tokens are never touched`)
-  assert.equal(vars['--primary'], '#123456')
-  assert.equal(vars['--accent'], '#ffcc00')
+  const odd = brandingStyleVars({ primaryColor: '#123456', accentColor: '#ffcc00' })
+  const allowed = [
+    '--primary', '--on-primary', '--primary-control', '--on-primary-control', '--primary-control-hover', '--cart-badge-edge', '--primary-text', '--primary-ui',
+    '--primary-tint', '--focus-ring', '--accent', '--on-accent', '--accent-text',
+  ]
+  for (const key of Object.keys(odd)) assert.ok(allowed.includes(key), `${key}: structural tokens are never touched`)
+  assert.equal(odd['--primary'], '#123456')
+  assert.equal(odd['--accent'], '#ffcc00')
 })
