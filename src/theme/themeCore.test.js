@@ -64,12 +64,11 @@ test('effectiveTheme: the rollout flag forces light but does not erase the prefe
   assert.equal(effectiveTheme({ enabled: true, preference: 'system', systemPrefersDark: true }), 'dark')
 })
 
-test('rollout flag: off by default in code, preview only through the env switch', () => {
-  assert.equal(DARK_MODE_ENABLED, false, 'must stay false until 8B.2 and 8B.3 are done')
-  assert.equal(isDarkModeEnabled({}), false)
-  assert.equal(isDarkModeEnabled(undefined), false)
+test('rollout flag: dark mode is enabled in code, with no env switch needed', () => {
+  assert.equal(DARK_MODE_ENABLED, true, '8B.1-8B.3 are done: the theme is rolled out')
+  assert.equal(isDarkModeEnabled({}), true)
+  assert.equal(isDarkModeEnabled(undefined), true)
   assert.equal(isDarkModeEnabled({ VITE_DARK_MODE_PREVIEW: '1' }), true)
-  assert.equal(isDarkModeEnabled({ VITE_DARK_MODE_PREVIEW: 'true' }), false)
 })
 
 test('applyThemeToDocument writes data-theme, preference, color-scheme and the browser theme-color', () => {

@@ -5,7 +5,7 @@
 //
 // Preview locally with:  VITE_DARK_MODE_PREVIEW=1 npm run dev     (the Admin selector then appears)
 // Ship it by flipping DARK_MODE_ENABLED to true in the final 8B step.
-export const DARK_MODE_ENABLED = false
+export const DARK_MODE_ENABLED = true
 
 // Single rule shared by the app (import.meta.env) and vite.config.js (loadEnv result).
 export function isDarkModeEnabled(env) {
