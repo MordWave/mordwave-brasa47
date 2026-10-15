@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { after, before, test } from 'node:test'
 import { loadModule } from '../theme/testSupport.js'
-import { ACTIVE_BUSINESS_STORAGE_KEY, isBusinessSelectableRole, normalizeBusinessId, readActiveBusiness, resolveActiveBusiness, writeActiveBusiness } from './tenantCore.js'
+import { ACTIVE_BUSINESS_STORAGE_KEY, isBusinessSelectableRole, normalizeBusinessId, normalizeSelection, readActiveBusiness, resolveActiveBusiness, selectionFor, writeActiveBusiness } from './tenantCore.js'
 import { NoActiveBusinessError, appendQuery, scopeBody, scopePath } from './tenantRequest.js'
 import { createTenantStore } from './tenantStore.js'
 
@@ -15,6 +15,8 @@ const tenantSources = readdirSync(new URL('.', import.meta.url))
 const OWN = '11111111-1111-4111-8111-111111111111' // an ADMIN's business
 const OTHER = '22222222-2222-4222-8222-222222222222'
 const CHOSEN = '33333333-3333-4333-8333-333333333333'
+const SUPER_ID = 'u2' // the SUPER_ADMIN used by the provider tests below
+const SEL = { userId: SUPER_ID, businessId: CHOSEN } // a selection is bound to the user who made it
 
 function stubStorage(initial = {}) {
   const data = { ...initial }
@@ -67,24 +69,32 @@ test('invalid business ids are discarded', () => {
 
 // ---- persistence (sessionStorage, SUPER_ADMIN only) -----------------------------------------------------------------
 test('an invalid value found in sessionStorage is dropped and cleaned up', () => {
-  for (const bad of ['nope', '', '{"id":"x"}', '../../x']) {
+  for (const bad of ['nope', '', '{"id":"x"}', '../../x', CHOSEN /* the old plain-id format */, JSON.stringify({ userId: 'u2', businessId: 'nope' }), JSON.stringify({ userId: '', businessId: CHOSEN }), JSON.stringify({ businessId: CHOSEN }), 'null']) {
     const storage = stubStorage({ [ACTIVE_BUSINESS_STORAGE_KEY]: bad })
     assert.equal(readActiveBusiness(storage), null, bad)
-    assert.ok(!(ACTIVE_BUSINESS_STORAGE_KEY in storage.data))
+    assert.ok(!(ACTIVE_BUSINESS_STORAGE_KEY in storage.data), `${bad} removed`)
   }
   assert.equal(readActiveBusiness(null), null)
   assert.equal(readActiveBusiness({ getItem() { throw new Error('blocked') } }), null)
-  assert.equal(writeActiveBusiness({ setItem() { throw new Error('blocked') } }, CHOSEN), false)
+  assert.equal(writeActiveBusiness({ setItem() { throw new Error('blocked') } }, SEL), false)
+})
+
+test('a selection is bound to the identity that made it: it only applies to that same user', () => {
+  assert.deepEqual(normalizeSelection({ userId: ' u2 ', businessId: CHOSEN.toUpperCase() }), SEL)
+  assert.equal(selectionFor(SEL, SUPER_ID), CHOSEN)
+  for (const other of ['u3', '', null, undefined, 2]) assert.equal(selectionFor(SEL, other), null, String(other))
+  assert.equal(selectionFor(null, SUPER_ID), null)
+  assert.equal(selectionFor({ userId: SUPER_ID, businessId: 'nope' }, SUPER_ID), null)
 })
 
 test('the selection persists only for this tab/session: survives a refresh, a new tab starts empty', () => {
   const tab = stubStorage()
   const a = createTenantStore({ storage: tab })
-  assert.equal(a.getState().selectedBusinessId, null)
-  assert.equal(a.select(CHOSEN), true)
-  assert.equal(tab.data[ACTIVE_BUSINESS_STORAGE_KEY], CHOSEN)
-  assert.equal(createTenantStore({ storage: tab }).getState().selectedBusinessId, CHOSEN, 'same tab, new page load')
-  assert.equal(createTenantStore({ storage: stubStorage() }).getState().selectedBusinessId, null, 'sessionStorage is per tab')
+  assert.equal(a.getState().selection, null)
+  assert.equal(a.select(SEL), true)
+  assert.equal(tab.data[ACTIVE_BUSINESS_STORAGE_KEY], JSON.stringify(SEL))
+  assert.deepEqual(createTenantStore({ storage: tab }).getState().selection, SEL, 'same tab, new page load')
+  assert.equal(createTenantStore({ storage: stubStorage() }).getState().selection, null, 'sessionStorage is per tab')
 })
 
 test('clearing (what logout does) drops the selection and notifies subscribers; invalid selects are refused', () => {
@@ -92,12 +102,11 @@ test('clearing (what logout does) drops the selection and notifies subscribers; 
   const store = createTenantStore({ storage })
   let notified = 0
   const off = store.subscribe(() => (notified += 1))
-  assert.equal(store.select('not-a-uuid'), false)
-  assert.equal(store.select(undefined), false)
-  assert.deepEqual(storage.calls.filter(([op]) => op !== 'get'), [], 'an invalid id writes nothing')
-  store.select(CHOSEN)
+  for (const bad of ['not-a-uuid', undefined, null, CHOSEN, { userId: SUPER_ID, businessId: 'nope' }, { userId: '', businessId: CHOSEN }]) assert.equal(store.select(bad), false, JSON.stringify(bad))
+  assert.deepEqual(storage.calls.filter(([op]) => op !== 'get'), [], 'an invalid selection writes nothing')
+  store.select(SEL)
   store.clear()
-  assert.equal(store.getState().selectedBusinessId, null)
+  assert.equal(store.getState().selection, null)
   assert.ok(!(ACTIVE_BUSINESS_STORAGE_KEY in storage.data))
   assert.equal(notified, 2)
   store.clear()
@@ -107,9 +116,11 @@ test('clearing (what logout does) drops the selection and notifies subscribers; 
 
 test('the provider clears the selection whenever the user is not authenticated (logout / expired session)', () => {
   const provider = code(read('./BusinessContextProvider.jsx'))
-  assert.match(provider, /if \(!isAuthenticated\) store\.clear\(\)/)
-  assert.match(provider, /\[isAuthenticated, store\]/)
+  assert.match(provider, /if \(!isAuthenticated\) \{\s*store\.clear\(\)/)
+  assert.match(provider, /\[isAuthenticated, selection, selectedBusinessId, store\]/)
   assert.match(provider, /window\.sessionStorage/)
+  // and a selection made by another identity is dropped, never reused
+  assert.match(provider, /selection !== null && selectedBusinessId === null/)
 })
 
 // ---- request helpers ------------------------------------------------------------------------------------------------------
@@ -171,7 +182,7 @@ before(async () => {
       captured = tenant
       let scoped = null
       try { scoped = tenant.scopePath('/tables/admin') } catch (e) { scoped = e.name }
-      return <pre id="probe">{JSON.stringify({ businessId: tenant.businessId, requires: tenant.requiresBusinessSelection, selectable: tenant.isBusinessSelectable, scoped, view: { real: view.realRole, as: view.viewAsRole, effective: view.effectiveViewRole } })}</pre>
+      return <pre id="probe">{JSON.stringify({ businessId: tenant.businessId, requires: tenant.requiresBusinessSelection, selectable: tenant.isBusinessSelectable, ready: tenant.isBusinessReady, scoped, view: { real: view.realRole, as: view.viewAsRole, effective: view.effectiveViewRole } })}</pre>
     }
     export const renderAll = () =>
       renderToStaticMarkup(
@@ -191,11 +202,12 @@ after(() => {
   globalThis.window = saved.window
 })
 
+// `selection`: an object (stored as JSON, as the app does) or a raw string (to test tampered values)
 function renderWith({ user, selection, viewAs, session = true }) {
   const authSession = session ? { accessToken: 'real-token', user } : null
   globalThis.localStorage = stubStorage(authSession ? { brasa47_admin_session: JSON.stringify(authSession) } : {})
   const sessionStorage = stubStorage({
-    ...(selection ? { [ACTIVE_BUSINESS_STORAGE_KEY]: selection } : {}),
+    ...(selection ? { [ACTIVE_BUSINESS_STORAGE_KEY]: typeof selection === 'string' ? selection : JSON.stringify(selection) } : {}),
     ...(viewAs ? { 'brasa47-dev-view-as': viewAs } : {}),
   })
   globalThis.window = { sessionStorage }
@@ -204,18 +216,20 @@ function renderWith({ user, selection, viewAs, session = true }) {
   return { ...probe, sessionStorage, actions: mod.actions() }
 }
 const ADMIN_USER = { id: 'u1', email: 'a@b.test', role: 'ADMIN', businessId: OWN }
-const SUPER_USER = { id: 'u2', email: 'root@b.test', role: 'SUPER_ADMIN', businessId: null }
+const SUPER_USER = { id: SUPER_ID, email: 'root@b.test', role: 'SUPER_ADMIN', businessId: null }
 
 test('provider, ADMIN: own business, unchanged paths, a forged selection is ignored and setActiveBusiness is a no-op', () => {
-  const r = renderWith({ user: ADMIN_USER, selection: CHOSEN })
+  const forged = { userId: ADMIN_USER.id, businessId: CHOSEN } // even one 'made by' the ADMIN
+  const r = renderWith({ user: ADMIN_USER, selection: forged })
   assert.equal(r.businessId, OWN)
   assert.equal(r.requires, false)
   assert.equal(r.selectable, false)
+  assert.equal(r.ready, true, 'an ADMIN business is always ready: no extra step, no extra request')
   assert.equal(r.scoped, '/tables/admin', 'no businessId param is ever added for an ADMIN')
   assert.equal(r.actions.setActiveBusiness(OTHER), false)
   assert.equal(r.actions.scopeBody({ name: 'x', businessId: OTHER }).businessId, OWN, 'a create always carries the ADMIN own business')
   assert.deepEqual(r.sessionStorage.calls.filter(([op]) => op === 'set'), [], 'an ADMIN never persists anything')
-  assert.equal(r.sessionStorage.data[ACTIVE_BUSINESS_STORAGE_KEY], CHOSEN, 'and the provider does not even rewrite the stale value')
+  assert.equal(r.sessionStorage.data[ACTIVE_BUSINESS_STORAGE_KEY], JSON.stringify(forged), 'and the provider does not even rewrite the stale value')
 })
 
 test('provider, SUPER_ADMIN without selection: no business, selection required, nothing scoped is built', () => {
@@ -223,14 +237,16 @@ test('provider, SUPER_ADMIN without selection: no business, selection required, 
   assert.equal(r.businessId, null)
   assert.equal(r.requires, true)
   assert.equal(r.selectable, true)
+  assert.equal(r.ready, false)
   assert.equal(r.scoped, 'NoActiveBusinessError')
   assert.throws(() => r.actions.scopeBody({ name: 'x' }), { name: 'NoActiveBusinessError' }) // (the bundled copy is a different class object)
 })
 
-test('provider, SUPER_ADMIN with a stored selection: that business, reads scoped to it', () => {
-  const r = renderWith({ user: SUPER_USER, selection: CHOSEN })
+test('provider, SUPER_ADMIN with a stored selection: that business, reads scoped to it, but NOT ready until verified', () => {
+  const r = renderWith({ user: SUPER_USER, selection: SEL })
   assert.equal(r.businessId, CHOSEN)
   assert.equal(r.requires, false)
+  assert.equal(r.ready, false, 'a restored selection must be verified (exists + active) before any panel loads data')
   assert.equal(r.scoped, `/tables/admin?businessId=${CHOSEN}`)
   assert.equal(r.actions.scopeBody({ name: 'x' }).businessId, CHOSEN)
 })
@@ -247,9 +263,30 @@ test('provider, SUPER_ADMIN can choose a valid business (and only a valid one) a
   assert.equal(r.actions.setActiveBusiness('nope'), false)
   assert.ok(!(ACTIVE_BUSINESS_STORAGE_KEY in r.sessionStorage.data))
   assert.equal(r.actions.setActiveBusiness(CHOSEN), true)
-  assert.equal(r.sessionStorage.data[ACTIVE_BUSINESS_STORAGE_KEY], CHOSEN)
+  assert.equal(r.sessionStorage.data[ACTIVE_BUSINESS_STORAGE_KEY], JSON.stringify(SEL), 'stored together with the identity that made it')
   r.actions.clearActiveBusiness()
   assert.ok(!(ACTIVE_BUSINESS_STORAGE_KEY in r.sessionStorage.data))
+})
+
+test('provider, SUPER_ADMIN: a selection made by ANOTHER identity is never reused', () => {
+  const r = renderWith({ user: SUPER_USER, selection: { userId: 'someone-else', businessId: CHOSEN } })
+  assert.equal(r.businessId, null)
+  assert.equal(r.requires, true)
+  assert.equal(r.ready, false)
+  assert.equal(r.scoped, 'NoActiveBusinessError')
+})
+
+test('confirmActiveBusiness only validates the CURRENT selection of a SUPER_ADMIN: another id, an ADMIN or no user change nothing', () => {
+  const provider = code(read('./BusinessContextProvider.jsx'))
+  assert.match(provider, /if \(isBusinessSelectable && userId && id === businessId\) setValidated\(\{ userId, businessId: id \}\)/)
+  // ready = verified for THIS user and THIS business; an ADMIN's own business is always ready
+  assert.match(provider, /validated\?\.userId === userId && validated\?\.businessId === businessId/)
+  assert.match(provider, /: businessId !== null\n/)
+  const admin = renderWith({ user: ADMIN_USER })
+  admin.actions.confirmActiveBusiness(OWN) // a no-op for an ADMIN
+  assert.equal(admin.ready, true)
+  const sa = renderWith({ user: SUPER_USER, selection: SEL })
+  assert.equal(sa.ready, false, 'a restored selection is not ready until the gate verifies it')
 })
 
 test('logged out: no role, no business, nothing required', () => {
@@ -276,9 +313,9 @@ test('"Ver como" never alters the active business: the REAL role decides, whatev
   assert.equal(asSuper.requires, true)
   assert.equal(asSuper.selectable, true)
   // with and without a preview the resolved tenant is identical
-  const plain = renderWith({ user: SUPER_USER, selection: CHOSEN })
-  const previewed = renderWith({ user: SUPER_USER, selection: CHOSEN, viewAs: 'ADMIN' })
-  for (const key of ['businessId', 'requires', 'selectable', 'scoped']) assert.equal(previewed[key], plain[key], key)
+  const plain = renderWith({ user: SUPER_USER, selection: SEL })
+  const previewed = renderWith({ user: SUPER_USER, selection: SEL, viewAs: 'ADMIN' })
+  for (const key of ['businessId', 'requires', 'selectable', 'ready', 'scoped']) assert.equal(previewed[key], plain[key], key)
 })
 
 test('no tenant code or API reads the preview role (viewAsRole / effectiveViewRole / useViewAs / devtools)', () => {
@@ -334,11 +371,11 @@ test('the Admin no longer reads user.businessId; only the allowed reads go throu
   assert.doesNotMatch(code(read('../pages/admin/AdminMenu.jsx') + read('../pages/admin/AdminTables.jsx')), /businessId/, 'no hand-built businessId left in the forms flow')
 })
 
-test('AdminPanel: a SUPER_ADMIN without a business sees a notice and no panel requests; panels are keyed by business', () => {
+test('AdminPanel: only a SUPER_ADMIN goes through the selector gate; an ADMIN renders the panels directly; panels are keyed by business', () => {
   const panel = code(read('../pages/admin/AdminPanel.jsx'))
-  assert.match(panel, /requiresBusinessSelection \?/)
-  assert.match(panel, /Selecciona un negocio/)
-  assert.match(panel, /isAuthenticated && !requiresBusinessSelection/)
+  assert.match(panel, /isBusinessSelectable \? <BusinessGate onBusiness=\{setBusiness\}>\{panels\}<\/BusinessGate> : panels/)
+  // an ADMIN keeps loading the business for the header exactly as before; for a SUPER_ADMIN the gate verifies + loads it
+  assert.match(panel, /isAuthenticated && !isBusinessSelectable/)
   for (const name of ['AdminApp', 'AdminMenu', 'AdminTables', 'AdminBusiness']) assert.match(panel, new RegExp(`<${name} key=\\{businessId\\}`), name)
   const app = code(read('../App.jsx'))
   assert.match(app, /<BusinessContextProvider>\s*<DevToolsProvider/)

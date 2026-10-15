@@ -5,6 +5,7 @@ import { ConfirmProvider } from '../../context/ConfirmContext'
 import { ToastProvider } from '../../context/ToastContext'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { apiFetch } from '../../services/api'
+import BusinessGate from '../../tenant/selector/BusinessGate'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import AdminApp from '../AdminApp'
 import AdminBusiness from './AdminBusiness'
@@ -36,11 +37,12 @@ const FALLBACK_BUSINESS_NAME = 'MordWave'
 
 export default function AdminPanel() {
   const { isAuthenticated, checking, user, token, logout } = useAuth()
-  const { businessId, requiresBusinessSelection, scopePath } = useActiveBusiness()
+  const { businessId, isBusinessSelectable, scopePath } = useActiveBusiness()
   const [tab, setTab] = useState('pedidos')
   const [business, setBusiness] = useState(null)
 
-  // Cosmetic only — used for the header eyebrow and print templates.
+  // Cosmetic only — used for the header eyebrow and print templates. (For a SUPER_ADMIN the selector gate loads and
+  // verifies the chosen business itself and hands it over through onBusiness.)
   // AdminBusiness.jsx keeps its own independent GET/PATCH for actually
   // editing this data; this is just a read for display elsewhere in the
   // panel, refreshed via onBusinessSaved once the admin changes something.
@@ -55,8 +57,8 @@ export default function AdminPanel() {
   }, [token, scopePath])
 
   useEffect(() => {
-    if (isAuthenticated && !requiresBusinessSelection) loadBusiness()
-  }, [isAuthenticated, requiresBusinessSelection, loadBusiness])
+    if (isAuthenticated && !isBusinessSelectable) loadBusiness()
+  }, [isAuthenticated, isBusinessSelectable, loadBusiness])
 
   // A different active business (only a SUPER_ADMIN can change it) must never show the previous one's name.
   useEffect(() => {
@@ -78,6 +80,30 @@ export default function AdminPanel() {
   if (!isAuthenticated) {
     return <AdminLogin />
   }
+
+  // The Admin itself: tabs and panels. Keyed by the active business: switching it remounts them, so nothing from the
+  // previous business (lists, pollers, form state, in-flight answers) survives. For an ADMIN the key never changes.
+  const panels = (
+    <>
+      <nav className="admin-panel__tabs">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`admin-panel__tab${tab === t.key ? ' admin-panel__tab--active' : ''}`}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'pedidos' && <AdminApp key={businessId} businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
+      {tab === 'menu' && <AdminMenu key={businessId} />}
+      {tab === 'mesas' && <AdminTables key={businessId} businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
+      {tab === 'negocio' && <AdminBusiness key={businessId} onBusinessSaved={setBusiness} />}
+    </>
+  )
 
   return (
     <ToastProvider>
@@ -107,36 +133,9 @@ export default function AdminPanel() {
             </div>
           </header>
 
-          {requiresBusinessSelection ? (
-            // SUPER_ADMIN with no business chosen: nothing is requested, so no unscoped (cross-tenant) list is ever
-            // shown. The business selector itself is a later step.
-            <section className="admin-panel__no-business" role="status">
-              <h2>Selecciona un negocio</h2>
-              <p>Tu cuenta no está asociada a un negocio. Elige uno para ver y gestionar sus pedidos, menú y mesas.</p>
-            </section>
-          ) : (
-            <>
-              <nav className="admin-panel__tabs">
-                {TABS.map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    className={`admin-panel__tab${tab === t.key ? ' admin-panel__tab--active' : ''}`}
-                    onClick={() => setTab(t.key)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </nav>
-
-              {/* keyed by the active business: switching it remounts the panels, so nothing from the previous
-                  business (lists, pollers, form state) survives. For an ADMIN the key never changes. */}
-              {tab === 'pedidos' && <AdminApp key={businessId} businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
-              {tab === 'menu' && <AdminMenu key={businessId} />}
-              {tab === 'mesas' && <AdminTables key={businessId} businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
-              {tab === 'negocio' && <AdminBusiness key={businessId} onBusinessSaved={setBusiness} />}
-            </>
-          )}
+          {/* An ADMIN renders the panels directly (no gate, no GET /businesses). A real SUPER_ADMIN goes through the
+              selector gate: picker -> verified business -> these same panels, keyed by business. */}
+          {isBusinessSelectable ? <BusinessGate onBusiness={setBusiness}>{panels}</BusinessGate> : panels}
         </div>
       </ConfirmProvider>
     </ToastProvider>

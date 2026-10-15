@@ -1,15 +1,17 @@
-import { normalizeBusinessId, readActiveBusiness, writeActiveBusiness } from './tenantCore.js'
+import { normalizeSelection, readActiveBusiness, writeActiveBusiness } from './tenantCore.js'
 
 // External store for a SUPER_ADMIN's chosen business (consumed with useSyncExternalStore, like theme/devtools).
 // It knows nothing about roles or authentication: BusinessContextProvider decides who may call select(), and feeds it
-// logout events. State is just the (validated) id.
+// logout / identity-change events. State is the (validated) selection { userId, businessId }, bound to the user that
+// made it.
 export function createTenantStore({ storage }) {
-  let state = { selectedBusinessId: readActiveBusiness(storage) }
+  let state = { selection: readActiveBusiness(storage) }
   const listeners = new Set()
 
-  const publish = (selectedBusinessId) => {
-    if (selectedBusinessId === state.selectedBusinessId) return
-    state = { selectedBusinessId }
+  const publish = (selection) => {
+    const same = selection?.userId === state.selection?.userId && selection?.businessId === state.selection?.businessId
+    if (same) return
+    state = { selection }
     listeners.forEach((fn) => fn())
   }
 
@@ -19,12 +21,12 @@ export function createTenantStore({ storage }) {
       listeners.add(fn)
       return () => listeners.delete(fn)
     },
-    // returns true when a valid id was stored; anything that is not a UUID is discarded
-    select(businessId) {
-      const id = normalizeBusinessId(businessId)
-      if (id === null) return false
-      writeActiveBusiness(storage, id)
-      publish(id)
+    // returns true when a valid { userId, businessId } was stored; anything else is discarded
+    select(selection) {
+      const clean = normalizeSelection(selection)
+      if (clean === null) return false
+      writeActiveBusiness(storage, clean)
+      publish(clean)
       return true
     },
     clear() {
