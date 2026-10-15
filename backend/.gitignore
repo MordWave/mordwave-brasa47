@@ -6,3 +6,6 @@ dist
 !.env.example
 coverage
 *.log
+
+# Benchmark outputs (fixtures contain benchmark-only tokens/passwords)
+benchmark/.out/
