@@ -3445,3 +3445,27 @@ p {
 .admin-menu__crop-zoom input[type='range'] {
   flex: 1;
 }
+
+/* SUPER_ADMIN with no business selected yet (see AdminPanel): an informational state, no request is made. */
+.admin-panel__no-business {
+  margin: 32px auto;
+  max-width: 520px;
+  padding: 28px 24px;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.admin-panel__no-business h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+.admin-panel__no-business p {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}

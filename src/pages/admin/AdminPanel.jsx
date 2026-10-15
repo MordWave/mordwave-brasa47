@@ -5,6 +5,7 @@ import { ConfirmProvider } from '../../context/ConfirmContext'
 import { ToastProvider } from '../../context/ToastContext'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { apiFetch } from '../../services/api'
+import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import AdminApp from '../AdminApp'
 import AdminBusiness from './AdminBusiness'
 import AdminLogin from './AdminLogin'
@@ -35,6 +36,7 @@ const FALLBACK_BUSINESS_NAME = 'MordWave'
 
 export default function AdminPanel() {
   const { isAuthenticated, checking, user, token, logout } = useAuth()
+  const { businessId, requiresBusinessSelection, scopePath } = useActiveBusiness()
   const [tab, setTab] = useState('pedidos')
   const [business, setBusiness] = useState(null)
 
@@ -44,17 +46,22 @@ export default function AdminPanel() {
   // panel, refreshed via onBusinessSaved once the admin changes something.
   const loadBusiness = useCallback(async () => {
     try {
-      const data = await apiFetch('/businesses/me', { token })
+      const data = await apiFetch(scopePath('/businesses/me'), { token })
       setBusiness(data)
     } catch {
       // Branding is cosmetic — a failed fetch just keeps the neutral
       // fallback, never blocks the rest of the panel.
     }
-  }, [token])
+  }, [token, scopePath])
 
   useEffect(() => {
-    if (isAuthenticated) loadBusiness()
-  }, [isAuthenticated, loadBusiness])
+    if (isAuthenticated && !requiresBusinessSelection) loadBusiness()
+  }, [isAuthenticated, requiresBusinessSelection, loadBusiness])
+
+  // A different active business (only a SUPER_ADMIN can change it) must never show the previous one's name.
+  useEffect(() => {
+    setBusiness(null)
+  }, [businessId])
 
   // Without this, a logout followed by a different admin (different
   // business) logging in on the same tab would briefly show the PREVIOUS
@@ -100,23 +107,36 @@ export default function AdminPanel() {
             </div>
           </header>
 
-          <nav className="admin-panel__tabs">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                className={`admin-panel__tab${tab === t.key ? ' admin-panel__tab--active' : ''}`}
-                onClick={() => setTab(t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
+          {requiresBusinessSelection ? (
+            // SUPER_ADMIN with no business chosen: nothing is requested, so no unscoped (cross-tenant) list is ever
+            // shown. The business selector itself is a later step.
+            <section className="admin-panel__no-business" role="status">
+              <h2>Selecciona un negocio</h2>
+              <p>Tu cuenta no está asociada a un negocio. Elige uno para ver y gestionar sus pedidos, menú y mesas.</p>
+            </section>
+          ) : (
+            <>
+              <nav className="admin-panel__tabs">
+                {TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className={`admin-panel__tab${tab === t.key ? ' admin-panel__tab--active' : ''}`}
+                    onClick={() => setTab(t.key)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </nav>
 
-          {tab === 'pedidos' && <AdminApp businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
-          {tab === 'menu' && <AdminMenu />}
-          {tab === 'mesas' && <AdminTables businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
-          {tab === 'negocio' && <AdminBusiness onBusinessSaved={setBusiness} />}
+              {/* keyed by the active business: switching it remounts the panels, so nothing from the previous
+                  business (lists, pollers, form state) survives. For an ADMIN the key never changes. */}
+              {tab === 'pedidos' && <AdminApp key={businessId} businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
+              {tab === 'menu' && <AdminMenu key={businessId} />}
+              {tab === 'mesas' && <AdminTables key={businessId} businessName={business?.name || FALLBACK_BUSINESS_NAME} />}
+              {tab === 'negocio' && <AdminBusiness key={businessId} onBusinessSaved={setBusiness} />}
+            </>
+          )}
         </div>
       </ConfirmProvider>
     </ToastProvider>

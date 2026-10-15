@@ -265,11 +265,12 @@ test('today no UI reads the preview role: the toolbar is infrastructure, differe
     .filter((u) => /effectiveViewRole|useViewAs/.test(readFileSync(u, 'utf8')))
   assert.deepEqual(consumers, [], 'first real consumer: list it in devtools/roleDifferences.js')
   assert.deepEqual(read('./roleDifferences.js').match(/ROLE_VISUAL_DIFFERENCES = \[\]/) !== null, true)
-  // and no component in the app reads user.role yet
+  // and the ONLY place that branches on the real role is the centralised tenant module (src/tenant), never a component
   const rolereaders = walk(new URL('../', import.meta.url))
     .filter((u) => /\.(js|jsx)$/.test(u.pathname) && !u.pathname.endsWith('.test.js') && !u.pathname.includes('/src/devtools/'))
-    .filter((u) => /user\??\.role|\.role ===|SUPER_ADMIN/.test(readFileSync(u, 'utf8')))
-  assert.deepEqual(rolereaders, [])
+    .filter((u) => /user\??\.role|\.role ===|SUPER_ADMIN/.test(code(readFileSync(u, 'utf8'))))
+    .map((u) => u.pathname.split('/src/')[1])
+  assert.deepEqual(rolereaders.every((f) => f.startsWith('tenant/')), true, rolereaders.join())
 })
 
 // ---- light / dark -----------------------------------------------------------------------------------------------------

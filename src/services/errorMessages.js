@@ -82,6 +82,8 @@ const MESSAGES_BY_STATUS = {
 // non-technical admin can act on. The raw message stays on the ApiError
 // itself (error.message) for console/debug purposes only.
 export function translateApiError(error) {
+  // thrown by the tenant helpers (tenant/tenantRequest.js) instead of sending an unscoped request
+  if (error?.name === 'NoActiveBusinessError') return error.message
   if (!(error instanceof ApiError)) {
     return 'Ocurrió un error inesperado. Intenta nuevamente.'
   }

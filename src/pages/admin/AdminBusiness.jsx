@@ -5,6 +5,7 @@ import { apiFetch } from '../../services/api'
 import DevAutofill from '../../devtools/autofill/DevAutofill'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
+import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import PhotoCropModal from '../../components/admin/menu/PhotoCropModal'
 
 const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
@@ -51,6 +52,7 @@ function validate({ name, address, phone, hours, primaryColor, accentColor }) {
 
 export default function AdminBusiness({ onBusinessSaved }) {
   const { token } = useAuth()
+  const { scopePath } = useActiveBusiness()
   const toast = useToast()
   const [business, setBusiness] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -82,7 +84,7 @@ export default function AdminBusiness({ onBusinessSaved }) {
     setLoading(true)
     setLoadError('')
     try {
-      const data = await apiFetch('/businesses/me', { token })
+      const data = await apiFetch(scopePath('/businesses/me'), { token })
       setBusiness(data)
       setName(data.name ?? '')
       setAddress(data.address ?? '')
@@ -96,7 +98,7 @@ export default function AdminBusiness({ onBusinessSaved }) {
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [token, scopePath])
 
   useEffect(() => {
     loadBusiness()
@@ -154,7 +156,7 @@ export default function AdminBusiness({ onBusinessSaved }) {
 
     setSaving(true)
     try {
-      const updated = await apiFetch('/businesses/me', {
+      const updated = await apiFetch(scopePath('/businesses/me'), {
         method: 'PATCH',
         token,
         body: JSON.stringify(payload),
@@ -216,7 +218,7 @@ export default function AdminBusiness({ onBusinessSaved }) {
     try {
       const formData = new FormData()
       formData.append('file', croppedFile)
-      const updated = await apiFetch('/businesses/me/logo', {
+      const updated = await apiFetch(scopePath('/businesses/me/logo'), {
         method: 'POST',
         token,
         body: formData,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import { apiFetch } from '../../services/api'
 import { translateApiError } from '../../services/errorMessages'
 import OrderCard from './OrderCard'
@@ -29,6 +30,7 @@ function localDayAfterIso(dateStr) {
 // timer (see AdminApp: only the live board polls). Fetches once per
 // filter/page change, nothing more.
 export default function OrderHistoryModal({ token, onClose, onPrint }) {
+  const { scopePath } = useActiveBusiness()
   const [status, setStatus] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -54,7 +56,7 @@ export default function OrderHistoryModal({ token, onClose, onPrint }) {
     if (to) params.set('to', localDayAfterIso(to))
     if (table.trim()) params.set('table', table.trim())
 
-    apiFetch(`/orders/admin/history?${params.toString()}`, { token })
+    apiFetch(scopePath(`/orders/admin/history?${params.toString()}`), { token })
       .then((result) => {
         if (cancelled) return
         setItems(result.items)
@@ -70,7 +72,7 @@ export default function OrderHistoryModal({ token, onClose, onPrint }) {
     return () => {
       cancelled = true
     }
-  }, [token, status, from, to, table, page])
+  }, [token, scopePath, status, from, to, table, page])
 
   function updateFilter(setter) {
     return (value) => {
