@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useDialogA11y } from '../../hooks/useDialogA11y'
 import { formatPrice, formatAddOn } from '../../utils/format'
 import { brandingStyleVars } from '../../theme/brandStyle.js'
+import { useTheme } from '../../theme/useTheme.js'
 
 // Portaled straight to document.body (same pattern as the Admin
 // ConfirmDialog) so it always renders on top of the menu regardless of
@@ -22,7 +23,8 @@ export default function OrderSuccessModal({ order, primaryColor, accentColor, on
     initialFocusRef: ctaRef,
   })
 
-  const brandingStyle = brandingStyleVars({ primaryColor, accentColor })
+  const { resolvedTheme } = useTheme()
+  const brandingStyle = brandingStyleVars({ primaryColor, accentColor }, resolvedTheme)
 
   return createPortal(
     <div className="order-success-backdrop" style={brandingStyle} onClick={onClose}>

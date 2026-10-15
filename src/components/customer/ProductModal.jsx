@@ -94,6 +94,7 @@ export default function ProductModal({ product, onClose, onAdded }) {
                     key={name}
                     type="button"
                     className={`chip${removed.includes(name) ? ' chip--active-remove' : ''}`}
+                    aria-pressed={removed.includes(name)}
                     onClick={() => toggle(removed, setRemoved, name)}
                   >
                     {removed.includes(name) ? `Sin ${name}` : name}
@@ -112,6 +113,7 @@ export default function ProductModal({ product, onClose, onAdded }) {
                     key={opt.name}
                     type="button"
                     className={`chip${added.includes(opt.name) ? ' chip--active-add' : ''}`}
+                    aria-pressed={added.includes(opt.name)}
                     onClick={() => toggle(added, setAdded, opt.name)}
                   >
                     {opt.name} · +{formatPrice(opt.price)}

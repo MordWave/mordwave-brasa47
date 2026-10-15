@@ -14,25 +14,29 @@
 :root {
   /* ---- brand layer (defaults) ---- */
   --primary: #D94A2B;
-  /* LEGACY: static fallback for hover states that still use it in the customer menu (8B.3 moves them to a colour
-     derived from the current brand). The Admin does not use it any more: errors/destructive actions use --danger. */
-  --primary-dark: #B93B20;
   --accent: #E9B44C;
   --on-primary: #FFFFFF;
   --on-accent: #171714;
-  /* brand colour used AS TEXT/ICON on a surface (links, active labels). Equal to --primary until 8B.3 derives a
-     contrast-safe variant per surface. */
+  /* soft brand tint (active chips, Admin highlights) */
   --primary-tint: #FBEAE4;
   --primary-tint-strong: rgba(217, 74, 43, 0.14);
 
   /* AA-safe derived variants of the brand colour (see theme/color.js: deriveControlColors / ensureContrastOnAll).
      --primary-control / --on-primary-control: background + text of an interactive control (primary button).
      --primary-text: the brand used AS TEXT on any light surface. Values below are the results for the demo brand;
-     for a restaurant's own brand brandingStyleVars() overrides --primary-control / --on-primary-control, and 8B.3
-     derives --primary-text. The stored brand value is never modified. */
+     for a restaurant's own brand brandingStyleVars() (theme/brandStyle.js) overrides them per theme on the customer
+     wrapper: --primary-control / --on-primary-control / --primary-text / --primary-ui / --primary-tint /
+     --accent-text / --focus-ring. The stored brand value is never modified. */
   --primary-control: #CE4629;
   --on-primary-control: #FFFFFF;
+  --primary-control-hover: #AF3C23;
+  /* outline of the cart-bar counter: none for the demo brand (its badge already stands out from the bar) */
+  --cart-badge-edge: transparent;
   --primary-text: #BE4126;
+  /* brand as a NON-text indicator (active underline, hover border): >= 3:1 on the surfaces. Demo brand: itself. */
+  --primary-ui: var(--primary);
+  /* accent used AS TEXT (e.g. quantities in the order summary): >= 4.5:1 on bg and surfaces */
+  --accent-text: #86682C;
 
   /* ---- structure layer: LIGHT (default) ---- */
   color-scheme: light;
@@ -43,10 +47,14 @@
   --text-muted: #6E6A60;
   --border: #DED8CC;
   --input-bg: #F5F1E8;
+  /* free-text fields of the customer menu: white as before in light, recessed like the Admin inputs in dark */
+  --field-bg: var(--surface);
   --hover: rgba(23, 23, 20, 0.04);
   --row-hover: rgba(245, 241, 232, 0.55);
   --overlay: rgba(23, 23, 20, 0.45);
   --focus-ring: var(--primary);
+  /* 1px top edge of bottom sheets / modals: invisible in light (shadow does the work), a hairline in dark */
+  --surface-edge: transparent;
   --placeholder: var(--text-muted);
   /* DIMMED states (cancelled / delivered orders, inactive tables, categories and products). Never faded with
      `opacity` on the container: that also fades the text (it measured 2.4:1 in light). The "inactive" feel comes
@@ -60,12 +68,16 @@
   /* inverted surface (dark chip on light UI, light chip on dark UI): toasts, selected segments */
   --inverse-surface: #171714;
   --inverse-text: #FFFFFF;
+  /* success tick on an inverse surface (toast): the OTHER theme's success colour, so it always reads on it */
+  --success-on-inverse: #6CC092;
 
   /* elevation: one shadow colour per theme, three recipes */
   --shadow-rgb: 23 23 20;
   --shadow-popover: 0 12px 28px rgb(var(--shadow-rgb) / 0.16);
   --shadow-modal: 0 20px 40px rgb(var(--shadow-rgb) / 0.18);
   --shadow-card: 0 20px 40px rgb(var(--shadow-rgb) / 0.1);
+  --shadow-tile: 0 8px 18px rgb(var(--shadow-rgb) / 0.1);
+  --shadow-float: 0 8px 24px rgb(var(--shadow-rgb) / 0.28);
 
   --danger: #B93B20;
   --danger-hover: #99311B;
@@ -96,16 +108,21 @@
   --text-muted: #B0AA9D;
   --border: #3A352E;
   --input-bg: #14120F;
+  --field-bg: var(--input-bg);
+  --surface-edge: var(--border);
   --hover: rgba(243, 239, 231, 0.07);
   --row-hover: rgba(243, 239, 231, 0.05);
   --overlay: rgba(0, 0, 0, 0.62);
   --focus-ring: var(--primary-text);
   --inverse-surface: #F3EFE7;
   --inverse-text: #171714;
+  --success-on-inverse: #377855;
   --shadow-rgb: 0 0 0;
   --shadow-popover: 0 12px 28px rgb(var(--shadow-rgb) / 0.5);
   --shadow-modal: 0 20px 40px rgb(var(--shadow-rgb) / 0.55);
   --shadow-card: 0 20px 40px rgb(var(--shadow-rgb) / 0.4);
+  --shadow-tile: 0 8px 18px rgb(var(--shadow-rgb) / 0.45);
+  --shadow-float: 0 8px 24px rgb(var(--shadow-rgb) / 0.6);
 
   --danger: #F0765A;
   --danger-hover: #F59178;
@@ -122,6 +139,7 @@
   --primary-tint: #3A221C;
   --primary-tint-strong: rgba(225, 110, 85, 0.24);
   --primary-text: #E16E55;
+  --accent-text: #E9B44C;
 }
 
 /* Paper and tickets are always light, whatever the screen theme: when printing from dark, restore the LIGHT
@@ -136,6 +154,8 @@
     --text-muted: #6E6A60;
     --border: #DED8CC;
     --input-bg: #F5F1E8;
+    --field-bg: var(--surface);
+    --surface-edge: transparent;
     --hover: rgba(23, 23, 20, 0.04);
     --row-hover: rgba(245, 241, 232, 0.55);
     --dimmed-surface: var(--bg);
@@ -145,10 +165,13 @@
     --focus-ring: var(--primary);
     --inverse-surface: #171714;
     --inverse-text: #FFFFFF;
+    --success-on-inverse: #6CC092;
     --shadow-rgb: 23 23 20;
     --shadow-popover: 0 12px 28px rgb(var(--shadow-rgb) / 0.16);
     --shadow-modal: 0 20px 40px rgb(var(--shadow-rgb) / 0.18);
     --shadow-card: 0 20px 40px rgb(var(--shadow-rgb) / 0.1);
+    --shadow-tile: 0 8px 18px rgb(var(--shadow-rgb) / 0.1);
+    --shadow-float: 0 8px 24px rgb(var(--shadow-rgb) / 0.28);
     --danger: #B93B20;
     --danger-hover: #99311B;
     --danger-tint: #FBEAE4;
@@ -164,26 +187,14 @@
     --primary-tint: #FBEAE4;
     --primary-tint-strong: rgba(217, 74, 43, 0.14);
     --primary-text: #BE4126;
+    --primary-ui: var(--primary);
+    --accent-text: #86682C;
   }
 }
 
-/* ---- Admin scope ----
-   <html data-app="admin"> is set by App.jsx. Admin controls use the AA-safe derived colours. Scoped on purpose: the
-   customer menu keeps its current rendering until 8B.3 (its buttons fall back to --primary + white). */
-:root[data-app="admin"] {
-  --control-bg: var(--primary-control);
-  --control-text: var(--on-primary-control);
-  --control-bg-hover: var(--primary-dark);
-}
-
-@supports (color: color-mix(in srgb, red 50%, blue)) {
-  :root[data-app="admin"] {
-    --control-bg-hover: color-mix(in srgb, var(--primary-control) 85%, #000);
-  }
-}
-
-/* ---- Placeholders (Admin) ---- */
-:root[data-app="admin"] ::placeholder {
+/* ---- Placeholders ----
+   Browsers fade placeholder text by default; ours must stay legible (>= 4.5:1) on the field background. */
+::placeholder {
   color: var(--placeholder);
   opacity: 1;
 }
