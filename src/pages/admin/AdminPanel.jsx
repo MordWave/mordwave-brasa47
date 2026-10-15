@@ -1,14 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import ThemeToggle from '../../components/ThemeToggle'
 import { useAuth } from '../../context/AuthContext'
 import { ConfirmProvider } from '../../context/ConfirmContext'
 import { ToastProvider } from '../../context/ToastContext'
+import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { apiFetch } from '../../services/api'
 import AdminApp from '../AdminApp'
 import AdminBusiness from './AdminBusiness'
 import AdminLogin from './AdminLogin'
 import AdminMenu from './AdminMenu'
 import AdminTables from './AdminTables'
+
+// Developer tools ("Ver como"): with VITE_DEV_TOOLS_ENABLED unset this is the constant `null`, the lazy imports are
+// dropped from the bundle and nothing at all is rendered.
+const ViewAsSelector = DEV_TOOLS_BUILD_ENABLED
+  ? lazy(() => import('../../devtools/DevToolsUi.jsx').then((m) => ({ default: m.ViewAsSelector })))
+  : null
+const ViewAsBanner = DEV_TOOLS_BUILD_ENABLED
+  ? lazy(() => import('../../devtools/DevToolsUi.jsx').then((m) => ({ default: m.ViewAsBanner })))
+  : null
 
 const TABS = [
   { key: 'pedidos', label: 'Pedidos' },
@@ -66,12 +76,22 @@ export default function AdminPanel() {
     <ToastProvider>
       <ConfirmProvider>
         <div className="admin-panel">
+          {ViewAsBanner && (
+            <Suspense fallback={null}>
+              <ViewAsBanner />
+            </Suspense>
+          )}
           <header className="admin-panel__header">
             <div>
               <p className="admin__eyebrow">{business?.name || FALLBACK_BUSINESS_NAME}</p>
               <h1 className="admin__title">Panel administrativo</h1>
             </div>
             <div className="admin-panel__user">
+              {ViewAsSelector && (
+                <Suspense fallback={null}>
+                  <ViewAsSelector />
+                </Suspense>
+              )}
               <ThemeToggle />
               <span className="admin-panel__user-email">{user.email}</span>
               <button type="button" className="btn btn--outline btn--small" onClick={handleLogout}>
