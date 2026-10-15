@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import ThemeToggle from '../../components/ThemeToggle'
 import { useAuth } from '../../context/AuthContext'
 import { ConfirmProvider } from '../../context/ConfirmContext'
 import { ToastProvider } from '../../context/ToastContext'
@@ -71,6 +72,7 @@ export default function AdminPanel() {
               <h1 className="admin__title">Panel administrativo</h1>
             </div>
             <div className="admin-panel__user">
+              <ThemeToggle />
               <span className="admin-panel__user-email">{user.email}</span>
               <button type="button" className="btn btn--outline btn--small" onClick={handleLogout}>
                 Cerrar sesión

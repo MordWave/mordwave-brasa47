@@ -1,15 +1,7 @@
-/* ============ Tokens ============ */
-:root {
-  --bg: #F5F1E8;
-  --surface: #FFFFFF;
-  --text: #171714;
-  --text-secondary: #6E6A60;
-  --primary: #D94A2B;
-  --primary-dark: #B93B20;
-  --accent: #E9B44C;
-  --success: #397A57;
-  --border: #DED8CC;
+/* ============ Tokens ============
+   Colour tokens (brand + structural light/dark) live in tokens.css. Only non-colour tokens stay here. */
 
+:root {
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
@@ -74,20 +66,31 @@ p {
 }
 
 .btn--primary {
-  background: var(--primary);
-  color: #fff;
+  background: var(--control-bg, var(--primary));
+  color: var(--control-text, #fff);
 }
 
 @media (hover: hover) {
   .btn--primary:hover:not(:disabled) {
-    background: var(--primary-dark);
+    background: var(--control-bg-hover, var(--primary-dark));
     box-shadow: 0 6px 16px rgba(217, 74, 43, 0.28);
   }
 }
 
+/* Hover colour derived from the CURRENT brand at the point of use (a custom property computed on :root would keep
+   the default red for a restaurant that overrides --primary lower in the tree). Static --primary-dark stays as
+   the fallback for engines without color-mix. */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  @media (hover: hover) {
+    .btn--primary:hover:not(:disabled) {
+      background: var(--control-bg-hover, color-mix(in srgb, var(--primary) 82%, #000));
+    }
+  }
+}
+
 .btn--primary:disabled {
-  background: var(--border);
-  color: var(--text-secondary);
+  background: var(--disabled-bg);
+  color: var(--disabled-text);
   cursor: not-allowed;
 }
 
@@ -1452,7 +1455,7 @@ p {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--primary);
+  color: var(--primary-text);
   text-transform: uppercase;
 }
 
@@ -1491,7 +1494,8 @@ p {
 }
 
 .admin-tables__card--inactive {
-  opacity: 0.6;
+  background: var(--dimmed-surface);
+  color: var(--dimmed-text);
 }
 
 .admin-tables__card-head {
@@ -1662,12 +1666,13 @@ p {
 
 .order-card--delivered {
   border-left-color: var(--border);
-  opacity: 0.7;
+  color: var(--dimmed-text);
 }
 
 .order-card--cancelled {
   border-left-color: var(--border);
-  opacity: 0.6;
+  background: var(--dimmed-surface);
+  color: var(--dimmed-text);
 }
 
 .order-card__header {
@@ -1739,9 +1744,9 @@ p {
   font-size: 12.5px;
   font-weight: 600;
   font-style: italic;
-  color: var(--primary-dark);
-  background: #FBEAE4;
-  border: 1px solid rgba(217, 74, 43, 0.25);
+  color: var(--danger);
+  background: var(--danger-tint);
+  border: 1px solid var(--danger-border);
   border-radius: var(--radius-sm);
   padding: 7px 10px;
   margin-top: 10px;
@@ -1797,7 +1802,7 @@ p {
 }
 
 .order-card__cancel:hover {
-  color: var(--primary-dark);
+  color: var(--danger);
 }
 
 /* ============ Cancelled orders (collapsible) ============ */
@@ -1856,7 +1861,7 @@ p {
   background: var(--surface);
   border-radius: var(--radius-lg);
   padding: 22px;
-  box-shadow: 0 20px 40px rgba(23, 23, 20, 0.18);
+  box-shadow: var(--shadow-modal);
 }
 
 .order-history__header {
@@ -1895,7 +1900,7 @@ p {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  background: var(--bg);
+  background: var(--input-bg);
   font-family: inherit;
 }
 
@@ -1938,7 +1943,7 @@ p {
 .confirm-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(23, 23, 20, 0.45);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1952,7 +1957,7 @@ p {
   background: var(--surface);
   border-radius: var(--radius-lg);
   padding: 22px;
-  box-shadow: 0 20px 40px rgba(23, 23, 20, 0.18);
+  box-shadow: var(--shadow-modal);
 }
 
 .confirm-dialog__text {
@@ -1985,14 +1990,14 @@ p {
 }
 
 .btn--danger {
-  background: var(--primary-dark);
-  color: #fff;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 
 @media (hover: hover) {
   .btn--danger:hover:not(:disabled) {
-    background: #99311b;
-    box-shadow: 0 6px 16px rgba(185, 59, 32, 0.28);
+    background: var(--danger-hover);
+    box-shadow: var(--shadow-danger);
   }
 }
 
@@ -2030,7 +2035,7 @@ p {
   border-radius: var(--radius-md);
   border-left: 4px solid var(--text-secondary);
   padding: 14px 14px 14px 12px;
-  box-shadow: 0 12px 28px rgba(23, 23, 20, 0.16);
+  box-shadow: var(--shadow-popover);
   pointer-events: auto;
   animation: admin-toast-in 0.18s ease;
 }
@@ -2040,11 +2045,11 @@ p {
 }
 
 .admin-toast--error {
-  border-left-color: var(--primary-dark);
+  border-left-color: var(--danger);
 }
 
 .admin-toast--warning {
-  border-left-color: var(--accent);
+  border-left-color: var(--warning);
 }
 
 .admin-toast--info {
@@ -2061,20 +2066,23 @@ p {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  color: #fff;
-  background: var(--text-secondary);
+  color: var(--surface);
+  background: var(--text-muted);
 }
 
 .admin-toast--success .admin-toast__icon {
   background: var(--success);
+  color: var(--on-success);
 }
 
 .admin-toast--error .admin-toast__icon {
-  background: var(--primary-dark);
+  background: var(--danger);
+  color: var(--on-danger);
 }
 
 .admin-toast--warning .admin-toast__icon {
-  background: var(--accent);
+  background: var(--warning);
+  color: var(--on-warning);
 }
 
 .admin-toast__message {
@@ -2304,7 +2312,7 @@ p {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 28px 24px;
-  box-shadow: 0 20px 40px rgba(23, 23, 20, 0.1);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2332,13 +2340,13 @@ p {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 11px 12px;
-  background: var(--bg);
+  background: var(--input-bg);
 }
 
 .admin-login__error {
   font-size: 13px;
   font-weight: 600;
-  color: var(--primary-dark);
+  color: var(--danger);
 }
 
 .admin-panel__loading {
@@ -2399,7 +2407,7 @@ p {
 }
 
 .admin-panel__tab--active {
-  color: var(--primary);
+  color: var(--primary-text);
   border-bottom-color: var(--primary);
 }
 
@@ -2413,7 +2421,7 @@ p {
 .admin-menu__error {
   font-size: 13px;
   font-weight: 600;
-  color: var(--primary-dark);
+  color: var(--danger);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2457,7 +2465,7 @@ p {
 }
 
 .admin-menu__collapsible-toggle:hover {
-  background: rgba(23, 23, 20, 0.04);
+  background: var(--hover);
 }
 
 .admin-menu__collapsible-toggle h2 {
@@ -2636,7 +2644,7 @@ p {
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
-  background: var(--bg);
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0 10px;
@@ -2659,7 +2667,7 @@ p {
 
 .product-filters input:focus-visible,
 .product-filters select:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -1px;
 }
 
@@ -2689,14 +2697,17 @@ p {
 
 @media (hover: hover) {
   .product-row:hover {
-    background: rgba(245, 241, 232, 0.55);
+    background: var(--row-hover);
   }
 }
 
-.product-row--inactive .product-row__thumb,
-.product-row--inactive .product-row__main,
-.product-row--inactive .product-row__price {
-  opacity: 0.6;
+.product-row--inactive {
+  background: var(--dimmed-surface);
+  color: var(--dimmed-text);
+}
+
+.product-row--inactive .product-row__thumb img {
+  opacity: var(--dim-media-opacity);
 }
 
 .product-row__thumb {
@@ -2800,12 +2811,12 @@ p {
 
 .status-badge--ok {
   color: var(--success);
-  background: #e7f2eb;
+  background: var(--success-tint);
 }
 
 .status-badge--off {
-  color: var(--primary-dark);
-  background: #fbeae4;
+  color: var(--danger);
+  background: var(--danger-tint);
 }
 
 @media (min-width: 720px) {
@@ -2882,7 +2893,7 @@ p {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 28px rgba(23, 23, 20, 0.16);
+  box-shadow: var(--shadow-popover);
 }
 
 .row-menu__list--up {
@@ -2914,17 +2925,17 @@ p {
 }
 
 .row-menu__item:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
 .row-menu__item--destructive {
-  color: var(--primary-dark);
+  color: var(--danger);
 }
 
 .row-menu__item--destructive:hover,
 .row-menu__item--destructive:focus-visible {
-  background: #fbeae4;
+  background: var(--danger-tint);
 }
 
 .row-menu__separator {
@@ -3009,9 +3020,9 @@ p {
 }
 
 .admin-menu__category-chip--active {
-  background: #fbeae4;
+  background: var(--primary-tint);
   border-color: var(--primary);
-  color: var(--primary-dark);
+  color: var(--primary-text);
 }
 
 .admin-menu__category-chip-count {
@@ -3023,7 +3034,7 @@ p {
 }
 
 .admin-menu__category-chip--active .admin-menu__category-chip-count {
-  background: rgba(217, 74, 43, 0.14);
+  background: var(--primary-tint-strong);
 }
 
 .admin-menu__table {
@@ -3045,7 +3056,8 @@ p {
 }
 
 .admin-menu__row--inactive {
-  opacity: 0.6;
+  background: var(--dimmed-surface);
+  color: var(--dimmed-text);
 }
 
 .admin-menu__row-thumb {
@@ -3105,8 +3117,8 @@ p {
 }
 
 .admin-menu__delete-btn {
-  color: var(--primary-dark);
-  border-color: var(--primary);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .admin-menu__status {
@@ -3128,8 +3140,8 @@ p {
 
 .admin-menu__status--inactive,
 .admin-menu__status--unavailable {
-  color: var(--primary-dark);
-  border-color: var(--primary);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* ============ Admin menu forms (inside .confirm-dialog) ============ */
@@ -3202,7 +3214,7 @@ p {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 11px;
-  background: var(--bg);
+  background: var(--input-bg);
   font-family: inherit;
 }
 
@@ -3219,7 +3231,7 @@ p {
 .admin-menu__form-error {
   font-size: 13px;
   font-weight: 600;
-  color: var(--primary-dark);
+  color: var(--danger);
 }
 
 .admin-menu__form-success {
@@ -3292,7 +3304,7 @@ p {
 }
 
 .admin-menu__addon-remove:hover {
-  color: var(--primary-dark);
+  color: var(--danger);
 }
 
 .admin-menu__image-field {

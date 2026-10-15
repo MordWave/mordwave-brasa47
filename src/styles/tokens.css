@@ -1,0 +1,189 @@
+/* ============ Design tokens ============
+   Two independent layers - never mix them:
+
+   1. BRAND (per restaurant): --primary, --accent, --on-primary, --on-accent.
+      Defaults below are the demo brand. At runtime brandingStyleVars() (theme/brandStyle.js) overrides them on
+      .customer-app and on portalled overlays from the business' stored colours. The theme never rewrites them.
+
+   2. STRUCTURE (per theme): surfaces, text, borders, states. They switch with <html data-theme="light|dark">,
+      which ThemeProvider (and the inline anti-flash script in index.html) keep in sync.
+
+   Light values are exactly the ones the app had before theming existed, so light mode is visually unchanged.
+   Names are semantic ("surface", not "white"): a component asks for the role, the theme decides the colour. */
+
+:root {
+  /* ---- brand layer (defaults) ---- */
+  --primary: #D94A2B;
+  /* LEGACY: static fallback for hover states that still use it in the customer menu (8B.3 moves them to a colour
+     derived from the current brand). The Admin does not use it any more: errors/destructive actions use --danger. */
+  --primary-dark: #B93B20;
+  --accent: #E9B44C;
+  --on-primary: #FFFFFF;
+  --on-accent: #171714;
+  /* brand colour used AS TEXT/ICON on a surface (links, active labels). Equal to --primary until 8B.3 derives a
+     contrast-safe variant per surface. */
+  --primary-tint: #FBEAE4;
+  --primary-tint-strong: rgba(217, 74, 43, 0.14);
+
+  /* AA-safe derived variants of the brand colour (see theme/color.js: deriveControlColors / ensureContrastOnAll).
+     --primary-control / --on-primary-control: background + text of an interactive control (primary button).
+     --primary-text: the brand used AS TEXT on any light surface. Values below are the results for the demo brand;
+     for a restaurant's own brand brandingStyleVars() overrides --primary-control / --on-primary-control, and 8B.3
+     derives --primary-text. The stored brand value is never modified. */
+  --primary-control: #CE4629;
+  --on-primary-control: #FFFFFF;
+  --primary-text: #BE4126;
+
+  /* ---- structure layer: LIGHT (default) ---- */
+  color-scheme: light;
+  --bg: #F5F1E8;
+  --surface: #FFFFFF;
+  --surface-elevated: #FFFFFF;
+  --text: #171714;
+  --text-muted: #6E6A60;
+  --border: #DED8CC;
+  --input-bg: #F5F1E8;
+  --hover: rgba(23, 23, 20, 0.04);
+  --row-hover: rgba(245, 241, 232, 0.55);
+  --overlay: rgba(23, 23, 20, 0.45);
+  --focus-ring: var(--primary);
+  --placeholder: var(--text-muted);
+  /* DIMMED states (cancelled / delivered orders, inactive tables, categories and products). Never faded with
+     `opacity` on the container: that also fades the text (it measured 2.4:1 in light). The "inactive" feel comes
+     from a flatter surface + one calm text colour, both AA; only images (non-text) are faded. */
+  --dimmed-surface: var(--bg);
+  --dimmed-text: var(--text-muted);
+  --dim-media-opacity: 0.6;
+  --disabled-bg: var(--border);
+  --disabled-text: var(--text-muted);
+
+  /* inverted surface (dark chip on light UI, light chip on dark UI): toasts, selected segments */
+  --inverse-surface: #171714;
+  --inverse-text: #FFFFFF;
+
+  /* elevation: one shadow colour per theme, three recipes */
+  --shadow-rgb: 23 23 20;
+  --shadow-popover: 0 12px 28px rgb(var(--shadow-rgb) / 0.16);
+  --shadow-modal: 0 20px 40px rgb(var(--shadow-rgb) / 0.18);
+  --shadow-card: 0 20px 40px rgb(var(--shadow-rgb) / 0.1);
+
+  --danger: #B93B20;
+  --danger-hover: #99311B;
+  --danger-tint: #FBEAE4;
+  --danger-border: rgba(217, 74, 43, 0.25);
+  --shadow-danger: 0 6px 16px rgba(185, 59, 32, 0.28);
+  --success: #377855;
+  --success-tint: #E7F2EB;
+  --warning: #946200;
+  --warning-tint: #FFF4D6;
+  /* text/icon colour ON a solid --danger / --success / --warning fill */
+  --on-danger: #FFFFFF;
+  --on-success: #FFFFFF;
+  --on-warning: #FFFFFF;
+
+  /* legacy name still used across index.css; alias, do not use in new code */
+  --text-secondary: var(--text-muted);
+}
+
+/* ---- structure layer: DARK ----
+   Warm near-black (not #000) with stepped surfaces so cards, modals and inputs stay distinguishable. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14120F;
+  --surface: #1D1A16;
+  --surface-elevated: #26221D;
+  --text: #F3EFE7;
+  --text-muted: #B0AA9D;
+  --border: #3A352E;
+  --input-bg: #14120F;
+  --hover: rgba(243, 239, 231, 0.07);
+  --row-hover: rgba(243, 239, 231, 0.05);
+  --overlay: rgba(0, 0, 0, 0.62);
+  --focus-ring: var(--primary-text);
+  --inverse-surface: #F3EFE7;
+  --inverse-text: #171714;
+  --shadow-rgb: 0 0 0;
+  --shadow-popover: 0 12px 28px rgb(var(--shadow-rgb) / 0.5);
+  --shadow-modal: 0 20px 40px rgb(var(--shadow-rgb) / 0.55);
+  --shadow-card: 0 20px 40px rgb(var(--shadow-rgb) / 0.4);
+
+  --danger: #F0765A;
+  --danger-hover: #F59178;
+  --danger-tint: #3A221C;
+  --danger-border: rgba(240, 118, 90, 0.4);
+  --shadow-danger: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --success: #6CC092;
+  --success-tint: #1C2E24;
+  --warning: #E6B450;
+  --warning-tint: #33291A;
+  --on-danger: #2A0E08;
+  --on-success: #0F2417;
+  --on-warning: #1A1408;
+  --primary-tint: #3A221C;
+  --primary-tint-strong: rgba(225, 110, 85, 0.24);
+  --primary-text: #E16E55;
+}
+
+/* Paper and tickets are always light, whatever the screen theme: when printing from dark, restore the LIGHT
+   structural values (a test keeps this block identical to the light layer). Light printing is untouched. */
+@media print {
+  :root[data-theme="dark"] {
+    color-scheme: light;
+    --bg: #F5F1E8;
+    --surface: #FFFFFF;
+    --surface-elevated: #FFFFFF;
+    --text: #171714;
+    --text-muted: #6E6A60;
+    --border: #DED8CC;
+    --input-bg: #F5F1E8;
+    --hover: rgba(23, 23, 20, 0.04);
+    --row-hover: rgba(245, 241, 232, 0.55);
+    --dimmed-surface: var(--bg);
+    --dimmed-text: var(--text-muted);
+    --dim-media-opacity: 0.6;
+    --overlay: rgba(23, 23, 20, 0.45);
+    --focus-ring: var(--primary);
+    --inverse-surface: #171714;
+    --inverse-text: #FFFFFF;
+    --shadow-rgb: 23 23 20;
+    --shadow-popover: 0 12px 28px rgb(var(--shadow-rgb) / 0.16);
+    --shadow-modal: 0 20px 40px rgb(var(--shadow-rgb) / 0.18);
+    --shadow-card: 0 20px 40px rgb(var(--shadow-rgb) / 0.1);
+    --danger: #B93B20;
+    --danger-hover: #99311B;
+    --danger-tint: #FBEAE4;
+    --danger-border: rgba(217, 74, 43, 0.25);
+    --shadow-danger: 0 6px 16px rgba(185, 59, 32, 0.28);
+    --success: #377855;
+    --success-tint: #E7F2EB;
+    --warning: #946200;
+    --warning-tint: #FFF4D6;
+    --on-danger: #FFFFFF;
+    --on-success: #FFFFFF;
+    --on-warning: #FFFFFF;
+    --primary-tint: #FBEAE4;
+    --primary-tint-strong: rgba(217, 74, 43, 0.14);
+    --primary-text: #BE4126;
+  }
+}
+
+/* ---- Admin scope ----
+   <html data-app="admin"> is set by App.jsx. Admin controls use the AA-safe derived colours. Scoped on purpose: the
+   customer menu keeps its current rendering until 8B.3 (its buttons fall back to --primary + white). */
+:root[data-app="admin"] {
+  --control-bg: var(--primary-control);
+  --control-text: var(--on-primary-control);
+  --control-bg-hover: var(--primary-dark);
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  :root[data-app="admin"] {
+    --control-bg-hover: color-mix(in srgb, var(--primary-control) 85%, #000);
+  }
+}
+
+/* ---- Placeholders (Admin) ---- */
+:root[data-app="admin"] ::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}

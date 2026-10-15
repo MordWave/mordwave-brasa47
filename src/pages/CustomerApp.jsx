@@ -13,6 +13,7 @@ import { checkTableSessionStatus, joinTableSession } from '../services/tableSess
 import { translateApiError } from '../services/errorMessages'
 import { clearStoredSession, readStoredSession, writeStoredSession } from '../utils/qrSession'
 import { generateUuid } from '../utils/uuid'
+import { brandingStyleVars } from '../theme/brandStyle.js'
 
 const STATUS_POLL_MS = 12000
 
@@ -221,9 +222,7 @@ function CustomerFlow() {
   // active session). null/unset falls straight through to the app's own
   // default palette, since these custom properties then simply aren't
   // overridden on this subtree.
-  const brandingStyle = {}
-  if (session.primaryColor) brandingStyle['--primary'] = session.primaryColor
-  if (session.accentColor) brandingStyle['--accent'] = session.accentColor
+  const brandingStyle = brandingStyleVars(session)
 
   let content
   if (step === 'home') {

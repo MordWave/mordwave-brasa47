@@ -1,0 +1,93 @@
+/* ============ Theme toggle (Sistema / Claro / Oscuro) ============ */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.theme-toggle__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 32px;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+@media (hover: hover) {
+  .theme-toggle__option:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+}
+
+.theme-toggle__option--selected,
+.theme-toggle__option--selected:hover {
+  background: var(--inverse-surface);
+  color: var(--inverse-text);
+}
+
+.theme-toggle__option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* customer menu: quiet, must not compete with the restaurant's branding */
+.theme-toggle--compact {
+  padding: 2px;
+  background: transparent;
+  border-color: transparent;
+}
+
+.theme-toggle--compact .theme-toggle__option {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+}
+
+/* Admin placement ---------------------------------------------------------------- */
+/* the header only starts wrapping when the selector is actually rendered (dark mode rolled out) */
+.admin-panel__user:has(.theme-toggle) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* login: pinned to the top-right corner; zero-size (and invisible) while the selector is not rendered */
+.admin-login {
+  position: relative;
+}
+
+.admin-login__theme {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+/* narrow screens: icons only (labels remain as aria-label / title) */
+@media (max-width: 520px) {
+  .theme-toggle--segmented .theme-toggle__label {
+    display: none;
+  }
+
+  .theme-toggle--segmented .theme-toggle__option {
+    padding: 0 8px;
+  }
+}
+
+@media print {
+  .theme-toggle,
+  .admin-login__theme {
+    display: none;
+  }
+}
