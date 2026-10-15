@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // Compiles `contents` (JSX allowed, relative imports resolve from src/) and imports the result.
-export async function loadModule(contents) {
+export async function loadModule(contents, { plugins = [] } = {}) {
   const srcDir = fileURLToPath(new URL('..', import.meta.url))
   const result = await build({
     stdin: { resolveDir: srcDir, loader: 'jsx', contents },
@@ -19,6 +19,7 @@ export async function loadModule(contents) {
     jsx: 'automatic',
     logLevel: 'silent',
     loader: { '.css': 'empty' },
+    plugins,
     define: { 'import.meta.env': '{"VITE_API_URL":"http://api.test.invalid"}' },
   })
   const dir = fileURLToPath(new URL('../../node_modules/.cache/brasa47-test/', import.meta.url))

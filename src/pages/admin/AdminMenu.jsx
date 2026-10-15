@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../context/ConfirmContext'
 import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
+import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import Pager from '../../components/admin/Pager'
 import CategoryFilterBar from '../../components/admin/menu/CategoryFilterBar'
@@ -502,6 +503,7 @@ export default function AdminMenu() {
       {categoryModal && (
         <CategoryFormModal
           category={categoryModal === 'new' ? null : categoryModal}
+          existingNames={DEV_TOOLS_BUILD_ENABLED ? categories.map((c) => c.name) : undefined}
           onClose={() => setCategoryModal(null)}
           onSave={handleSaveCategory}
         />

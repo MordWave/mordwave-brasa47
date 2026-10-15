@@ -72,3 +72,33 @@
     display: none;
   }
 }
+
+/* ---- Auto rellenar ----
+   Dashed + "development" look so it is never mistaken for Guardar; tokens only (light and dark). */
+.devtools-autofill {
+  align-self: flex-start;
+  border: 1px dashed var(--warning);
+  border-radius: 999px;
+  background: var(--warning-tint);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 6px 12px;
+}
+
+@media (hover: hover) {
+  .devtools-autofill:hover {
+    border-style: solid;
+  }
+}
+
+.devtools-autofill:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media print {
+  .devtools-autofill {
+    display: none;
+  }
+}
