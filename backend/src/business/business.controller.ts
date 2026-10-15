@@ -29,13 +29,13 @@ import { BusinessService } from './business.service.js';
 import { BusinessPresenter, type BusinessListItem, type BusinessResponse } from './business.presenter.js';
 import { buildPaginated, type Paginated } from '../common/pagination.util.js';
 import { IMAGE_MULTER_HARD_LIMIT_BYTES } from '../common/limits/resource-limits.const.js';
+import { CreateBusinessDto } from './dto/create-business.dto.js';
 import { BusinessListQueryDto } from './dto/business-list-query.dto.js';
 import { BusinessQueryDto } from './dto/business-query.dto.js';
 import { UpdateBusinessDto } from './dto/update-business.dto.js';
 
-// "My own business" surface — no business-creation endpoint here (out of
-// scope for this phase; a Business still only ever comes from the seed
-// script). Every route requires an authenticated ADMIN/SUPER_ADMIN.
+// "My own business" surface plus the SUPER_ADMIN-only listing and creation. Every route requires an authenticated
+// user; there is no public way to create a business.
 //
 // Both mutations are audited via explicit AuditService.record() calls (per
 // Fase 8A.1 design), not @Audit(...) + the interceptor — business config is
@@ -65,6 +65,33 @@ export class BusinessController {
       page.limit,
       page.total,
     );
+  }
+
+  // SUPER_ADMIN only (401 without a JWT, 403 for an ADMIN). The new business is created ACTIVE, the entity's own
+  // default and the only state a SUPER_ADMIN can enter from the picker; with no products, categories or tables it
+  // shows an empty public menu, and with no ADMIN assigned only a SUPER_ADMIN can manage it until user
+  // provisioning exists. The audit entry belongs to the NEW business (businessId = its id) and is awaited so the
+  // trail exists before the response; AuditService.record never throws. Metadata is just name and slug.
+  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  async create(
+    @Body() dto: CreateBusinessDto,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<BusinessResponse> {
+    const created = await this.businessService.create(dto);
+    await this.auditService.record({
+      businessId: created.id,
+      userId: user.id,
+      userEmail: user.email,
+      action: AUDIT_ACTIONS.BUSINESS_CREATED,
+      entityType: AUDIT_ENTITY_TYPES.BUSINESS,
+      entityId: created.id,
+      metadata: { name: created.name, slug: created.slug },
+      ...extractClientInfo(req),
+    });
+    return this.presenter.present(created);
   }
 
   @Get('me')
