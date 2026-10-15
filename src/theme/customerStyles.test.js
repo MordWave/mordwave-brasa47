@@ -147,8 +147,8 @@ test('keyboard focus: one brand-aware ring for the whole customer app, white ove
   assert.match(rule(customerCss, '.field__textarea:focus'), /var\(--focus-ring\)/)
 })
 
-test('the rollout flag is still off (this step must not ship dark mode)', () => {
-  assert.match(read('./flag.js'), /export const DARK_MODE_ENABLED = false/)
+test('the rollout flag is on (activation step)', () => {
+  assert.match(read('./flag.js'), /export const DARK_MODE_ENABLED = true/)
 })
 
 // ---- the selector in the customer header ---------------------------------------------------------------------------

@@ -80,6 +80,6 @@ test('print blocks stay light: the print override exists and resets every struct
   assert.match(css, /@media print/)
 })
 
-test('the rollout switch is still off in code (no dark mode in production)', () => {
-  assert.match(readFileSync(new URL('./flag.js', import.meta.url), 'utf8'), /export const DARK_MODE_ENABLED = false/)
+test('the rollout switch is on in code (dark mode is rolled out)', () => {
+  assert.match(readFileSync(new URL('./flag.js', import.meta.url), 'utf8'), /export const DARK_MODE_ENABLED = true/)
 })
