@@ -38,21 +38,43 @@ export function resolveActiveBusiness({ role, userBusinessId = null, selectedBus
   return { businessId: null, requiresBusinessSelection: false, isBusinessSelectable: false }
 }
 
+// A selection is bound to the identity that made it: { userId, businessId }. After a session change (another user,
+// an expired session) a stored selection must never be reused, so it only counts for the SAME authenticated user.
+export function normalizeSelection(value) {
+  if (!value || typeof value !== 'object') return null
+  const businessId = normalizeBusinessId(value.businessId)
+  const userId = typeof value.userId === 'string' ? value.userId.trim() : ''
+  return businessId !== null && userId !== '' ? { userId, businessId } : null
+}
+
+// The selection that applies to `userId`: the stored one only when it was made by that very user.
+export function selectionFor(selection, userId) {
+  const clean = normalizeSelection(selection)
+  return clean !== null && typeof userId === 'string' && clean.userId === userId ? clean.businessId : null
+}
+
 export function readActiveBusiness(storage) {
   try {
     const raw = storage?.getItem(ACTIVE_BUSINESS_STORAGE_KEY)
-    const id = normalizeBusinessId(raw)
-    if (raw != null && id === null) storage.removeItem(ACTIVE_BUSINESS_STORAGE_KEY) // tampered / stale value
-    return id
+    if (raw == null) return null
+    let parsed = null
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = null
+    }
+    const selection = normalizeSelection(parsed)
+    if (selection === null) storage.removeItem(ACTIVE_BUSINESS_STORAGE_KEY) // tampered / stale / old-format value
+    return selection
   } catch {
     return null
   }
 }
 
-export function writeActiveBusiness(storage, businessId) {
+export function writeActiveBusiness(storage, selection) {
   try {
-    if (businessId === null) storage?.removeItem(ACTIVE_BUSINESS_STORAGE_KEY)
-    else storage?.setItem(ACTIVE_BUSINESS_STORAGE_KEY, businessId)
+    if (selection === null) storage?.removeItem(ACTIVE_BUSINESS_STORAGE_KEY)
+    else storage?.setItem(ACTIVE_BUSINESS_STORAGE_KEY, JSON.stringify(selection))
     return Boolean(storage)
   } catch {
     return false
