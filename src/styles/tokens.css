@@ -48,12 +48,12 @@
   --overlay: rgba(23, 23, 20, 0.45);
   --focus-ring: var(--primary);
   --placeholder: var(--text-muted);
-  /* opacity of dimmed states (cancelled / delivered orders, inactive rows). Dark uses less dimming because
-     opacity also fades text: at 0.6 muted text fell to 3.5:1 and the note to 2.8:1 on dark surfaces; 0.9 keeps
-     everything at AA (4.5:1). The light values are the original ones (their pre-existing low contrast is a known
-     pending item). */
-  --dim-opacity: 0.6;
-  --dim-opacity-soft: 0.7;
+  /* DIMMED states (cancelled / delivered orders, inactive tables, categories and products). Never faded with
+     `opacity` on the container: that also fades the text (it measured 2.4:1 in light). The "inactive" feel comes
+     from a flatter surface + one calm text colour, both AA; only images (non-text) are faded. */
+  --dimmed-surface: var(--bg);
+  --dimmed-text: var(--text-muted);
+  --dim-media-opacity: 0.6;
   --disabled-bg: var(--border);
   --disabled-text: var(--text-muted);
 
@@ -72,7 +72,7 @@
   --danger-tint: #FBEAE4;
   --danger-border: rgba(217, 74, 43, 0.25);
   --shadow-danger: 0 6px 16px rgba(185, 59, 32, 0.28);
-  --success: #397A57;
+  --success: #377855;
   --success-tint: #E7F2EB;
   --warning: #946200;
   --warning-tint: #FFF4D6;
@@ -98,8 +98,6 @@
   --input-bg: #14120F;
   --hover: rgba(243, 239, 231, 0.07);
   --row-hover: rgba(243, 239, 231, 0.05);
-  --dim-opacity: 0.9;
-  --dim-opacity-soft: 0.95;
   --overlay: rgba(0, 0, 0, 0.62);
   --focus-ring: var(--primary-text);
   --inverse-surface: #F3EFE7;
@@ -140,8 +138,9 @@
     --input-bg: #F5F1E8;
     --hover: rgba(23, 23, 20, 0.04);
     --row-hover: rgba(245, 241, 232, 0.55);
-    --dim-opacity: 0.6;
-    --dim-opacity-soft: 0.7;
+    --dimmed-surface: var(--bg);
+    --dimmed-text: var(--text-muted);
+    --dim-media-opacity: 0.6;
     --overlay: rgba(23, 23, 20, 0.45);
     --focus-ring: var(--primary);
     --inverse-surface: #171714;
@@ -155,7 +154,7 @@
     --danger-tint: #FBEAE4;
     --danger-border: rgba(217, 74, 43, 0.25);
     --shadow-danger: 0 6px 16px rgba(185, 59, 32, 0.28);
-    --success: #397A57;
+    --success: #377855;
     --success-tint: #E7F2EB;
     --warning: #946200;
     --warning-tint: #FFF4D6;

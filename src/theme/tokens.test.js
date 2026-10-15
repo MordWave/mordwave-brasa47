@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { contrastRatio, deriveControlColors, ensureContrastOnAll, mixHex } from './color.js'
+import { contrastRatio, deriveControlColors, ensureContrastOnAll } from './color.js'
 
 const css = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8')
+const tokensCss = css
 
 // Declarations of a block starting at `selector {` (first occurrence), as { '--name': 'value' }.
 function block(selector, from = 0) {
@@ -17,12 +18,15 @@ function block(selector, from = 0) {
 const light = block(':root')
 const dark = block(':root[data-theme="dark"]')
 const print = block(':root[data-theme="dark"]', css.indexOf('@media print'))
+// What the dark theme really computes: the light layer is the base and the dark block overrides it. Alias tokens
+// such as --dimmed-surface: var(--bg) live only in the base layer and re-resolve against the dark values.
+const darkEffective = { ...light, ...dark }
 
 const STRUCTURAL = [
   '--bg', '--surface', '--surface-elevated', '--text', '--text-muted', '--border', '--input-bg', '--hover', '--row-hover', '--overlay',
   '--danger', '--danger-hover', '--danger-tint', '--danger-border', '--shadow-danger', '--success', '--success-tint', '--warning', '--warning-tint',
   '--on-danger', '--on-success', '--on-warning', '--inverse-surface', '--inverse-text',
-  '--dim-opacity', '--dim-opacity-soft', '--shadow-rgb', '--shadow-popover', '--shadow-modal', '--shadow-card',
+  '--dimmed-surface', '--dimmed-text', '--dim-media-opacity', '--shadow-rgb', '--shadow-popover', '--shadow-modal', '--shadow-card',
   '--primary-tint', '--primary-tint-strong', '--primary-text',
 ]
 const BRAND = ['--primary', '--primary-dark', '--accent', '--on-primary', '--on-accent']
@@ -30,7 +34,7 @@ const BRAND = ['--primary', '--primary-dark', '--accent', '--on-primary', '--on-
 test('every semantic token exists in both themes (no theme can miss one)', () => {
   for (const name of STRUCTURAL) {
     assert.ok(name in light, `light misses ${name}`)
-    assert.ok(name in dark, `dark misses ${name}`)
+    assert.ok(name in darkEffective, `dark misses ${name}`)
   }
 })
 
@@ -48,7 +52,7 @@ test('light layer is the original palette (light mode is visually unchanged), ex
   assert.equal(light['--primary'], '#D94A2B')
   assert.equal(light['--primary-dark'], '#B93B20')
   assert.equal(light['--accent'], '#E9B44C')
-  assert.equal(light['--success'], '#397A57')
+  assert.equal(light['--success'], '#377855') // was #397A57: minimal darkening so success-on-tint reaches AA (4.47 -> 4.60)
   assert.equal(light['--text-secondary'], 'var(--text-muted)', 'legacy alias keeps old selectors working')
   // values that replaced literals in the Admin stylesheet must equal those literals
   assert.equal(light['--input-bg'], '#F5F1E8') // inputs were var(--bg)
@@ -130,17 +134,14 @@ test('dark text tokens reach WCAG AA (4.5:1) on every surface they can sit on', 
   }
 })
 
-test('light text tokens reach AA, except one known legacy pair documented for 8B.2', () => {
-  const known = new Set(['--success on --success-tint']) // 4.47:1 in the original palette; fixed when light is touched
+test('light text tokens reach AA on every surface and status tint (no exceptions left)', () => {
   for (const s of ['--bg', '--surface', '--surface-elevated', '--input-bg']) {
     for (const t of ['--text', '--text-muted', '--danger', '--success', '--warning']) {
-      if (s === '--bg' && ['--danger', '--success', '--warning'].includes(t)) continue // status colours are never drawn straight on the page background
-      assert.ok(contrastRatio(light[t], light[s]) >= 4.5, `light ${t} on ${s}`)
+      assert.ok(contrastRatio(light[t], light[s]) >= 4.5, `light ${t} on ${s}: ${contrastRatio(light[t], light[s]).toFixed(2)}`)
     }
   }
   for (const [text, tint] of [['--danger', '--danger-tint'], ['--success', '--success-tint'], ['--warning', '--warning-tint']]) {
-    const ratio = contrastRatio(light[text], light[tint])
-    if (ratio < 4.5) assert.ok(known.has(`${text} on ${tint}`) && ratio > 4.4, `light ${text} on ${tint}: ${ratio.toFixed(2)}`)
+    assert.ok(contrastRatio(light[text], light[tint]) >= 4.5, `light ${text} on ${tint}: ${contrastRatio(light[text], light[tint]).toFixed(2)}`)
   }
 })
 
@@ -158,22 +159,53 @@ test('no component stylesheet may name a surface "white" or "black" as a token',
   assert.doesNotMatch(css, /--(white|black)\b/)
 })
 
-test('dimmed states (cancelled / delivered / inactive) stay AA in dark; light keeps its original 0.6 / 0.7', () => {
-  assert.equal(light['--dim-opacity'], '0.6')
-  assert.equal(light['--dim-opacity-soft'], '0.7')
-  const a = Number(dark['--dim-opacity'])
-  const over = (fg, bg = dark['--surface']) => mixHex(bg, fg, a) // what the eye sees: the element faded over the surface
-  assert.ok(contrastRatio(over(dark['--text']), dark['--surface']) >= 4.5, 'item text')
-  assert.ok(contrastRatio(over(dark['--text-muted']), dark['--surface']) >= 4.5, 'muted subtext')
-  assert.ok(contrastRatio(over(dark['--success']), dark['--surface']) >= 4.5, 'status pills')
-  // the red note: both its text and its tint fade over the card
-  assert.ok(contrastRatio(over(dark['--danger']), over(dark['--danger-tint'])) >= 4.5, 'cancelled-order note')
-  assert.ok(Number(dark['--dim-opacity-soft']) >= a)
+// ---- dimmed states: cancelled / delivered orders, inactive tables, categories and products ----------------
+// They must be AA in BOTH themes for every text that can appear in them, without relying on `opacity`.
+const themes = [['light', light], ['dark', darkEffective]]
+// resolves "var(--x)" aliases one level
+const val = (theme, name) => {
+  const v = theme[name]
+  const m = /^var\((--[a-z-]+)\)$/.exec(v)
+  return m ? theme[m[1]] : v
+}
+
+test('dimmed text is a semantic colour that is AA on the dimmed surface and on the normal surfaces, both themes', () => {
+  for (const [name, theme] of themes) {
+    const text = val(theme, '--dimmed-text')
+    const dimmedSurface = val(theme, '--dimmed-surface')
+    for (const bg of [dimmedSurface, theme['--surface'], theme['--bg'], theme['--surface-elevated']]) {
+      assert.ok(contrastRatio(text, bg) >= 4.5, `${name} dimmed text on ${bg}: ${contrastRatio(text, bg).toFixed(2)}`)
+    }
+    // product rows show the hover wash over a dimmed row: still AA on the page background it blends towards
+    assert.ok(contrastRatio(text, theme['--bg']) >= 4.5)
+  }
 })
 
-test('only the dimmed-state selectors use the dim tokens; the Admin has no other literal 0.6 / 0.7 text dimming', () => {
-  const index = readFileSync(new URL('../styles/index.css', import.meta.url), 'utf8')
-  for (const sel of ['.order-card--cancelled', '.order-card--delivered', '.admin-tables__card--inactive', '.admin-menu__row--inactive']) {
-    assert.match(index, new RegExp(`${sel.replace(/\./g, '\\.')} \\{[^}]*opacity: var\\(--dim-opacity`), sel)
+test('semantic accents that appear inside dimmed states stay AA on the dimmed surface (badges, danger buttons, notes)', () => {
+  for (const [name, theme] of themes) {
+    const surface = val(theme, '--dimmed-surface')
+    for (const k of ['--danger', '--success', '--warning']) assert.ok(contrastRatio(theme[k], surface) >= 4.5, `${name} ${k} on dimmed surface`)
+    for (const [fg, tint] of [['--danger', '--danger-tint'], ['--success', '--success-tint'], ['--warning', '--warning-tint']]) {
+      assert.ok(contrastRatio(theme[fg], theme[tint]) >= 4.5, `${name} ${fg} on ${tint}`)
+    }
   }
+})
+
+test('dimmed styles never use opacity on a container with text; only images are faded', () => {
+  const index = readFileSync(new URL('../styles/index.css', import.meta.url), 'utf8')
+  assert.doesNotMatch(index, /--dim-opacity/)
+  assert.doesNotMatch(tokensCss, /--dim-opacity/)
+  const body = (selector) => {
+    const start = index.indexOf(`\n${selector} {`)
+    assert.ok(start >= 0, `${selector} not found`)
+    return index.slice(start, index.indexOf('}', start))
+  }
+  for (const sel of ['.order-card--delivered', '.order-card--cancelled', '.admin-tables__card--inactive', '.admin-menu__row--inactive', '.product-row--inactive']) {
+    assert.doesNotMatch(body(sel), /opacity\s*:/, `${sel} must not fade its text with opacity`)
+    assert.match(body(sel), /color:\s*var\(--dimmed-text\)/, `${sel} uses the dimmed text colour`)
+  }
+  for (const sel of ['.order-card--cancelled', '.admin-tables__card--inactive', '.admin-menu__row--inactive', '.product-row--inactive']) {
+    assert.match(body(sel), /background:\s*var\(--dimmed-surface\)/, `${sel} uses the dimmed surface`)
+  }
+  assert.match(body('.product-row--inactive .product-row__thumb img'), /opacity:\s*var\(--dim-media-opacity\)/)
 })
