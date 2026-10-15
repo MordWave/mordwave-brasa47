@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import DevAutofill from '../../../devtools/autofill/DevAutofill'
+import { DEV_TOOLS_BUILD_ENABLED } from '../../../devtools/buildFlag.js'
 import { translateApiError } from '../../../services/errorMessages'
 import PhotoCropModal from './PhotoCropModal'
 
@@ -270,6 +272,23 @@ export default function ProductFormModal({
           {isEditing ? 'Editar producto' : 'Nuevo producto'}
         </h3>
         <form onSubmit={handleSubmit} className="admin-menu__form">
+          {DEV_TOOLS_BUILD_ENABLED && (
+            <DevAutofill
+              kind="product"
+              values={{ name, description, price, categoryId, tag, ingredientsText, removableIngredients, addOns }}
+              context={{ isEditing, categories }}
+              onApply={(patch) => {
+                if ('name' in patch) setName(patch.name)
+                if ('description' in patch) setDescription(patch.description)
+                if ('price' in patch) setPrice(patch.price)
+                if ('categoryId' in patch) setCategoryId(patch.categoryId)
+                if ('tag' in patch) setTag(patch.tag)
+                if ('ingredientsText' in patch) setIngredientsText(patch.ingredientsText)
+                if ('removableIngredients' in patch) setRemovableIngredients(patch.removableIngredients)
+                if ('addOns' in patch) setAddOns(patch.addOns)
+              }}
+            />
+          )}
           <label>
             <span>Nombre</span>
             <input value={name} onChange={(e) => setName(e.target.value)} required />

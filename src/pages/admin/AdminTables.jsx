@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useConfirm } from '../../context/ConfirmContext'
 import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
+import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import PrintQr from '../../components/admin/tables/PrintQr'
 import TableFormModal from '../../components/admin/tables/TableFormModal'
@@ -158,6 +159,7 @@ export default function AdminTables({ businessName }) {
       {tableModal && (
         <TableFormModal
           table={tableModal === 'new' ? null : tableModal}
+          existingNames={DEV_TOOLS_BUILD_ENABLED ? tables.map((t) => t.name) : undefined}
           onClose={() => setTableModal(null)}
           onSave={handleSaveTable}
         />

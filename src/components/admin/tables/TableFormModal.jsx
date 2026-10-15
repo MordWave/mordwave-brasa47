@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import DevAutofill from '../../../devtools/autofill/DevAutofill'
+import { DEV_TOOLS_BUILD_ENABLED } from '../../../devtools/buildFlag.js'
 import { translateApiError } from '../../../services/errorMessages'
 
-export default function TableFormModal({ table, onClose, onSave }) {
+export default function TableFormModal({ table, existingNames, onClose, onSave }) {
   const isEditing = Boolean(table)
   const [name, setName] = useState(table?.name ?? '')
   const [active, setActive] = useState(table?.active ?? true)
@@ -26,6 +28,16 @@ export default function TableFormModal({ table, onClose, onSave }) {
       <div className="confirm-dialog admin-menu__modal" onClick={(e) => e.stopPropagation()}>
         <h3 className="admin-menu__modal-title">{isEditing ? 'Editar mesa' : 'Nueva mesa'}</h3>
         <form onSubmit={handleSubmit} className="admin-menu__form">
+          {DEV_TOOLS_BUILD_ENABLED && (
+            <DevAutofill
+              kind="table"
+              values={{ name }}
+              context={{ isEditing, existingNames }}
+              onApply={(patch) => {
+                if ('name' in patch) setName(patch.name)
+              }}
+            />
+          )}
           <label>
             <span>Nombre</span>
             <input

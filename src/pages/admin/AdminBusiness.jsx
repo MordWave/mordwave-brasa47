@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
+import DevAutofill from '../../devtools/autofill/DevAutofill'
+import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import PhotoCropModal from '../../components/admin/menu/PhotoCropModal'
 
@@ -258,6 +260,19 @@ export default function AdminBusiness({ onBusinessSaved }) {
       </div>
 
       <form className="admin-menu__form" onSubmit={handleSubmit}>
+        {DEV_TOOLS_BUILD_ENABLED && (
+          <DevAutofill
+            kind="business"
+            values={{ name, address, phone, hours }}
+            context={{ isEditing: true }}
+            onApply={(patch) => {
+              if ('name' in patch) setName(patch.name)
+              if ('address' in patch) setAddress(patch.address)
+              if ('phone' in patch) setPhone(patch.phone)
+              if ('hours' in patch) setHours(patch.hours)
+            }}
+          />
+        )}
         <label>
           <span>Nombre</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={MAX_NAME_LENGTH} required />

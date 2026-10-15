@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import DevAutofill from '../../../devtools/autofill/DevAutofill'
+import { DEV_TOOLS_BUILD_ENABLED } from '../../../devtools/buildFlag.js'
 import { translateApiError } from '../../../services/errorMessages'
 import { slugify } from '../../../utils/format'
 
-export default function CategoryFormModal({ category, onClose, onSave }) {
+export default function CategoryFormModal({ category, existingNames, onClose, onSave }) {
   const isEditing = Boolean(category)
   const [name, setName] = useState(category?.name ?? '')
   const [sortOrder, setSortOrder] = useState(category?.sortOrder ?? 0)
@@ -36,6 +38,17 @@ export default function CategoryFormModal({ category, onClose, onSave }) {
           {isEditing ? 'Editar categoría' : 'Nueva categoría'}
         </h3>
         <form onSubmit={handleSubmit} className="admin-menu__form">
+          {DEV_TOOLS_BUILD_ENABLED && (
+            <DevAutofill
+              kind="category"
+              values={{ name, sortOrder }}
+              context={{ isEditing, existingNames }}
+              onApply={(patch) => {
+                if ('name' in patch) setName(patch.name)
+                if ('sortOrder' in patch) setSortOrder(patch.sortOrder)
+              }}
+            />
+          )}
           <label>
             <span>Nombre</span>
             <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
