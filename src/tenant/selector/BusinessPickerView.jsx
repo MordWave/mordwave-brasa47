@@ -15,38 +15,57 @@ function Logo({ business }) {
   )
 }
 
-// One restaurant. Active ones are a real <button> (keyboard and screen reader friendly); inactive ones are shown, clearly
-// marked, but cannot be entered from here (activating / deactivating comes with business management, later).
-function BusinessCard({ business, onSelect }) {
+// One restaurant. Active ones have a real <button> to enter them (keyboard and screen reader friendly); suspended ones are
+// shown, clearly marked, but can never be entered from here. When the management callbacks are given (the SUPER_ADMIN
+// gate passes them) each row also offers Edit and Suspend (active) or Reactivate (suspended) as SEPARATE buttons — never
+// nested inside the select button — and these work on a suspended business without selecting it.
+function BusinessCard({ business, onSelect, management }) {
   const body = (
     <>
       <Logo business={business} />
       <span className="business-card__text">
         <span className="business-card__name">{business.name}</span>
         <span className="business-card__slug">{business.slug}</span>
-        {!business.active && <span className="business-card__hint">No se puede administrar mientras esté inactivo.</span>}
+        {!business.active && <span className="business-card__hint">Suspendido: no se puede administrar hasta reactivarlo.</span>}
       </span>
       <span className={`business-card__badge business-card__badge--${business.active ? 'active' : 'inactive'}`}>
-        {business.active ? 'Activo' : 'Inactivo'}
+        {business.active ? 'Activo' : 'Suspendido'}
       </span>
     </>
   )
-  if (!business.active) {
-    return (
-      <div className="business-card business-card--inactive" aria-disabled="true">
-        {body}
-      </div>
-    )
-  }
   return (
-    <button type="button" className="business-card" onClick={() => onSelect(business.id)} aria-label={`Administrar ${business.name}`}>
-      {body}
-    </button>
+    <div className="business-card-row">
+      {business.active ? (
+        <button type="button" className="business-card" onClick={() => onSelect(business.id)} aria-label={`Administrar ${business.name}`}>
+          {body}
+        </button>
+      ) : (
+        <div className="business-card business-card--inactive" aria-disabled="true">
+          {body}
+        </div>
+      )}
+      {management && (
+        <div className="business-card__actions" role="group" aria-label={`Gestionar ${business.name}`}>
+          <button type="button" className="btn btn--outline btn--small" onClick={() => management.onEdit(business)} aria-label={`Editar ${business.name}`}>
+            Editar
+          </button>
+          {business.active ? (
+            <button type="button" className="btn btn--outline btn--small business-card__suspend" onClick={() => management.onSuspend(business)} aria-label={`Suspender ${business.name}`}>
+              Suspender
+            </button>
+          ) : (
+            <button type="button" className="btn btn--primary btn--small" onClick={() => management.onActivate(business)} aria-label={`Reactivar ${business.name}`}>
+              Reactivar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
 // Presentational: everything the picker shows, driven by the store state (see businessListStore). No data fetching here.
-export default function BusinessPickerView({ state, searchText, notice = '', onSearchText, onActive, onSelect, onLoadMore, onRetry }) {
+export default function BusinessPickerView({ state, searchText, notice = '', management = null, onSearchText, onActive, onSelect, onLoadMore, onRetry }) {
   const titleId = useId()
   const searchId = useId()
   const filterId = useId()
@@ -83,7 +102,7 @@ export default function BusinessPickerView({ state, searchText, notice = '', onS
           <select id={filterId} value={state.active} onChange={(e) => onActive(e.target.value)}>
             <option value="all">Todos</option>
             <option value="true">Activos</option>
-            <option value="false">Inactivos</option>
+            <option value="false">Suspendidos</option>
           </select>
         </div>
       </div>
@@ -119,7 +138,7 @@ export default function BusinessPickerView({ state, searchText, notice = '', onS
           <ul className="business-picker__list">
             {state.items.map((business) => (
               <li key={business.id}>
-                <BusinessCard business={business} onSelect={onSelect} />
+                <BusinessCard business={business} onSelect={onSelect} management={management} />
               </li>
             ))}
           </ul>

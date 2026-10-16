@@ -1,3 +1,4 @@
+import { MANAGED_SUSPENDED_MESSAGE, SUSPENDED_MESSAGE } from '../context/suspension.js'
 import { ApiError } from './api'
 
 // The numeric ceiling comes from the error body; a missing/garbled value
@@ -13,6 +14,9 @@ function limitedCount(limit, noun, adjective) {
 // the error body (count, productName) instead of a generic sentence. Each
 // handler receives the full ApiError so it can pick whatever field it needs.
 const MESSAGES_BY_CODE = {
+  // exact code only: any other 403 keeps the generic "no permission" sentence. The wording depends on whose restaurant it
+  // is: the user's own (ADMIN, login) or one a SUPER_ADMIN is managing (tagged by the API layer).
+  BUSINESS_INACTIVE: (error) => (error.suspensionScope === 'managed' ? MANAGED_SUSPENDED_MESSAGE : SUSPENDED_MESSAGE),
   CATEGORY_HAS_ACTIVE_PRODUCTS: (error) => {
     const n = Number(error.count) || 0
     const noun = n === 1 ? 'producto activo' : 'productos activos'

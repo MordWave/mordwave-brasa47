@@ -46,6 +46,12 @@ export function createBusinessValidator({ fetchBusiness }) {
         set({ businessId, status: classifyValidationError(error), business: null })
       }
     },
+    // The verified business was edited from the management dialogs: show the new data (name, slug...) WITHOUT re-checking
+    // it, so the panels already mounted for it stay. Only the same, still-valid, still-active business is accepted.
+    refresh(business) {
+      if (state.status !== 'valid' || !business || !sameId(business.id, state.businessId) || business.active !== true) return
+      set({ ...state, business })
+    },
     reset() {
       latest += 1 // an in-flight validation is now stale
       set({ businessId: null, status: 'idle', business: null })

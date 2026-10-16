@@ -308,6 +308,7 @@ before(async () => {
   mod = await loadModule(`
     import { renderToStaticMarkup } from 'react-dom/server'
     import { AuthProvider } from './context/AuthContext.jsx'
+    import { ToastProvider } from './context/ToastContext.jsx'
     import { DevToolsProvider } from './devtools/DevToolsProvider.jsx'
     import { BusinessContextProvider } from './tenant/BusinessContextProvider.jsx'
     import BusinessGate from './tenant/selector/BusinessGate.jsx'
@@ -316,11 +317,13 @@ before(async () => {
     export const renderGate = () =>
       renderToStaticMarkup(
         <AuthProvider>
-          <BusinessContextProvider>
-            <DevToolsProvider enabled={true}>
-              <BusinessGate onBusiness={() => {}}><div id="panels">PANELS</div></BusinessGate>
-            </DevToolsProvider>
-          </BusinessContextProvider>
+          <ToastProvider>
+            <BusinessContextProvider>
+              <DevToolsProvider enabled={true}>
+                <BusinessGate onBusiness={() => {}}><div id="panels">PANELS</div></BusinessGate>
+              </DevToolsProvider>
+            </BusinessContextProvider>
+          </ToastProvider>
         </AuthProvider>,
       )
   `)
@@ -357,7 +360,7 @@ test('picker view: loading, error (with and without retry), empty (never created
   assert.match(mod.renderView({ state: state({ active: 'false' }) }), /Ningún negocio coincide/)
 })
 
-test('picker view: shows name, slug, logo (or initials) and Activo/Inactivo; inactive ones cannot be entered', () => {
+test('picker view: shows name, slug, logo (or initials) and Activo/Suspendido; suspended ones cannot be entered', () => {
   const items = [
     biz(ID_A, 'Brasa 47', { logoUrl: 'https://api.example.com/media/x.webp' }),
     biz(ID_B, 'Casa Olivo', { active: false }),
@@ -369,14 +372,15 @@ test('picker view: shows name, slug, logo (or initials) and Activo/Inactivo; ina
   assert.match(html, /<img class="business-card__logo" src="https:\/\/api\.example\.com\/media\/x\.webp"/)
   assert.match(html, />CO</, 'initials when there is no logo')
   assert.equal((html.match(/>Activo</g) ?? []).length, 2)
-  assert.equal((html.match(/>Inactivo</g) ?? []).length, 1)
+  assert.equal((html.match(/>Suspendido</g) ?? []).length, 1)
   assert.match(html, /Mostrando 3 de 3/)
   // active = real buttons, inactive = a non-interactive, aria-disabled block with an explanation
   assert.equal((html.match(/<button type="button" class="business-card"/g) ?? []).length, 2)
   assert.match(html, /aria-label="Administrar Brasa 47"/)
   assert.match(html, /<div class="business-card business-card--inactive" aria-disabled="true">/)
+  assert.doesNotMatch(html, /Editar|Suspender|Reactivar/, 'without the management callbacks there are no management buttons')
   assert.doesNotMatch(html, /Administrar Casa Olivo/)
-  assert.match(html, /No se puede administrar mientras esté inactivo/)
+  assert.match(html, /Suspendido: no se puede administrar hasta reactivarlo/)
 })
 
 test('picker view: pagination controls, notice, labelled filters', () => {
@@ -389,7 +393,7 @@ test('picker view: pagination controls, notice, labelled filters', () => {
   const html = mod.renderView({ state: state() })
   assert.match(html, /<label for="([^"]+)">Buscar<\/label>\s*<input id="\1" type="search"/)
   assert.match(html, /<label for="([^"]+)">Estado<\/label>\s*<select id="\1"/)
-  assert.match(html, /<option value="all"[^>]*>Todos<\/option><option value="true"[^>]*>Activos<\/option><option value="false"[^>]*>Inactivos<\/option>/)
+  assert.match(html, /<option value="all"[^>]*>Todos<\/option><option value="true"[^>]*>Activos<\/option><option value="false"[^>]*>Suspendidos<\/option>/)
   assert.match(html, /maxLength="80"/)
   assert.match(html, /<section class="business-picker" aria-labelledby=/)
 })
@@ -497,10 +501,14 @@ test('the gate verifies before it renders panels, drops stale selections and kee
   assert.match(provider, /validated\?\.userId === userId && validated\?\.businessId === businessId/)
 })
 
-test('the picker only lets an ACTIVE business be chosen; there is no auto-selection and no management action', () => {
+test('the picker only lets an ACTIVE business be chosen; there is no auto-selection; management buttons never select', () => {
   const view = code(read('./BusinessPickerView.jsx'))
-  assert.match(view, /if \(!business\.active\) \{[\s\S]*aria-disabled="true"[\s\S]*\}\s*return \(\s*<button/)
-  assert.equal((view.match(/onSelect\(/g) ?? []).length, 1)
+  assert.match(view, /business\.active \? \(\s*<button type="button" className="business-card" onClick=\{\(\) => onSelect\(business\.id\)\}[\s\S]*\) : \(\s*<div className="business-card business-card--inactive" aria-disabled="true">/)
+  assert.equal((view.match(/onSelect\(/g) ?? []).length, 1, 'the only way to choose a business is the active card button')
+  assert.match(view, /management\.onEdit\(business\)/)
+  assert.match(view, /management\.onSuspend\(business\)/)
+  assert.match(view, /management\.onActivate\(business\)/)
+  // the selector folder itself never talks to the management endpoints or sends anything but the listing GET
   for (const [name, source] of selectorSources) assert.doesNotMatch(source, /method: '(POST|PATCH|PUT|DELETE)'|\/businesses\/me\/logo|crear negocio|nuevo negocio|desactivar|impersonar/i, name)
 })
 

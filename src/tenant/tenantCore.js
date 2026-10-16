@@ -25,6 +25,12 @@ export function normalizeBusinessId(value) {
 // Only a SUPER_ADMIN can pick a business.
 export const isBusinessSelectableRole = (role) => role === ROLE_SUPER_ADMIN
 
+// Who loses the session when THEIR restaurant turns out to be suspended (403 BUSINESS_INACTIVE): every logged-in user but
+// a SUPER_ADMIN — the same rule the backend applies (BusinessAccessService). A SUPER_ADMIN also receives that code for the
+// one action that stays blocked even for them (opening table sessions of a suspended restaurant); that must remain an
+// ordinary error message and never end their session. Takes the stored user, so no component reads a role itself.
+export const suspensionEndsSession = (user) => Boolean(user) && user.role !== ROLE_SUPER_ADMIN
+
 // The single place that knows how the two roles differ. `role` is ALWAYS the real authenticated role.
 export function resolveActiveBusiness({ role, userBusinessId = null, selectedBusinessId = null } = {}) {
   if (role === ROLE_ADMIN) {
