@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import ThemeToggle from '../../components/ThemeToggle'
+import { SUSPENDED_MESSAGE } from '../../context/suspension.js'
 import { translateApiError } from '../../services/errorMessages'
 
 export default function AdminLogin() {
-  const { login } = useAuth()
+  const { login, suspended } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -54,6 +55,11 @@ export default function AdminLogin() {
             required
           />
         </label>
+        {suspended && !error && (
+          <p className="admin-login__notice" role="alert">
+            {SUSPENDED_MESSAGE}
+          </p>
+        )}
         {error && <p className="admin-login__error">{error}</p>}
         <button type="submit" className="btn btn--primary" disabled={submitting}>
           {submitting ? 'Ingresando…' : 'Ingresar'}

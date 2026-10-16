@@ -3723,6 +3723,152 @@ button.business-card:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* ---- SUPER_ADMIN management (tenant/management): row actions, bar actions and the dialogs. Tokens only. ---- */
+.business-card-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.business-card__actions,
+.admin-panel__tenant-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.business-card__actions {
+  padding: 0 2px;
+}
+
+.business-card__actions .btn,
+.admin-panel__tenant-actions .btn {
+  width: auto;
+}
+
+.business-card__suspend {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+@media (hover: hover) {
+  .business-card__suspend:hover:not(:disabled) {
+    background: var(--danger-tint);
+    border-color: var(--danger);
+  }
+}
+
+.business-dialog {
+  max-width: 460px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+
+.business-dialog__name {
+  font-weight: 800;
+  font-size: 15px;
+  margin: -6px 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.business-dialog__list {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.business-dialog__list li + li {
+  margin-top: 6px;
+}
+
+.business-dialog__readonly {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+}
+
+.business-dialog__readonly-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.business-dialog__slug {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: 13.5px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.business-dialog__hint,
+.business-dialog__status {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.business-dialog__readonly .business-dialog__hint {
+  margin: 0;
+}
+
+.business-dialog__field-error {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.business-dialog__counter {
+  align-self: flex-end;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.business-dialog__count {
+  font-weight: 800;
+  margin: 0 0 8px;
+}
+
+.business-dialog__discard {
+  margin: 0;
+  padding: 9px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warning);
+  background: var(--warning-tint);
+  border-radius: var(--radius-sm);
+}
+
+.business-dialog input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.business-dialog input:focus-visible,
+.business-dialog textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.admin-login__notice {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--warning);
+  background: var(--warning-tint);
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius-sm);
+}
+
 @media print {
   .admin-panel__tenant,
   .business-picker {

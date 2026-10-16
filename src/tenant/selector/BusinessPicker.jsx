@@ -9,7 +9,7 @@ const SEARCH_DEBOUNCE_MS = 300
 
 // SUPER_ADMIN's restaurant picker: GET /businesses with search, an active filter and progressive loading ("Cargar más"),
 // never assuming everything fits on the first page. Choosing one only calls onSelect(id); the gate validates it.
-export default function BusinessPicker({ notice = '', onSelect }) {
+export default function BusinessPicker({ notice = '', management = null, onSelect }) {
   const { token } = useAuth()
   const tokenRef = useRef(token)
   useEffect(() => {
@@ -29,9 +29,23 @@ export default function BusinessPicker({ notice = '', onSelect }) {
     return () => clearTimeout(timer)
   }, [searchText, store])
 
+  // Edits / suspensions / reactivations made from the management dialogs are reflected in this list in place.
+  useEffect(() => {
+    if (!management) return undefined
+    return management.onChange((event) => {
+      if (event.type === 'missing') store.removeItem(event.businessId)
+      else if (event.business) store.applyChange(event.business)
+    })
+  }, [management, store])
+
+  const rowActions = management
+    ? { onEdit: management.openEdit, onSuspend: management.openSuspend, onActivate: management.openActivate }
+    : null
+
   return (
     <BusinessPickerView
       state={state}
+      management={rowActions}
       searchText={searchText}
       notice={notice}
       onSearchText={setSearchText}

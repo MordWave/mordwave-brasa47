@@ -379,7 +379,7 @@ test('AdminPanel: only a SUPER_ADMIN goes through the selector gate; an ADMIN re
   for (const name of ['AdminApp', 'AdminMenu', 'AdminTables', 'AdminBusiness']) assert.match(panel, new RegExp(`<${name} key=\\{businessId\\}`), name)
   const app = code(read('../App.jsx'))
   assert.match(app, /<BusinessContextProvider>\s*<DevToolsProvider/)
-  assert.match(app, /<AuthProvider>\s*<BusinessContextProvider>/)
+  assert.match(app, /<AuthProvider endsSessionOnSuspension=\{suspensionEndsSession\}>\s*<BusinessContextProvider>/)
 })
 
 test('the customer app and public API have no tenant context (they resolve the business from the table session)', () => {

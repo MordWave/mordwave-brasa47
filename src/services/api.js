@@ -1,3 +1,5 @@
+import { isBusinessInactiveResponse } from '../context/suspension.js'
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
@@ -32,6 +34,15 @@ export function setUnauthorizedHandler(handler) {
   onUnauthorized = handler
 }
 
+// Set by AuthContext: a 403 BUSINESS_INACTIVE (the user's restaurant is suspended) ends the session of that user once,
+// instead of every caller showing its own error and every poller retrying forever. It receives no data; the handler
+// decides from the real session whether it applies (never for a SUPER_ADMIN) and returns the scope of the suspension
+// ('own' | 'managed'), which is attached to the error so the message fits who is reading it.
+let onBusinessInactive = null
+export function setBusinessInactiveHandler(handler) {
+  onBusinessInactive = handler
+}
+
 export async function apiFetch(path, { token, headers, ...options } = {}) {
   // A FormData body (image uploads) must never get JSON.stringify'd or a
   // manual Content-Type — the browser sets the correct
@@ -54,12 +65,15 @@ export async function apiFetch(path, { token, headers, ...options } = {}) {
     if (res.status === 401 && onUnauthorized) {
       onUnauthorized()
     }
-    throw new ApiError(res.status, extractMessage(body, `Error ${res.status}`), {
+    const suspensionScope = isBusinessInactiveResponse(res.status, body?.errorCode) && onBusinessInactive ? onBusinessInactive() : undefined
+    const error = new ApiError(res.status, extractMessage(body, `Error ${res.status}`), {
       code: body?.errorCode,
       count: body?.count,
       productName: body?.productName,
       limit: body?.limit,
     })
+    if (suspensionScope) error.suspensionScope = suspensionScope
+    throw error
   }
 
   return body
