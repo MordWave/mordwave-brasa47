@@ -77,7 +77,7 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
 
   it('the list of expected migrations (read from the build\'s own folder) is exactly the real, recorded set', () => {
     expect(expectedMigrations).toEqual(ALL_MIGRATIONS.map((M) => new M().name!).sort());
-    expect(expectedMigrations).toHaveLength(16);
+    expect(expectedMigrations).toHaveLength(17);
   });
 
   describe('--check is strictly read-only', () => {
@@ -86,7 +86,7 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
       const o = operator();
       expect(await runCheck(o.deps)).toBe(EXIT.ok);
       expect(o.text()).toMatch(/\[OK\] Conexión disponible/);
-      expect(o.text()).toMatch(/Esquema esperado y 16 migraciones/);
+      expect(o.text()).toMatch(/Esquema esperado y 17 migraciones/);
       expect(o.text()).toMatch(/SUPER_ADMIN existentes: 0/);
       expect(await users()).toEqual(before);
     });
@@ -165,6 +165,10 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
       // the address is stored exactly as the login normalises it, so the login will find it
       expect(row!.email).toBe(String(row!.email).trim().toLowerCase());
       expect(o.text()).toContain(`id=${String(row!.id)}`);
+      // the columns added by AddCredentialsSecurity are not named by the CLI: they take their defaults
+      expect(await q(`SELECT credentials_version, must_change_password FROM users WHERE id = $1`, [row!.id])).toEqual([
+        { credentials_version: 0, must_change_password: false },
+      ]);
     });
 
     it('never prints the password or the hash', async () => {
