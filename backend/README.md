@@ -104,6 +104,12 @@ rechazan (`forbidNonWhitelisted`).
 No hay `DELETE` físico todavía — para "borrar" un producto o categoría se
 usa `PATCH` con `active: false`, conservando el historial.
 
+## Bootstrap del primer SUPER_ADMIN
+
+Herramienta CLI explícita (no es un endpoint ni se ejecuta al arrancar): ver
+[`docs/runbook-bootstrap-super-admin.md`](docs/runbook-bootstrap-super-admin.md). La contraseña se pide solo en un prompt oculto;
+nunca se pasa por argumentos, variables de entorno ni archivos.
+
 ## Seed de desarrollo
 
 Inserta el negocio Brasa 47, sus 5 categorías base y 3 productos de prueba
