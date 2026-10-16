@@ -163,7 +163,7 @@ export class ProductService {
     // Business row (see BusinessLimitsService.assertCanCreate) so the
     // per-Business product ceiling can't be overshot by concurrent creates.
     return this.dataSource.transaction(async (manager) => {
-      await this.businessLimits.assertCanCreate(manager, businessId, 'product');
+      await this.businessLimits.assertCanCreate(manager, businessId, 'product', user);
       const productRepository = manager.getRepository(Product);
       const product = productRepository.create(dto);
       product.businessId = businessId;
@@ -362,7 +362,7 @@ export class ProductService {
     // same locked count as a create.
     if (movingToAnotherBusiness) {
       return this.dataSource.transaction(async (manager) => {
-        await this.businessLimits.assertCanCreate(manager, businessId, 'product');
+        await this.businessLimits.assertCanCreate(manager, businessId, 'product', user);
         return manager.getRepository(Product).save(product);
       });
     }

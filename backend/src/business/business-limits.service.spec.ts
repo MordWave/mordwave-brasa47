@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,10 +6,14 @@ import { Category } from '../category/category.entity.js';
 import { Product } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
 import { User } from '../user/user.entity.js';
+import type { SafeUser } from '../auth/safe-user.js';
+import { UserRole } from '../user/user-role.enum.js';
 import { Business } from './business.entity.js';
 import { BusinessLimitsService } from './business-limits.service.js';
 
 const LIMITS = { product: 500, category: 50, table: 200, user: 20 };
+const ADMIN: Pick<SafeUser, 'role'> = { role: UserRole.ADMIN };
+const SUPER_ADMIN: Pick<SafeUser, 'role'> = { role: UserRole.SUPER_ADMIN };
 
 describe('BusinessLimitsService', () => {
   let service: BusinessLimitsService;
@@ -24,7 +28,7 @@ describe('BusinessLimitsService', () => {
     businessRepo = {
       findOne: vi.fn(async () => {
         calls.push('lock');
-        return { id: 'biz-1' };
+        return { id: 'biz-1', active: true };
       }),
     };
     countRepos = new Map(
@@ -50,7 +54,7 @@ describe('BusinessLimitsService', () => {
 
   describe('assertCanCreate', () => {
     it('locks the Business row FOR UPDATE (pessimistic_write) BEFORE counting', async () => {
-      await service.assertCanCreate(manager, 'biz-1', 'product');
+      await service.assertCanCreate(manager, 'biz-1', 'product', ADMIN);
 
       expect(businessRepo.findOne).toHaveBeenCalledWith({
         where: { id: 'biz-1' },
@@ -60,7 +64,7 @@ describe('BusinessLimitsService', () => {
     });
 
     it('counts only that Business’s rows (tenant isolation)', async () => {
-      await service.assertCanCreate(manager, 'biz-1', 'category');
+      await service.assertCanCreate(manager, 'biz-1', 'category', ADMIN);
 
       expect(countRepos.get(Category)!.count).toHaveBeenCalledWith({ where: { businessId: 'biz-1' } });
     });
@@ -71,7 +75,7 @@ describe('BusinessLimitsService', () => {
       ['table', RestaurantTable],
       ['user', User],
     ] as const)('counts the right entity for %s', async (resource, entity) => {
-      await service.assertCanCreate(manager, 'biz-1', resource);
+      await service.assertCanCreate(manager, 'biz-1', resource, ADMIN);
 
       expect(countRepos.get(entity)!.count).toHaveBeenCalledTimes(1);
     });
@@ -85,10 +89,10 @@ describe('BusinessLimitsService', () => {
       const entity = { product: Product, category: Category, table: RestaurantTable, user: User }[resource];
 
       countRepos.get(entity)!.count.mockResolvedValue(limit - 1);
-      await expect(service.assertCanCreate(manager, 'biz-1', resource)).resolves.toBeUndefined();
+      await expect(service.assertCanCreate(manager, 'biz-1', resource, ADMIN)).resolves.toBeUndefined();
 
       countRepos.get(entity)!.count.mockResolvedValue(limit);
-      const error = await service.assertCanCreate(manager, 'biz-1', resource).catch((e: unknown) => e);
+      const error = await service.assertCanCreate(manager, 'biz-1', resource, ADMIN).catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(ConflictException);
       expect((error as ConflictException).getStatus()).toBe(409);
@@ -102,7 +106,7 @@ describe('BusinessLimitsService', () => {
     it('exposes nothing internal: only message, errorCode and limit — no counts, ids or tenant data', async () => {
       countRepos.get(Product)!.count.mockResolvedValue(9999);
 
-      const error = (await service.assertCanCreate(manager, 'biz-1', 'product').catch((e: unknown) => e)) as ConflictException;
+      const error = (await service.assertCanCreate(manager, 'biz-1', 'product', ADMIN).catch((e: unknown) => e)) as ConflictException;
       const body = error.getResponse() as Record<string, unknown>;
 
       expect(Object.keys(body).sort()).toEqual(['errorCode', 'limit', 'message']);
@@ -113,8 +117,8 @@ describe('BusinessLimitsService', () => {
     it('supports reserving several slots at once', async () => {
       countRepos.get(Product)!.count.mockResolvedValue(498);
 
-      await expect(service.assertCanCreate(manager, 'biz-1', 'product', 2)).resolves.toBeUndefined();
-      await expect(service.assertCanCreate(manager, 'biz-1', 'product', 3)).rejects.toBeInstanceOf(
+      await expect(service.assertCanCreate(manager, 'biz-1', 'product', ADMIN, 2)).resolves.toBeUndefined();
+      await expect(service.assertCanCreate(manager, 'biz-1', 'product', ADMIN, 3)).rejects.toBeInstanceOf(
         ConflictException,
       );
     });
@@ -122,7 +126,7 @@ describe('BusinessLimitsService', () => {
     it('404s for a Business that does not exist, without counting anything', async () => {
       businessRepo.findOne.mockResolvedValue(null);
 
-      await expect(service.assertCanCreate(manager, 'nope', 'product')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.assertCanCreate(manager, 'nope', 'product', ADMIN)).rejects.toBeInstanceOf(NotFoundException);
       expect(countRepos.get(Product)!.count).not.toHaveBeenCalled();
     });
 
@@ -130,14 +134,14 @@ describe('BusinessLimitsService', () => {
       service = new BusinessLimitsService({ business: { ...LIMITS, product: 3 } });
       countRepos.get(Product)!.count.mockResolvedValue(3);
 
-      await expect(service.assertCanCreate(manager, 'biz-1', 'product')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.assertCanCreate(manager, 'biz-1', 'product', ADMIN)).rejects.toBeInstanceOf(ConflictException);
     });
 
     it('logs a warning when the limit is hit (no PII)', async () => {
       const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
       countRepos.get(Product)!.count.mockResolvedValue(500);
 
-      await service.assertCanCreate(manager, 'biz-1', 'product').catch(() => undefined);
+      await service.assertCanCreate(manager, 'biz-1', 'product', ADMIN).catch(() => undefined);
 
       expect(warn).toHaveBeenCalledWith('business_limit_reached businessId=biz-1 resource=product limit=500');
       warn.mockRestore();
@@ -222,6 +226,59 @@ describe('BusinessLimitsService', () => {
       service.capList('product', 'biz-1', rowsOf(501));
 
       expect(getRepository).not.toHaveBeenCalled();
+    });
+
+    describe('suspended business (Business.active = false) — judged on the locked row', () => {
+      beforeEach(() => {
+        businessRepo.findOne.mockImplementation(async () => {
+          calls.push('lock');
+          return { id: 'biz-1', active: false };
+        });
+      });
+
+      it.each(['product', 'category', 'table', 'user'] as const)('ADMIN cannot create a %s: 403 BUSINESS_INACTIVE, nothing is counted', async (resource) => {
+        const error = await service.assertCanCreate(manager, 'biz-1', resource, ADMIN).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(ForbiddenException);
+        expect((error as ForbiddenException).getResponse()).toMatchObject({ errorCode: 'BUSINESS_INACTIVE' });
+        expect(calls).toEqual(['lock']);
+      });
+
+      it('SUPER_ADMIN keeps managing a suspended business: allowed, and the quota still applies to them', async () => {
+        await expect(service.assertCanCreate(manager, 'biz-1', 'product', SUPER_ADMIN)).resolves.toBeUndefined();
+        expect(calls).toEqual(['lock', 'count:Product']);
+
+        countRepos.get(Product)!.count.mockResolvedValue(500);
+        await expect(service.assertCanCreate(manager, 'biz-1', 'product', SUPER_ADMIN)).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('the suspension is reported before the quota (an ADMIN at the limit of a suspended business gets 403, not 409)', async () => {
+        countRepos.get(Product)!.count.mockResolvedValue(9999);
+
+        await expect(service.assertCanCreate(manager, 'biz-1', 'product', ADMIN)).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it('any role other than SUPER_ADMIN is subject to it (fails closed)', async () => {
+        await expect(service.assertCanCreate(manager, 'biz-1', 'product', { role: 'FUTURE_ROLE' as UserRole })).rejects.toBeInstanceOf(ForbiddenException);
+      });
+    });
+
+    describe('active business: current behaviour is unchanged', () => {
+      it('ADMIN and SUPER_ADMIN pass, locking the Business FIRST and counting after; the limits still apply', async () => {
+        await service.assertCanCreate(manager, 'biz-1', 'category', ADMIN);
+        await service.assertCanCreate(manager, 'biz-1', 'category', SUPER_ADMIN);
+        expect(calls).toEqual(['lock', 'count:Category', 'lock', 'count:Category']);
+
+        countRepos.get(Category)!.count.mockResolvedValue(50);
+        await expect(service.assertCanCreate(manager, 'biz-1', 'category', ADMIN)).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('takes the row with FOR UPDATE (pessimistic_write) and reads Business.active from that same locked read', async () => {
+        await service.assertCanCreate(manager, 'biz-1', 'table', ADMIN);
+
+        expect(businessRepo.findOne).toHaveBeenCalledTimes(1);
+        expect(businessRepo.findOne).toHaveBeenCalledWith({ where: { id: 'biz-1' }, lock: { mode: 'pessimistic_write' } });
+      });
     });
   });
 });

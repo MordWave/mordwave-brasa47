@@ -566,7 +566,7 @@ describe('ProductService', () => {
 
       await service.create({ name: 'Producto', price: 1000, businessId: 'x', categoryId: 'cat-1' }, admin);
 
-      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'product');
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'product', admin);
       expect(order).toEqual(['limit', 'save']);
     });
 
@@ -587,7 +587,7 @@ describe('ProductService', () => {
 
       await service.create({ name: 'Producto', price: 1000, businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin);
 
-      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product');
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product', superAdmin);
     });
 
     it('moving a product to another Business consumes quota in the DESTINATION (locked check before saving)', async () => {
@@ -597,7 +597,7 @@ describe('ProductService', () => {
 
       await service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin);
 
-      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product');
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product', superAdmin);
       expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', businessId: 'biz-2' }));
     });
 

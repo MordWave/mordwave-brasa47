@@ -3,6 +3,9 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -29,7 +32,10 @@ import { BusinessService } from './business.service.js';
 import { BusinessPresenter, type BusinessListItem, type BusinessResponse } from './business.presenter.js';
 import { buildPaginated, type Paginated } from '../common/pagination.util.js';
 import { IMAGE_MULTER_HARD_LIMIT_BYTES } from '../common/limits/resource-limits.const.js';
+import { BusinessLifecycleService } from './business-lifecycle.service.js';
+import { AdminUpdateBusinessDto } from './dto/admin-update-business.dto.js';
 import { CreateBusinessDto } from './dto/create-business.dto.js';
+import { DeactivateBusinessDto } from './dto/deactivate-business.dto.js';
 import { BusinessListQueryDto } from './dto/business-list-query.dto.js';
 import { BusinessQueryDto } from './dto/business-query.dto.js';
 import { UpdateBusinessDto } from './dto/update-business.dto.js';
@@ -46,6 +52,7 @@ import { UpdateBusinessDto } from './dto/update-business.dto.js';
 export class BusinessController {
   constructor(
     private readonly businessService: BusinessService,
+    private readonly lifecycle: BusinessLifecycleService,
     private readonly auditService: AuditService,
     private readonly presenter: BusinessPresenter,
   ) {}
@@ -163,5 +170,98 @@ export class BusinessController {
       ...extractClientInfo(req),
     });
     return this.presenter.present(updated);
+  }
+
+  // ---- SUPER_ADMIN management of ONE business by id ---------------------------------------------------------
+  // Declared after the /me routes, and :id is a ParseUUIDPipe, so "me" can never be read as an id. These never look at
+  // the caller's own businessId: the target is always the path parameter. Reads and the commit of the transition come
+  // first; the audit entry (best-effort, see AuditService.record) is written only for a transition that really
+  // happened, attributed to the real actor and to the affected business.
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<BusinessResponse> {
+    return this.presenter.present(await this.lifecycle.findOne(id));
+  }
+
+  // Name, address, phone and hours only; works on inactive businesses too. slug/active/colours/logo are rejected (400).
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  async updateById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdminUpdateBusinessDto,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<BusinessResponse> {
+    const result = await this.lifecycle.update(id, dto);
+    if (result.changed) {
+      await this.auditService.record({
+        businessId: id,
+        userId: user.id,
+        userEmail: user.email,
+        action: AUDIT_ACTIONS.BUSINESS_UPDATED,
+        entityType: AUDIT_ENTITY_TYPES.BUSINESS,
+        entityId: id,
+        metadata: { changes: result.changes },
+        ...extractClientInfo(req),
+      });
+    }
+    return this.presenter.present(result.business);
+  }
+
+  // Reversible suspension. 409 BUSINESS_HAS_PENDING_ORDERS while any order is still NEW; idempotent (200, no audit)
+  // when already inactive. Closes the business's open table sessions in the same transaction.
+  @Post(':id/deactivate')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  async deactivate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DeactivateBusinessDto,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<BusinessResponse> {
+    const result = await this.lifecycle.deactivate(id);
+    if (result.changed) {
+      await this.auditService.record({
+        businessId: id,
+        userId: user.id,
+        userEmail: user.email,
+        action: AUDIT_ACTIONS.BUSINESS_DEACTIVATED,
+        entityType: AUDIT_ENTITY_TYPES.BUSINESS,
+        entityId: id,
+        metadata: { reason: dto.reason ?? null, closedSessions: result.closedSessions },
+        ...extractClientInfo(req),
+      });
+    }
+    return this.presenter.present(result.business);
+  }
+
+  // Only flips the flag back; sessions closed by the suspension are not reopened. Idempotent (200, no audit).
+  @Post(':id/activate')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  async activate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<BusinessResponse> {
+    const result = await this.lifecycle.activate(id);
+    if (result.changed) {
+      await this.auditService.record({
+        businessId: id,
+        userId: user.id,
+        userEmail: user.email,
+        action: AUDIT_ACTIONS.BUSINESS_REACTIVATED,
+        entityType: AUDIT_ENTITY_TYPES.BUSINESS,
+        entityId: id,
+        metadata: {},
+        ...extractClientInfo(req),
+      });
+    }
+    return this.presenter.present(result.business);
   }
 }

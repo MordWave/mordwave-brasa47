@@ -115,7 +115,7 @@ describe('TableService', () => {
 
       await service.create({ name: 'Mesa 1', businessId: 'x' }, admin);
 
-      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'table');
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'table', admin);
       expect(order).toEqual(['limit', 'save']);
     });
 
@@ -136,7 +136,7 @@ describe('TableService', () => {
 
       await service.create({ name: 'Mesa 1', businessId: 'biz-2' }, superAdmin);
 
-      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'table');
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'table', superAdmin);
     });
 
     it('admin list asks for one extra row (limit + 1) with a deterministic order', async () => {
