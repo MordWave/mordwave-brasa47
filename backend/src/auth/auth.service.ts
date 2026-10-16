@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UserService } from '../user/user.service.js';
+import { BusinessAccessService } from './business-access.service.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { JwtPayload } from './interfaces/jwt-payload.interface.js';
 import { toSafeUser, type SafeUser } from './safe-user.js';
@@ -21,6 +22,7 @@ export class AuthService {
   constructor(
     private readonly userService: UserService,
     private readonly jwtService: JwtService,
+    private readonly businessAccess: BusinessAccessService,
   ) {}
 
   async login(dto: LoginDto): Promise<LoginResult> {
@@ -38,6 +40,10 @@ export class AuthService {
     if (!user || !user.active || !passwordMatches) {
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // Only after the credentials are proven correct (so the business state is never revealed to someone who does not
+    // know the password): an ADMIN of a suspended business is refused with 403 BUSINESS_INACTIVE and gets no token.
+    await this.businessAccess.assertBusinessActive(user);
 
     const payload: JwtPayload = {
       sub: user.id,

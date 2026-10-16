@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
 import { JwtModule, type JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Business } from '../business/business.entity.js';
 import jwtConfig from '../config/jwt.config.js';
 import { UserModule } from '../user/user.module.js';
+import { BusinessAccessService } from './business-access.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
@@ -18,6 +21,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
 @Module({
   imports: [
     UserModule,
+    TypeOrmModule.forFeature([Business]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [jwtConfig.KEY],
@@ -33,7 +37,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],
+  providers: [AuthService, BusinessAccessService, JwtStrategy, JwtAuthGuard, RolesGuard],
   exports: [PassportModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

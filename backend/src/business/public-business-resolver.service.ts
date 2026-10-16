@@ -49,6 +49,17 @@ export class PublicBusinessResolverService {
     private readonly businessRepository: Repository<Business>,
   ) {}
 
+  // Drops every cached resolution that points at this business (whichever key — id or slug — it was cached under), so
+  // the next public read goes back to the database and sees its current state. For the transition that suspends,
+  // reactivates or renames a business to call right after it commits; nothing calls it yet (no such transition
+  // exists in this phase). In-process only, like the cache itself: another replica keeps its entries until the
+  // CACHE_TTL_MS expiry, which stays the upper bound and is deliberately not raised.
+  invalidate(businessId: string): void {
+    for (const [key, entry] of this.cache) {
+      if (entry.businessId === businessId) this.cache.delete(key);
+    }
+  }
+
   async resolve(query: PublicBusinessQuery): Promise<string> {
     const { businessId, businessSlug } = query;
 

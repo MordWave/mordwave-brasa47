@@ -59,6 +59,7 @@ describe('TableSessionService', () => {
       id: 'biz-1',
       slug: 'brasa-47',
       name: 'Brasa 47',
+      active: true,
       logoStorageKey: null,
       primaryColor: null,
       accentColor: null,
@@ -73,6 +74,7 @@ describe('TableSessionService', () => {
           getRepository: vi.fn((entity: unknown) => {
             if (entity === RestaurantTable) return tableRepo;
             if (entity === TableSession) return sessionRepo;
+            if (entity === Business) return businessRepo;
             throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
           }),
         };
@@ -295,6 +297,7 @@ describe('TableSessionService', () => {
         id: 'biz-1',
         slug: 'brasa-47',
         name: 'Brasa 47',
+        active: true,
         logoStorageKey: LOGO_KEY,
         primaryColor: '#D94A2B',
         accentColor: '#E9B44C',
@@ -354,7 +357,7 @@ describe('TableSessionService', () => {
       expect(result).toEqual({ open: true });
       expect(sessionRepo.findOne).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { sessionToken: 'some-session-token', status: TableSessionStatus.OPEN },
+          where: { sessionToken: 'some-session-token', status: TableSessionStatus.OPEN, business: { active: true } },
         }),
       );
     });
@@ -365,6 +368,69 @@ describe('TableSessionService', () => {
       const result = await service.status('stale-token');
 
       expect(result).toEqual({ open: false });
+    });
+  });
+
+  describe('suspended business (Business.active = false)', () => {
+    const inactiveBusiness = { id: 'biz-1', slug: 'brasa-47', name: 'Brasa 47', active: false };
+
+    it('join: a suspended business admits no new session — same vague TABLE_SESSION_UNAVAILABLE, no token', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
+      sessionRepo.findOne.mockResolvedValue({ id: 's1', sessionToken: 'tok', status: TableSessionStatus.OPEN });
+      businessRepo.findOne.mockResolvedValue(inactiveBusiness);
+
+      const error = await service.join('qr-1').catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(NotFoundException);
+      expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'TABLE_SESSION_UNAVAILABLE' }));
+      expect(JSON.stringify(getErrorBody(error))).not.toMatch(/tok|suspend|inactive/i);
+    });
+
+    it('join: an active business still joins normally', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
+      sessionRepo.findOne.mockResolvedValue({ id: 's1', sessionToken: 'tok', status: TableSessionStatus.OPEN });
+
+      await expect(service.join('qr-1')).resolves.toMatchObject({ sessionToken: 'tok', businessSlug: 'brasa-47' });
+    });
+
+    it('status: only an OPEN session of an ACTIVE business reports open', async () => {
+      sessionRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.status('tok')).resolves.toEqual({ open: false });
+      expect(sessionRepo.findOne).toHaveBeenCalledWith({
+        where: { sessionToken: 'tok', status: TableSessionStatus.OPEN, business: { active: true } },
+      });
+
+      sessionRepo.findOne.mockResolvedValue({ id: 's1' });
+      await expect(service.status('tok')).resolves.toEqual({ open: true });
+    });
+
+    it('open: refused with 403 BUSINESS_INACTIVE for an ADMIN and for a SUPER_ADMIN alike; nothing is locked or written after it', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', active: true });
+      businessRepo.findOne.mockResolvedValue(inactiveBusiness);
+      const superAdmin: SafeUser = { id: 'su', email: 'su@mordwave.cl', role: UserRole.SUPER_ADMIN, businessId: null, active: true };
+
+      for (const user of [admin, superAdmin]) {
+        tableRepo.findOne.mockClear();
+        const error = await service.open('t1', user).catch((err: unknown) => err);
+
+        expect(error).toBeInstanceOf(ForbiddenException);
+        expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'BUSINESS_INACTIVE' }));
+        expect(tableRepo.findOne).toHaveBeenCalledTimes(1); // only the unlocked ownership read, never the locked one
+        expect(sessionRepo.save).not.toHaveBeenCalled();
+      }
+    });
+
+    it('open: locks the Business (FOR SHARE) before the RestaurantTable', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', active: true });
+
+      await service.open('t1', admin);
+
+      expect(businessRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'biz-1' }, lock: { mode: 'pessimistic_read' } }),
+      );
+      // tableRepo.findOne: call 1 = unlocked ownership read, call 2 = the locked one inside the transaction
+      expect(businessRepo.findOne.mock.invocationCallOrder[0]).toBeLessThan(tableRepo.findOne.mock.invocationCallOrder[1]!);
     });
   });
 });

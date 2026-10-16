@@ -153,5 +153,49 @@ describe('PublicBusinessResolverService', () => {
 
       expect(businessRepo.findOne).toHaveBeenCalledTimes(2);
     });
+
+    describe('invalidate(businessId)', () => {
+      const rowFor = (where: { slug?: string; id?: string }) =>
+        where.slug === 'otro-negocio' || where.id === 'biz-2'
+          ? { id: 'biz-2', active: true }
+          : { id: 'biz-1', active: true };
+
+      it('drops every cached key of that business (id and slug) so the next read goes back to the database', async () => {
+        businessRepo.findOne.mockImplementation(async ({ where }: { where: { slug?: string; id?: string } }) => rowFor(where));
+        await service.resolve({ businessSlug: 'brasa-47' });
+        await service.resolve({ businessId: 'biz-1' });
+        expect(businessRepo.findOne).toHaveBeenCalledTimes(2);
+
+        service.invalidate('biz-1');
+        // the business is suspended now: the next lookups must see the database, not the cache
+        businessRepo.findOne.mockResolvedValue(null);
+
+        await expect(service.resolve({ businessSlug: 'brasa-47' })).rejects.toBeInstanceOf(NotFoundException);
+        await expect(service.resolve({ businessId: 'biz-1' })).rejects.toBeInstanceOf(NotFoundException);
+        expect(businessRepo.findOne).toHaveBeenCalledTimes(4);
+      });
+
+      it('leaves other businesses cached', async () => {
+        businessRepo.findOne.mockImplementation(async ({ where }: { where: { slug?: string; id?: string } }) => rowFor(where));
+        await service.resolve({ businessSlug: 'brasa-47' });
+        await service.resolve({ businessSlug: 'otro-negocio' });
+
+        service.invalidate('biz-1');
+        await service.resolve({ businessSlug: 'otro-negocio' }); // still cached
+        await service.resolve({ businessSlug: 'brasa-47' }); // re-queried
+
+        expect(businessRepo.findOne).toHaveBeenCalledTimes(3);
+      });
+
+      it('is harmless for an unknown business and does not raise the TTL', async () => {
+        expect(() => service.invalidate('nobody')).not.toThrow();
+
+        businessRepo.findOne.mockResolvedValue({ id: 'biz-1', active: true });
+        await service.resolve({ businessSlug: 'brasa-47' });
+        vi.advanceTimersByTime(30_001);
+        await service.resolve({ businessSlug: 'brasa-47' });
+        expect(businessRepo.findOne).toHaveBeenCalledTimes(2); // TTL unchanged: 30 s
+      });
+    });
   });
 });
