@@ -8,6 +8,7 @@ import { Business } from './business.entity.js';
 import { BusinessController } from './business.controller.js';
 import { BusinessPresenter } from './business.presenter.js';
 import { BusinessLimitsService } from './business-limits.service.js';
+import { BusinessLifecycleService } from './business-lifecycle.service.js';
 import { BusinessService } from './business.service.js';
 import { PublicBusinessResolverService } from './public-business-resolver.service.js';
 
@@ -27,7 +28,7 @@ import { PublicBusinessResolverService } from './public-business-resolver.servic
     AuditModule,
   ],
   controllers: [BusinessController],
-  providers: [PublicBusinessResolverService, BusinessService, BusinessLimitsService, BusinessPresenter],
+  providers: [PublicBusinessResolverService, BusinessService, BusinessLifecycleService, BusinessLimitsService, BusinessPresenter],
   exports: [TypeOrmModule, PublicBusinessResolverService, BusinessLimitsService, BusinessPresenter],
 })
 export class BusinessModule {}

@@ -47,7 +47,7 @@ export class CategoryService {
     // Count + insert in one transaction behind a FOR UPDATE on the Business
     // row — see BusinessLimitsService.assertCanCreate.
     return this.dataSource.transaction(async (manager) => {
-      await this.businessLimits.assertCanCreate(manager, businessId, 'category');
+      await this.businessLimits.assertCanCreate(manager, businessId, 'category', user);
       const categoryRepository = manager.getRepository(Category);
       const category = categoryRepository.create(dto);
       category.businessId = businessId;

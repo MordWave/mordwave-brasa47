@@ -70,7 +70,7 @@ export class TableService {
     // Count + insert in one transaction behind a FOR UPDATE on the Business
     // row — see BusinessLimitsService.assertCanCreate.
     const saved = await this.dataSource.transaction(async (manager) => {
-      await this.businessLimits.assertCanCreate(manager, businessId, 'table');
+      await this.businessLimits.assertCanCreate(manager, businessId, 'table', user);
       const tableRepository = manager.getRepository(RestaurantTable);
       const table = tableRepository.create({
         name: dto.name,

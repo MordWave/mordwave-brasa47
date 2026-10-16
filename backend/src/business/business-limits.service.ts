@@ -5,11 +5,14 @@ import {
   BUSINESS_LIMIT_ERROR_CODES,
   type BusinessLimitedResource,
 } from '../common/limits/resource-limits.const.js';
+import type { SafeUser } from '../auth/safe-user.js';
 import resourceLimitsConfig from '../config/resource-limits.config.js';
 import { Category } from '../category/category.entity.js';
 import { Product } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
 import { User } from '../user/user.entity.js';
+import { UserRole } from '../user/user-role.enum.js';
+import { businessInactiveError } from './business-active.js';
 import { Business } from './business.entity.js';
 
 const ENTITY_BY_RESOURCE: Record<BusinessLimitedResource, new () => ObjectLiteral> = {
@@ -62,6 +65,7 @@ export class BusinessLimitsService {
     manager: EntityManager,
     businessId: string,
     resource: BusinessLimitedResource,
+    actor: Pick<SafeUser, 'role'>,
     additional = 1,
   ): Promise<void> {
     const business = await manager.getRepository(Business).findOne({
@@ -70,6 +74,18 @@ export class BusinessLimitsService {
     });
     if (!business) {
       throw new NotFoundException(`Business with id "${businessId}" does not exist`);
+    }
+
+    // A suspended business admits no creation by anyone but a SUPER_ADMIN, judged HERE: on the Business row this
+    // transaction already holds FOR UPDATE, in the same transaction that then inserts. So a request that passed the
+    // JWT guard just before a suspension still cannot create after it. `actor` is the authenticated user the
+    // controller got from the JWT strategy (@CurrentUser) — never a role from the body, query or a client header —
+    // and every role other than SUPER_ADMIN is subject to it. Checked before the quota so the answer for a
+    // suspended business is 403 BUSINESS_INACTIVE, not a limit error.
+    // Scope: only the paths that call this method (create category/product/table, and moving a product to another
+    // business). It is NOT a full cut-off of administrative writes; see BusinessLifecycleService.
+    if (!business.active && actor.role !== UserRole.SUPER_ADMIN) {
+      throw businessInactiveError();
     }
 
     const limit = this.getLimit(resource);

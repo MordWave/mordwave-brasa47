@@ -19,13 +19,13 @@ export function businessInactiveError(): ForbiddenException {
 // UPDATE on it, as BusinessLimitsService.assertCanCreate already does) waits for them, or is waited for.
 // A missing row counts as inactive (fails closed).
 //
-// KNOWN GAPS, for the phase that adds the suspend/reactivate transition (8D.2c-2b) — this file only enforces:
-//   1. Suspending must close the business's open table sessions in the SAME transaction (it takes FOR UPDATE on
-//      the Business row, then the sessions — never a table after a session).
-//   2. An admin write that already passed the JWT guard when a suspension begins is not re-checked afterwards; those
-//      write paths need reviewing so nothing lands after the transition.
-//   3. PublicBusinessResolverService.invalidate(businessId) must be called after that transaction COMMITS.
-//   4. Real concurrency between orders and a suspension has not been validated against a standalone PostgreSQL
+// What this file only ENFORCES; the suspend/reactivate transition itself lives in BusinessLifecycleService (which closes
+// the business's open table sessions in the same transaction and invalidates the public-menu cache after the commit).
+// KNOWN LIMITATIONS, deliberately not solved here:
+//   1. Only the creations that go through BusinessLimitsService.assertCanCreate re-check the state under the Business
+//      lock. Every other admin write that already passed the JWT guard when a suspension begins is not re-checked and
+//      can still finish during or after it; those write paths still need reviewing.
+//   2. Real concurrency between orders and a suspension has not been validated against a standalone PostgreSQL
 //      (the e2e harness, PGlite, is a single session); only the lock order and the read-under-lock are tested.
 //
 // LOCK ORDER (every path that locks more than one of these rows): Business -> RestaurantTable -> TableSession.

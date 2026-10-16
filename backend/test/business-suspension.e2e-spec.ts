@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ForbiddenException, INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -10,10 +10,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { AuditLog } from '../src/audit/audit-log.entity.js';
 import { Business } from '../src/business/business.entity.js';
+import type { SafeUser } from '../src/auth/safe-user.js';
 import { Category } from '../src/category/category.entity.js';
+import { CategoryService } from '../src/category/category.service.js';
 import { Order } from '../src/order/order.entity.js';
 import { Product } from '../src/product/product.entity.js';
+import { ProductService } from '../src/product/product.service.js';
 import { RestaurantTable } from '../src/table/table.entity.js';
+import { TableService } from '../src/table/table.service.js';
 import { TableSession } from '../src/table/table-session.entity.js';
 import { generateOpaqueToken } from '../src/table/token.util.js';
 import { User } from '../src/user/user.entity.js';
@@ -150,6 +154,12 @@ describe('Business.active enforcement (e2e, real local Postgres)', () => {
       await http().post(`/tables/${tableA2.id}/sessions`).set(bearer(adminAToken)).expect(201);
       await http().patch(`/tables/${tableA2.id}/sessions/current`).set(bearer(adminAToken)).expect(200); // close it again
     });
+
+    it('ADMIN of an ACTIVE business still creates categories, products and tables (HTTP, 201)', async () => {
+      const cat = await http().post('/categories').set(bearer(adminAToken)).send({ name: 'Extra', slug: 'extra', businessId: bizA.id }).expect(201);
+      await http().post('/products').set(bearer(adminAToken)).send({ name: 'Extra', price: 1000, businessId: bizA.id, categoryId: cat.body.id }).expect(201);
+      await http().post('/tables').set(bearer(adminAToken)).send({ name: 'Mesa extra', businessId: bizA.id }).expect(201);
+    });
   });
 
   describe('business A suspended (active = false)', () => {
@@ -157,12 +167,14 @@ describe('Business.active enforcement (e2e, real local Postgres)', () => {
     let auditBefore: number;
     let productsBefore: number;
     let usersBefore: number;
+    let tablesBefore: number;
 
     beforeAll(async () => {
       ordersBefore = await countOrders(bizA.id);
       auditBefore = await dataSource.getRepository(AuditLog).count({ where: { businessId: bizA.id } });
       productsBefore = await dataSource.getRepository(Product).count({ where: { businessId: bizA.id } });
       usersBefore = await dataSource.getRepository(User).count({ where: { businessId: bizA.id } });
+      tablesBefore = await dataSource.getRepository(RestaurantTable).count({ where: { businessId: bizA.id } });
       await setActive(bizA.id, false);
     });
 
@@ -232,6 +244,58 @@ describe('Business.active enforcement (e2e, real local Postgres)', () => {
       });
     });
 
+    describe('creation through assertCanCreate (category / product / table), judged on the locked Business row', () => {
+      const adminAUser = (): SafeUser => ({ id: 'whoever', email: 'admin-a@suspension.test', role: UserRole.ADMIN, businessId: bizA.id, active: true });
+      const counts = async () => ({
+        categories: await dataSource.getRepository(Category).count({ where: { businessId: bizA.id } }),
+        products: await dataSource.getRepository(Product).count({ where: { businessId: bizA.id } }),
+        tables: await dataSource.getRepository(RestaurantTable).count({ where: { businessId: bizA.id } }),
+      });
+
+      it('a request that had ALREADY passed the JWT guard when the suspension began is still stopped inside the transaction (service called with the ADMIN identity the guard produced)', async () => {
+        const before = await counts();
+        const category = app.get(CategoryService);
+        const tables = app.get(TableService);
+        const products = app.get(ProductService);
+        const anyCategory = await dataSource.getRepository(Category).findOneOrFail({ where: { businessId: bizA.id } });
+
+        for (const attempt of [
+          () => category.create({ name: 'Tarde', slug: 'tarde', businessId: bizA.id } as never, adminAUser()),
+          () => tables.create({ name: 'Mesa tarde', businessId: bizA.id } as never, adminAUser()),
+          () => products.create({ name: 'Tarde', price: 1, businessId: bizA.id, categoryId: anyCategory.id } as never, adminAUser()),
+        ]) {
+          const error = await attempt().catch((e: unknown) => e);
+          expect(error).toBeInstanceOf(ForbiddenException);
+          expect((error as ForbiddenException).getResponse()).toMatchObject({ errorCode: 'BUSINESS_INACTIVE' });
+        }
+        expect(await counts()).toEqual(before); // nothing was written
+      });
+
+      it('over HTTP the ADMIN is stopped earlier, by the guard (403 BUSINESS_INACTIVE)', async () => {
+        for (const [path, body] of [
+          ['/categories', { name: 'X', slug: 'x', businessId: bizA.id }],
+          ['/tables', { name: 'X', businessId: bizA.id }],
+          ['/products', { name: 'X', price: 1, businessId: bizA.id, categoryId: randomUUID() }],
+        ] as const) {
+          const res = await http().post(path).set(bearer(adminAToken)).send(body).expect(403);
+          expect(res.body.errorCode).toBe('BUSINESS_INACTIVE');
+        }
+      });
+
+      it('SUPER_ADMIN keeps managing the suspended business: creates a category, a product and a table (201)', async () => {
+        const cat = await http().post('/categories').set(bearer(superToken)).send({ name: 'Reparación', slug: 'reparacion', businessId: bizA.id }).expect(201);
+        await http().post('/products').set(bearer(superToken)).send({ name: 'Reparado', price: 1000, businessId: bizA.id, categoryId: cat.body.id }).expect(201);
+        await http().post('/tables').set(bearer(superToken)).send({ name: 'Mesa reparada', businessId: bizA.id }).expect(201);
+      });
+
+      it('another business is not affected: its ADMIN still creates, and nothing lands in the suspended one', async () => {
+        const before = await counts();
+        await http().post('/categories').set(bearer(adminBToken)).send({ name: 'B Extra', slug: 'b-extra', businessId: bizB.id }).expect(201);
+        await http().post('/tables').set(bearer(adminBToken)).send({ name: 'Mesa B2', businessId: bizB.id }).expect(201);
+        expect(await counts()).toEqual(before);
+      });
+    });
+
     describe('customers', () => {
       it('join (a new session) is refused with the vague TABLE_SESSION_UNAVAILABLE, no token', async () => {
         const res = await http().post('/table-sessions/join').send({ qrToken: tableA.qrToken }).expect(404);
@@ -273,9 +337,10 @@ describe('Business.active enforcement (e2e, real local Postgres)', () => {
     it('nothing was deleted: orders, audit trail, products and users are all still there', async () => {
       expect(await countOrders(bizA.id)).toBe(ordersBefore);
       expect(await dataSource.getRepository(AuditLog).count({ where: { businessId: bizA.id } })).toBeGreaterThanOrEqual(auditBefore);
-      expect(await dataSource.getRepository(Product).count({ where: { businessId: bizA.id } })).toBe(productsBefore);
+      // >=: the SUPER_ADMIN legitimately added a product to the suspended business above; nothing was removed
+      expect(await dataSource.getRepository(Product).count({ where: { businessId: bizA.id } })).toBeGreaterThanOrEqual(productsBefore);
       expect(await dataSource.getRepository(User).count({ where: { businessId: bizA.id } })).toBe(usersBefore);
-      expect(await dataSource.getRepository(RestaurantTable).count({ where: { businessId: bizA.id } })).toBe(2);
+      expect(await dataSource.getRepository(RestaurantTable).count({ where: { businessId: bizA.id } })).toBeGreaterThanOrEqual(tablesBefore);
     });
   });
 

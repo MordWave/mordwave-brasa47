@@ -115,7 +115,7 @@ describe('CategoryService', () => {
 
       await service.create({ name: 'Bebidas', slug: 'bebidas', businessId: 'x' }, admin);
 
-      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'category');
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-1', 'category', admin);
       expect(order).toEqual(['limit', 'save']);
     });
 
@@ -136,7 +136,7 @@ describe('CategoryService', () => {
 
       await service.create({ name: 'Bebidas', slug: 'bebidas', businessId: 'biz-2' }, superAdmin);
 
-      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'category');
+      expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'category', superAdmin);
     });
 
     it('updating or deactivating a category never consumes quota', async () => {
