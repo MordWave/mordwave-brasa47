@@ -21,6 +21,9 @@ export const AUDIT_ACTIONS = {
   TABLE_SESSION_OPENED: 'TABLE_SESSION_OPENED',
   TABLE_SESSION_CLOSED: 'TABLE_SESSION_CLOSED',
 
+  // A user changing their OWN password. Metadata is empty on purpose: nothing about the passwords is ever recorded.
+  USER_PASSWORD_CHANGED: 'USER_PASSWORD_CHANGED',
+
   BUSINESS_CREATED: 'BUSINESS_CREATED',
   BUSINESS_DEACTIVATED: 'BUSINESS_DEACTIVATED',
   BUSINESS_REACTIVATED: 'BUSINESS_REACTIVATED',
@@ -43,6 +46,7 @@ export const AUDIT_ENTITY_TYPES = {
   TABLE_SESSION: 'TableSession',
   BUSINESS: 'Business',
   ORDER: 'Order',
+  USER: 'User',
 } as const;
 
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[keyof typeof AUDIT_ENTITY_TYPES];

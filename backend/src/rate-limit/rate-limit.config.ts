@@ -31,6 +31,7 @@ export interface RateLimitPolicy {
 export type RateLimitPolicyName =
   | 'publicMenu'
   | 'login'
+  | 'changePassword'
   | 'upload'
   | 'ordersCreate'
   | 'tableJoin'
@@ -58,6 +59,10 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
     publicMenu: { ip: perMinute(120) },
     // POST /auth/login
     login: { ip: perMinute(5) },
+    // POST /auth/change-password — it verifies the CURRENT password, so with a stolen session it is a guessing
+    // oracle: a per-user cap (after auth) plus a per-IP cap (before auth). Both count every attempt, failed ones too,
+    // because the buckets are charged before the handler runs. The global ceilings still apply on top.
+    changePassword: { ip: perMinute(10), user: perMinute(5) },
     // POST /products/:id/image, POST /businesses/me/logo
     upload: { user: perMinute(30) },
     // POST /orders — the session bucket is shared by every device at the

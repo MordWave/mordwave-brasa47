@@ -2,7 +2,8 @@
 
 Migración: `src/migrations/1790400000000-AddCredentialsSecurity.ts`. Añade a `users`:
 `credentials_version integer NOT NULL DEFAULT 0` y `must_change_password boolean NOT NULL DEFAULT false`.
-Estado: **preparada y probada localmente (PGlite). No se ha aplicado a ningún entorno real.**
+Estado: **aplicada en producción el 2026-10-16 (23:37 UTC) y verificada**: 17 migraciones aplicadas, las dos columnas con sus valores por defecto,
+usuarios sin cambios. Desde 8D.2d-2b la entidad `User` las mapea, así que el orden "migración primero, código después" ya es una dependencia real.
 
 > **Publicar o fusionar el PR de esta migración NO autoriza aplicarla en producción.** Los despliegues de Railway no ejecutan
 > migraciones. Cada paso marcado como _(requiere autorización)_ se hace solo cuando el responsable lo apruebe de forma explícita,
