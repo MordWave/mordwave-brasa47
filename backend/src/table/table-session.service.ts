@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { resolveBusinessIdForUpdate } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
+import { businessInactiveError, lockBusinessIsActive } from '../business/business-active.js';
 import { Business } from '../business/business.entity.js';
 import { BusinessPresenter } from '../business/business.presenter.js';
 import { RestaurantTable } from './table.entity.js';
@@ -115,7 +116,9 @@ export class TableSessionService {
     // table.businessId is guaranteed to reference a real row (FK integrity)
     // — this is never null in practice, just defensively checked.
     const business = await this.businessRepository.findOne({ where: { id: table.businessId } });
-    if (!business) {
+    // A suspended business admits no new customer sessions. Same vague answer as every other "can't join": the
+    // customer cannot tell a suspended restaurant from a closed table. Read-only, so there is nothing to lock.
+    if (!business || !business.active) {
       throw this.unavailableError();
     }
     return {
@@ -130,19 +133,27 @@ export class TableSessionService {
   }
 
   // Public — a device already holding a token just wants to know if it's
-  // still good (session still OPEN).
+  // still good (session still OPEN and its business not suspended: a customer at a suspended restaurant is told the
+  // session is over, which the customer app already handles as "mesa cerrada"). One query: the business is joined.
   async status(sessionToken: string): Promise<SessionStatusResult> {
     const session = await this.tableSessionRepository.findOne({
-      where: { sessionToken, status: TableSessionStatus.OPEN },
+      where: { sessionToken, status: TableSessionStatus.OPEN, business: { active: true } },
     });
     return { open: Boolean(session) };
   }
 
   async open(tableId: string, user: SafeUser): Promise<PublicTableSession> {
-    await this.findOwnedTable(tableId, user);
+    const owned = await this.findOwnedTable(tableId, user);
 
     try {
       const session = await this.dataSource.transaction(async (manager) => {
+        // First lock of the transaction (lock order Business -> RestaurantTable -> TableSession): a suspended
+        // business cannot start customer sessions, SUPER_ADMIN included — opening one is what lets customers in.
+        // An owned table's businessId never changes, so the unlocked read above is a safe source for it.
+        if (!(await lockBusinessIsActive(manager, owned.businessId))) {
+          throw businessInactiveError();
+        }
+
         // Lock the table row itself — this is what makes "open a session"
         // and "deactivate this table" (TableService.update) mutually
         // exclusive: both lock the same RestaurantTable row, so whichever

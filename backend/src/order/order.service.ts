@@ -8,6 +8,7 @@ import {
   PAGINATION_DEFAULT_LIMIT,
   PAGINATION_DEFAULT_PAGE,
 } from '../common/pagination.const.js';
+import { lockBusinessIsActive } from '../business/business-active.js';
 import { Product, type ProductAddOn } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
 import { TableSession } from '../table/table-session.entity.js';
@@ -139,10 +140,21 @@ export class OrderService {
 
     try {
       return await this.dataSource.transaction(async (manager) => {
-        // Lock order: RestaurantTable -> TableSession. Same row/order
-        // TableService.update() locks when deactivating a table, so
-        // POST /orders and table deactivation serialize against each
-        // other too, not just against closeSession.
+        // Lock order: Business -> RestaurantTable -> TableSession (every path that
+        // locks more than one of them follows it, so none can deadlock another).
+        //
+        // 1. Business FOR SHARE: a suspended restaurant admits no orders. Read under
+        //    the lock and held to the end of this transaction, so a suspension that
+        //    commits first is seen here, and one that starts later waits for this
+        //    order — never a state read outside the transaction. The business id
+        //    comes from the session found above (a session's business never
+        //    changes); lockedSession is checked against it below. Answered with the
+        //    same TABLE_SESSION_UNAVAILABLE the customer app already handles.
+        // 2. Same row/order TableService.update() locks when deactivating a table,
+        //    so POST /orders and table deactivation serialize against each other
+        //    too, not just against closeSession.
+        if (!(await lockBusinessIsActive(manager, session.businessId))) throw this.unavailableError();
+
         const lockedTable = await manager.getRepository(RestaurantTable).findOne({
           where: { id: session.tableId },
           lock: { mode: 'pessimistic_write' },
@@ -153,7 +165,7 @@ export class OrderService {
           where: { sessionToken: dto.sessionToken, status: TableSessionStatus.OPEN },
           lock: { mode: 'pessimistic_write' },
         });
-        if (!lockedSession) throw this.unavailableError();
+        if (!lockedSession || lockedSession.businessId !== session.businessId) throw this.unavailableError();
 
         businessId = lockedSession.businessId;
 

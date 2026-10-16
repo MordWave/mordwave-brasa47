@@ -4,6 +4,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { And, DataSource, ILike, In, LessThan, MoreThanOrEqual } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
+import { Business } from '../business/business.entity.js';
 import { Product } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
 import { TableSession } from '../table/table-session.entity.js';
@@ -31,6 +32,7 @@ describe('OrderService', () => {
   let productRepo: ReturnType<typeof createRepoMock>;
   let tableSessionRepo: ReturnType<typeof createRepoMock>;
   let tableRepo: ReturnType<typeof createRepoMock>;
+  let businessRepo: ReturnType<typeof createRepoMock>;
   let dataSource: { transaction: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
@@ -54,6 +56,9 @@ describe('OrderService', () => {
     productRepo = createRepoMock();
     tableSessionRepo = createRepoMock();
     tableRepo = createRepoMock();
+    // The locked Business read at the start of every order transaction: an active business unless a test says otherwise.
+    businessRepo = createRepoMock();
+    businessRepo.findOne.mockResolvedValue({ id: 'biz-1', active: true });
 
     // Runs the transaction callback for real, against a fake EntityManager
     // whose getRepository() hands back the same mocks — mirrors how
@@ -67,6 +72,7 @@ describe('OrderService', () => {
             if (entity === Order) return orderRepo;
             if (entity === TableSession) return tableSessionRepo;
             if (entity === RestaurantTable) return tableRepo;
+            if (entity === Business) return businessRepo;
             throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
           }),
         };
@@ -186,6 +192,58 @@ describe('OrderService', () => {
       // already failed under lock.
       expect(tableSessionRepo.findOne).toHaveBeenCalledTimes(1);
       expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('locks the Business first (FOR SHARE) and rejects a suspended business before touching the table or the session', async () => {
+      tableSessionRepo.findOne.mockResolvedValueOnce(openSession); // unlocked pre-check: the session looks fine
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1', active: false }); // read under lock: suspended
+
+      const error = await service.create(baseDto).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(NotFoundException);
+      // the same vague answer the customer app already maps to "mesa cerrada"
+      expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'TABLE_SESSION_UNAVAILABLE' }));
+      expect(businessRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'biz-1' }, lock: { mode: 'pessimistic_read' } }),
+      );
+      expect(tableRepo.findOne).not.toHaveBeenCalled();
+      expect(tableSessionRepo.findOne).toHaveBeenCalledTimes(1); // only the unlocked pre-check
+      expect(orderRepo.findOne).not.toHaveBeenCalled();
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('a business that no longer exists is treated as suspended (fails closed)', async () => {
+      tableSessionRepo.findOne.mockResolvedValueOnce(openSession);
+      businessRepo.findOne.mockResolvedValue(null);
+
+      const error = await service.create(baseDto).catch((err: unknown) => err);
+
+      expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'TABLE_SESSION_UNAVAILABLE' }));
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a locked session that belongs to a different business than the one that was locked', async () => {
+      tableSessionRepo.findOne.mockResolvedValueOnce(openSession);
+      tableRepo.findOne.mockResolvedValueOnce(activeTable);
+      tableSessionRepo.findOne.mockResolvedValueOnce({ ...openSession, businessId: 'biz-OTHER' });
+
+      const error = await service.create(baseDto).catch((err: unknown) => err);
+
+      expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'TABLE_SESSION_UNAVAILABLE' }));
+      expect(orderRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('Business -> RestaurantTable -> TableSession: the three locks are taken in exactly that order', async () => {
+      mockHappyPathLookups();
+      productRepo.find.mockResolvedValue([validProduct]);
+
+      await service.create(baseDto);
+
+      const business = businessRepo.findOne.mock.invocationCallOrder[0]!;
+      const table = tableRepo.findOne.mock.invocationCallOrder[0]!;
+      const lockedSession = tableSessionRepo.findOne.mock.invocationCallOrder[1]!;
+      expect(business).toBeLessThan(table);
+      expect(table).toBeLessThan(lockedSession);
     });
 
     it('re-checks the TableSession under lock — a session closed between the unlocked check and the lock is rejected', async () => {
