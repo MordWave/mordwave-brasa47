@@ -15,6 +15,7 @@ import { AddBusinessConfig1790043637213 } from '../../src/migrations/17900436372
 import { AddAuditLog1790100000000 } from '../../src/migrations/1790100000000-AddAuditLog.js';
 import { AddMediaStorageKeys1790200000000 } from '../../src/migrations/1790200000000-AddMediaStorageKeys.js';
 import { DropLegacyMediaUrls1790300000000 } from '../../src/migrations/1790300000000-DropLegacyMediaUrls.js';
+import { AddCredentialsSecurity1790400000000 } from '../../src/migrations/1790400000000-AddCredentialsSecurity.js';
 
 // Every real migration file, in timestamp order — the exact same classes
 // that will eventually run against Supabase, imported directly rather than
@@ -41,6 +42,7 @@ export const ALL_MIGRATIONS = [
   AddAuditLog1790100000000,
   AddMediaStorageKeys1790200000000,
   DropLegacyMediaUrls1790300000000,
+  AddCredentialsSecurity1790400000000,
 ];
 
 // Runs every migration's up() directly against the given DataSource's own
