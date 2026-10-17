@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
+import AdminsView from '../admins/AdminsView.jsx'
+import { createAdminsApi } from '../admins/adminsApi.js'
+import { createAdminsStore } from '../admins/adminsStore.js'
 import BusinessManagementDialogs from '../management/BusinessManagementDialogs.jsx'
 import { createBusinessManagementApi } from '../management/businessManagementApi.js'
 import { createBusinessManagementStore } from '../management/managementStore.js'
@@ -22,7 +25,7 @@ import { useStoreState } from './useStoreState.js'
 // A selection that no longer exists / is inactive is dropped; one that cannot be verified keeps the user here with a
 // retry. Dev Tools "Ver como" never takes part: the real role decided that this gate exists at all.
 
-function TenantBar({ business, onChange, management }) {
+function TenantBar({ business, onChange, management, onAdmins }) {
   return (
     <div className="admin-panel__tenant" role="region" aria-label="Negocio que estás administrando">
       <div className="admin-panel__tenant-info">
@@ -42,6 +45,9 @@ function TenantBar({ business, onChange, management }) {
       <div className="admin-panel__tenant-actions">
         <button type="button" className="btn btn--outline btn--small" onClick={() => management.openEdit(business)}>
           Editar
+        </button>
+        <button type="button" className="btn btn--outline btn--small" onClick={() => onAdmins(business)}>
+          Administradores
         </button>
         <button type="button" className="btn btn--outline btn--small business-card__suspend" onClick={() => management.openSuspend(business)}>
           Suspender
@@ -71,6 +77,11 @@ export default function BusinessGate({ onBusiness, children }) {
     }),
   )
   const [management] = useState(() => createBusinessManagementStore({ api: createBusinessManagementApi({ getToken: () => latest.current.token }) }))
+  // The "Administradores" view (SUPER_ADMIN only, like everything in this gate): opened for any restaurant by id — from a
+  // picker row (suspended ones included) or from the bar of the chosen one — and it replaces the picker / panels while open.
+  const [admins] = useState(() => createAdminsStore({ api: createAdminsApi({ getToken: () => latest.current.token }) }))
+  const adminsState = useStoreState(admins)
+  useEffect(() => () => admins.close(), [admins])
   const state = useStoreState(validator)
 
   // What happened in a management dialog. The chosen restaurant is read from `latest` (the selection at the moment the
@@ -124,11 +135,14 @@ export default function BusinessGate({ onBusiness, children }) {
   }, [state, businessId, confirmActiveBusiness, clearActiveBusiness, onBusiness])
 
   const view = (() => {
+    if (adminsState.business !== null) return <AdminsView store={admins} onBack={admins.close} />
+
     if (businessId === null) {
       return (
         <BusinessPicker
           notice={notice}
           management={management}
+          admins={admins}
           onSelect={(id) => {
             setNotice('')
             setActiveBusiness(id)
@@ -140,7 +154,7 @@ export default function BusinessGate({ onBusiness, children }) {
     if (isBusinessReady && state.status === 'valid' && state.businessId === businessId) {
       return (
         <>
-          <TenantBar business={state.business} onChange={clearActiveBusiness} management={management} />
+          <TenantBar business={state.business} onChange={clearActiveBusiness} management={management} onAdmins={admins.open} />
           {children}
         </>
       )

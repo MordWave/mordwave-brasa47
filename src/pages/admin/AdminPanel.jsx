@@ -1,7 +1,10 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import ForcedPasswordChange from '../../account/ForcedPasswordChange'
+import PasswordChangeDialog from '../../account/PasswordChangeDialog'
 import ThemeToggle from '../../components/ThemeToggle'
 import { useAuth } from '../../context/AuthContext'
 import { ConfirmProvider } from '../../context/ConfirmContext'
+import { needsPasswordChange } from '../../context/passwordChange.js'
 import { ToastProvider } from '../../context/ToastContext'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { apiFetch } from '../../services/api'
@@ -40,6 +43,9 @@ export default function AdminPanel() {
   const { businessId, isBusinessSelectable, scopePath } = useActiveBusiness()
   const [tab, setTab] = useState('pedidos')
   const [business, setBusiness] = useState(null)
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
+  // The backend requires a password change before anything else (user.mustChangePassword, from the server's own answers).
+  const mustChangePassword = needsPasswordChange(user)
 
   // Cosmetic only — used for the header eyebrow and print templates. (For a SUPER_ADMIN the selector gate loads and
   // verifies the chosen business itself and hands it over through onBusiness.)
@@ -57,8 +63,8 @@ export default function AdminPanel() {
   }, [token, scopePath])
 
   useEffect(() => {
-    if (isAuthenticated && !isBusinessSelectable) loadBusiness()
-  }, [isAuthenticated, isBusinessSelectable, loadBusiness])
+    if (isAuthenticated && !isBusinessSelectable && !mustChangePassword) loadBusiness()
+  }, [isAuthenticated, mustChangePassword, isBusinessSelectable, loadBusiness])
 
   // A different active business (only a SUPER_ADMIN can change it) must never show the previous one's name.
   useEffect(() => {
@@ -79,6 +85,12 @@ export default function AdminPanel() {
 
   if (!isAuthenticated) {
     return <AdminLogin />
+  }
+
+  // While a password change is required this is the ONLY thing rendered: no panels, no business selector, no polling,
+  // no administrative request. It is left by changing the password (the session is replaced) or by logging out.
+  if (mustChangePassword) {
+    return <ForcedPasswordChange />
   }
 
   // The Admin itself: tabs and panels. Keyed by the active business: switching it remounts them, so nothing from the
@@ -127,6 +139,9 @@ export default function AdminPanel() {
               )}
               <ThemeToggle />
               <span className="admin-panel__user-email">{user.email}</span>
+              <button type="button" className="btn btn--outline btn--small" onClick={() => setPasswordDialogOpen(true)}>
+                Cambiar contraseña
+              </button>
               <button type="button" className="btn btn--outline btn--small" onClick={handleLogout}>
                 Cerrar sesión
               </button>
@@ -136,6 +151,8 @@ export default function AdminPanel() {
           {/* An ADMIN renders the panels directly (no gate, no GET /businesses). A real SUPER_ADMIN goes through the
               selector gate: picker -> verified business -> these same panels, keyed by business. */}
           {isBusinessSelectable ? <BusinessGate onBusiness={setBusiness}>{panels}</BusinessGate> : panels}
+
+          {passwordDialogOpen && <PasswordChangeDialog onClose={() => setPasswordDialogOpen(false)} />}
         </div>
       </ConfirmProvider>
     </ToastProvider>

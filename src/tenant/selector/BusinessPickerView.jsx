@@ -49,6 +49,11 @@ function BusinessCard({ business, onSelect, management }) {
           <button type="button" className="btn btn--outline btn--small" onClick={() => management.onEdit(business)} aria-label={`Editar ${business.name}`}>
             Editar
           </button>
+          {management.onAdmins && (
+            <button type="button" className="btn btn--outline btn--small" onClick={() => management.onAdmins(business)} aria-label={`Administradores de ${business.name}`}>
+              Administradores
+            </button>
+          )}
           {business.active ? (
             <button type="button" className="btn btn--outline btn--small business-card__suspend" onClick={() => management.onSuspend(business)} aria-label={`Suspender ${business.name}`}>
               Suspender
