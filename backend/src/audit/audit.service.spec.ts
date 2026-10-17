@@ -44,6 +44,44 @@ describe('AuditService', () => {
     service = moduleRef.get(AuditService);
   });
 
+  describe('recordInTransaction', () => {
+    const input = {
+      businessId: 'biz-1',
+      userId: 'super-1',
+      userEmail: 'super@mordwave.cl',
+      action: 'USER_ADMIN_PASSWORD_RESET',
+      entityType: 'User',
+      entityId: 'u1',
+      metadata: { email: 'a@b.test', password: 'never', token: 'never', passwordHash: 'never' },
+      ipAddress: '1.2.3.4',
+      userAgent: 'agent',
+    };
+
+    it('writes the same sanitized entry through the CALLER\'s transaction manager, not through its own repository', async () => {
+      const txRepo = { save: vi.fn(async (e: unknown) => e) };
+      const manager = { getRepository: vi.fn(() => txRepo) };
+
+      await service.recordInTransaction(manager as never, input);
+
+      expect(manager.getRepository).toHaveBeenCalledWith(AuditLog);
+      expect(txRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ businessId: 'biz-1', userId: 'super-1', action: 'USER_ADMIN_PASSWORD_RESET', entityId: 'u1', ipAddress: '1.2.3.4', metadata: { email: 'a@b.test' } }),
+      );
+      expect(JSON.stringify(txRepo.save.mock.calls)).not.toMatch(/never/); // secrets stripped by the same sanitizer
+      expect(auditLogRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('is NOT best-effort: a failing insert propagates (so the caller\'s transaction rolls back)', async () => {
+      const manager = { getRepository: () => ({ save: vi.fn().mockRejectedValue(new Error('insert failed')) }) };
+      await expect(service.recordInTransaction(manager as never, input)).rejects.toThrow('insert failed');
+    });
+
+    it('record() stays best-effort: it swallows the failure', async () => {
+      auditLogRepo.save.mockRejectedValueOnce(new Error('db down'));
+      await expect(service.record(input)).resolves.toBeUndefined();
+    });
+  });
+
   describe('record', () => {
     it('saves an entry with sanitized metadata', async () => {
       await service.record({

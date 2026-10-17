@@ -4,6 +4,9 @@ import { AuditModule } from '../audit/audit.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { MediaModule } from '../media/media.module.js';
 import { StorageModule } from '../storage/storage.module.js';
+import { User } from '../user/user.entity.js';
+import { BusinessAdminController } from './business-admin.controller.js';
+import { BusinessAdminService } from './business-admin.service.js';
 import { Business } from './business.entity.js';
 import { BusinessController } from './business.controller.js';
 import { BusinessPresenter } from './business.presenter.js';
@@ -14,7 +17,8 @@ import { PublicBusinessResolverService } from './public-business-resolver.servic
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Business]),
+    // User: BusinessAdminService manages the ADMIN accounts of a business (SUPER_ADMIN only).
+    TypeOrmModule.forFeature([Business, User]),
     // Gives access to AuthModule's exported JwtAuthGuard/RolesGuard for the
     // admin-only /businesses/me* routes below.
     AuthModule,
@@ -27,8 +31,8 @@ import { PublicBusinessResolverService } from './public-business-resolver.servic
     // updateMe()/uploadLogo() audit calls.
     AuditModule,
   ],
-  controllers: [BusinessController],
-  providers: [PublicBusinessResolverService, BusinessService, BusinessLifecycleService, BusinessLimitsService, BusinessPresenter],
+  controllers: [BusinessController, BusinessAdminController],
+  providers: [PublicBusinessResolverService, BusinessService, BusinessLifecycleService, BusinessLimitsService, BusinessPresenter, BusinessAdminService],
   exports: [TypeOrmModule, PublicBusinessResolverService, BusinessLimitsService, BusinessPresenter],
 })
 export class BusinessModule {}

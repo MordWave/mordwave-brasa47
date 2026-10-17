@@ -32,6 +32,8 @@ export type RateLimitPolicyName =
   | 'publicMenu'
   | 'login'
   | 'changePassword'
+  | 'adminProvisioning'
+  | 'adminStatus'
   | 'upload'
   | 'ordersCreate'
   | 'tableJoin'
@@ -63,6 +65,11 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
     // oracle: a per-user cap (after auth) plus a per-IP cap (before auth). Both count every attempt, failed ones too,
     // because the buckets are charged before the handler runs. The global ceilings still apply on top.
     changePassword: { ip: perMinute(10), user: perMinute(5) },
+    // POST /businesses/:id/admins and .../reset-password (SUPER_ADMIN) — they mint credentials, so they get their own
+    // tight caps on top of the global ones: per IP before auth, per user after it. Every attempt counts.
+    adminProvisioning: { ip: perMinute(20), user: perMinute(10) },
+    // POST /businesses/:id/admins/:userId/activate|deactivate (SUPER_ADMIN)
+    adminStatus: { user: perMinute(30) },
     // POST /products/:id/image, POST /businesses/me/logo
     upload: { user: perMinute(30) },
     // POST /orders — the session bucket is shared by every device at the

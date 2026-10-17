@@ -33,6 +33,8 @@ const REDUCED: RateLimitConfig = {
     publicMenu: { ip: bucket(3) },
     login: { ip: bucket(5) }, // same as production on purpose
     changePassword: { ip: bucket(10), user: bucket(5) }, // same as production on purpose
+    adminProvisioning: { ip: bucket(20), user: bucket(10) },
+    adminStatus: { user: bucket(30) },
     upload: { user: bucket(2) },
     ordersCreate: { session: bucket(3), ip: bucket(6) },
     tableJoin: { ip: bucket(3) },
