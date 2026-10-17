@@ -3869,7 +3869,247 @@ button.business-card:focus-visible {
   border-radius: var(--radius-sm);
 }
 
+/* ---- Password change (account/): the forced screen, the voluntary dialog and the shared form. Tokens only. ---- */
+.password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.password-form__intro,
+.password-form__who {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.password-form__rules {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.password-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.password-form__logout {
+  align-self: center;
+  width: auto;
+}
+
+.password-form input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.password-form input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ---- SUPER_ADMIN "Administradores" view (tenant/admins). Tokens only. ---- */
+.admins {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 4px 0 24px;
+}
+
+.admins__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admins__head .btn,
+.admins__create .btn {
+  width: auto;
+}
+
+.admins__create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.admins__create label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 240px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admins__create input {
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+
+.admins__create input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.admins__create input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.admins__hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.admins__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.admin-row--inactive {
+  background: var(--dimmed-surface);
+}
+
+.admin-row--inactive .admin-row__email {
+  color: var(--dimmed-text);
+}
+
+.admin-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.admin-row__email {
+  font-weight: 800;
+  font-size: 14.5px;
+  overflow-wrap: anywhere;
+}
+
+.admin-row__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-row__actions .btn {
+  width: auto;
+}
+
+.business-card__badge--pending {
+  background: var(--warning-tint);
+  color: var(--warning);
+}
+
+/* the one-time temporary password dialog */
+.temp-password__restaurant {
+  margin: -6px 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.temp-password__warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--warning);
+  background: var(--warning-tint);
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius-sm);
+}
+
+.temp-password__value {
+  display: block;
+  margin: 0 0 10px;
+  padding: 14px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.temp-password__copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.temp-password__copy .btn {
+  width: auto;
+}
+
+.temp-password__copy-status {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--success);
+}
+
+.temp-password__note {
+  margin: 10px 0 14px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 @media print {
+  .admins,
+  .temp-password,
   .admin-panel__tenant,
   .business-picker {
     display: none;

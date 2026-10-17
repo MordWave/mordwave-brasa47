@@ -9,7 +9,7 @@ const SEARCH_DEBOUNCE_MS = 300
 
 // SUPER_ADMIN's restaurant picker: GET /businesses with search, an active filter and progressive loading ("Cargar más"),
 // never assuming everything fits on the first page. Choosing one only calls onSelect(id); the gate validates it.
-export default function BusinessPicker({ notice = '', management = null, onSelect }) {
+export default function BusinessPicker({ notice = '', management = null, admins = null, onSelect }) {
   const { token } = useAuth()
   const tokenRef = useRef(token)
   useEffect(() => {
@@ -39,7 +39,7 @@ export default function BusinessPicker({ notice = '', management = null, onSelec
   }, [management, store])
 
   const rowActions = management
-    ? { onEdit: management.openEdit, onSuspend: management.openSuspend, onActivate: management.openActivate }
+    ? { onEdit: management.openEdit, onSuspend: management.openSuspend, onActivate: management.openActivate, onAdmins: admins ? admins.open : null }
     : null
 
   return (
