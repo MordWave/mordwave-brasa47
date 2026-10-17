@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { extractClientInfo } from '../audit/request-client-info.util.js';
 import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { AuthService, type LoginResult } from './auth.service.js';
+import { AllowPasswordChangeRequired } from './decorators/allow-password-change-required.decorator.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -26,7 +27,9 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  // Allowed while a password change is required: the client needs it to learn that (mustChangePassword).
   @Get('me')
+  @AllowPasswordChangeRequired()
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: SafeUser): SafeUser {
     return user;
@@ -37,8 +40,10 @@ export class AuthController {
   // Audited (success only) for an ADMIN, scoped to their business, with EMPTY metadata: no password, hash or token is
   // ever recorded. A SUPER_ADMIN has no business to scope an audit row to (audit_logs.business_id is NOT NULL), so
   // their change is NOT audited — the platform-level audit trail is still pending (it needs a schema change).
+  // The only way out of the forced change. Still authenticated and rate limited like any other route.
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
+  @AllowPasswordChangeRequired()
   @UseGuards(JwtAuthGuard)
   @RateLimit('changePassword')
   async changePassword(

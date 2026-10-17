@@ -326,8 +326,8 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
       const adminLogin = await request(app.getHttpServer()).post('/auth/login').send(admin).expect(200);
       const superLogin = await request(app.getHttpServer()).post('/auth/login').send(superAdmin).expect(200);
       expect(Object.keys(adminLogin.body).sort()).toEqual(['accessToken', 'user']);
-      expect(adminLogin.body.user).toEqual({ id: legacyAdminId, email: admin.email, role: 'ADMIN', businessId: business.id, active: true });
-      expect(superLogin.body.user).toEqual({ id: legacySuperAdminId, email: superAdmin.email, role: 'SUPER_ADMIN', businessId: null, active: true });
+      expect(adminLogin.body.user).toEqual({ id: legacyAdminId, email: admin.email, role: 'ADMIN', businessId: business.id, active: true, mustChangePassword: false });
+      expect(superLogin.body.user).toEqual({ id: legacySuperAdminId, email: superAdmin.email, role: 'SUPER_ADMIN', businessId: null, active: true, mustChangePassword: false });
 
       for (const login of [adminLogin, superLogin]) {
         const payload = JSON.parse(Buffer.from(String(login.body.accessToken).split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;

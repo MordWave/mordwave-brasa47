@@ -14,6 +14,7 @@ const WITH_PASSWORD = {
   businessId: true,
   active: true,
   credentialsVersion: true,
+  mustChangePassword: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -57,7 +58,7 @@ export class UserService {
       .where('"id" = :id', { id })
       .andWhere('"credentials_version" = :expectedVersion', { expectedVersion })
       .andWhere('"active" = true')
-      .returning('"id", "email", "role", "business_id", "active", "credentials_version"')
+      .returning('"id", "email", "role", "business_id", "active", "credentials_version", "must_change_password"')
       .execute();
 
     const rows = result.raw as Array<{
@@ -67,6 +68,7 @@ export class UserService {
       business_id: string | null;
       active: boolean;
       credentials_version: number;
+      must_change_password: boolean;
     }>;
     const row = rows[0];
     if (!row) return null;
@@ -77,6 +79,7 @@ export class UserService {
       businessId: row.business_id,
       active: row.active,
       credentialsVersion: row.credentials_version,
+      mustChangePassword: row.must_change_password,
     });
   }
 }

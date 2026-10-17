@@ -46,8 +46,8 @@ export class User {
   @Column({ name: 'credentials_version', type: 'integer', default: 0 })
   credentialsVersion: number;
 
-  // Mapped only (8D.2d-2b). Nothing reads it yet: the forced-change guard arrives in 8D.2d-2c. A successful password
-  // change sets it to false.
+  // While true the user may only call GET /auth/me and POST /auth/change-password (enforced by JwtAuthGuard, 8D.2d-2c).
+  // A successful password change sets it to false in the same UPDATE that bumps credentials_version.
   @Column({ name: 'must_change_password', type: 'boolean', default: false })
   mustChangePassword: boolean;
 

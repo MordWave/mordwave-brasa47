@@ -45,6 +45,7 @@ describe('AuthService', () => {
       businessId: 'biz-1',
       active: true,
       credentialsVersion: 0,
+      mustChangePassword: false,
     });
 
     const result = await service.login({
@@ -59,7 +60,24 @@ describe('AuthService', () => {
       role: UserRole.ADMIN,
       businessId: 'biz-1',
       active: true,
+      mustChangePassword: false,
     });
+  });
+
+  it('login reports mustChangePassword = true when the row says so, as a real boolean, and still issues the token', async () => {
+    userService.findByEmailWithPassword.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@brasa47.cl',
+      passwordHash: await bcrypt.hash('correct-password', 12),
+      role: UserRole.ADMIN,
+      businessId: 'biz-1',
+      active: true,
+      credentialsVersion: 0,
+      mustChangePassword: true,
+    });
+    const result = await service.login({ email: 'admin@brasa47.cl', password: 'correct-password' });
+    expect(result.user.mustChangePassword).toBe(true);
+    expect(signAsync).toHaveBeenCalledWith({ sub: 'user-1', email: 'admin@brasa47.cl', role: UserRole.ADMIN, businessId: 'biz-1', cv: 0 }); // no flag in the JWT
   });
 
   it('rejects a nonexistent email with the generic message', async () => {
@@ -193,7 +211,7 @@ describe('AuthService', () => {
       credentialsVersion: 2,
       ...overrides,
     });
-    const after = { id: 'user-1', email: 'admin@brasa47.cl', role: UserRole.ADMIN, businessId: 'biz-1', active: true, credentialsVersion: 3 };
+    const after = { id: 'user-1', email: 'admin@brasa47.cl', role: UserRole.ADMIN, businessId: 'biz-1', active: true, credentialsVersion: 3, mustChangePassword: false };
     const codeOf = async (promise: Promise<unknown>) => {
       const error = (await promise.catch((e: unknown) => e)) as { getResponse?: () => { errorCode?: string } };
       return { error, code: error.getResponse?.().errorCode };
@@ -213,7 +231,7 @@ describe('AuthService', () => {
       expect(signAsync).toHaveBeenCalledWith({ sub: 'user-1', email: 'admin@brasa47.cl', role: UserRole.ADMIN, businessId: 'biz-1', cv: 3 });
       expect(result).toEqual({
         accessToken: 'signed.jwt.token',
-        user: { id: 'user-1', email: 'admin@brasa47.cl', role: UserRole.ADMIN, businessId: 'biz-1', active: true },
+        user: { id: 'user-1', email: 'admin@brasa47.cl', role: UserRole.ADMIN, businessId: 'biz-1', active: true, mustChangePassword: false },
       });
       expect(JSON.stringify(result)).not.toMatch(/\$2[aby]\$|passwordHash|currentPassword|newPassword/);
     });
