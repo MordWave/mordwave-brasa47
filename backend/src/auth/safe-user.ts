@@ -8,6 +8,9 @@ export interface SafeUser {
   role: UserRole;
   businessId: string | null;
   active: boolean;
+  // Real boolean from the user's row (never from the JWT). While true, JwtAuthGuard only lets the user reach
+  // GET /auth/me and POST /auth/change-password.
+  mustChangePassword: boolean;
 }
 
 export function toSafeUser(user: User): SafeUser {
@@ -17,5 +20,6 @@ export function toSafeUser(user: User): SafeUser {
     role: user.role,
     businessId: user.businessId,
     active: user.active,
+    mustChangePassword: user.mustChangePassword,
   };
 }

@@ -36,6 +36,7 @@ describe('JwtStrategy', () => {
       businessId: 'biz-1',
       active: true,
       credentialsVersion: 0,
+      mustChangePassword: false,
     });
 
     const result = await strategy.validate({
@@ -52,7 +53,22 @@ describe('JwtStrategy', () => {
       role: UserRole.ADMIN,
       businessId: 'biz-1',
       active: true,
+      mustChangePassword: false,
     });
+  });
+
+  it('exposes mustChangePassword as the real boolean of the row (the JwtAuthGuard enforces it), whatever the token claims', async () => {
+    userService.findById.mockResolvedValue({
+      id: 'user-1',
+      email: 'a@b.cl',
+      role: UserRole.ADMIN,
+      businessId: 'biz-1',
+      active: true,
+      credentialsVersion: 0,
+      mustChangePassword: true,
+    });
+    const result = await strategy.validate({ sub: 'user-1', email: 'a@b.cl', role: UserRole.ADMIN, businessId: 'biz-1', mustChangePassword: false } as never);
+    expect(result.mustChangePassword).toBe(true);
   });
 
   it('rejects when the user no longer exists', async () => {

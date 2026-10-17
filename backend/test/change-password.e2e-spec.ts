@@ -122,7 +122,7 @@ describe('POST /auth/change-password and credentials-version revocation (e2e, re
       const user = await makeUser();
       const ok = await loginAs(user).expect(200);
       expect(Object.keys(ok.body).sort()).toEqual(['accessToken', 'user']);
-      expect(ok.body.user).toEqual({ id: user.id, email: user.email, role: 'ADMIN', businessId: business.id, active: true });
+      expect(ok.body.user).toEqual({ id: user.id, email: user.email, role: 'ADMIN', businessId: business.id, active: true, mustChangePassword: false });
 
       const wrong = await loginAs(user, 'definitely-wrong-1').expect(401);
       const unknown = await http().post('/auth/login').set('X-Real-IP', nextIp()).send({ email: 'nobody@change-password.test', password: 'whatever-123' }).expect(401);
@@ -185,7 +185,7 @@ describe('POST /auth/change-password and credentials-version revocation (e2e, re
       const res = await change(token, { currentPassword: PASSWORD, newPassword: NEW_PASSWORD }).expect(200);
 
       expect(Object.keys(res.body).sort()).toEqual(['accessToken', 'user']);
-      expect(res.body.user).toEqual({ id: user.id, email: user.email, role: 'ADMIN', businessId: business.id, active: true });
+      expect(res.body.user).toEqual({ id: user.id, email: user.email, role: 'ADMIN', businessId: business.id, active: true, mustChangePassword: false });
       expect(payloadOf(res.body.accessToken)).toMatchObject({ sub: user.id, role: 'ADMIN', businessId: business.id, cv: 1 });
       const text = JSON.stringify(res.body);
       expect(text).not.toContain(PASSWORD);
@@ -242,7 +242,7 @@ describe('POST /auth/change-password and credentials-version revocation (e2e, re
     it('SUPER_ADMIN can change their own password too, and it keeps no business', async () => {
       const root = await makeUser(UserRole.SUPER_ADMIN, null);
       const res = await change(await tokenFor(root, 0), { currentPassword: PASSWORD, newPassword: NEW_PASSWORD }).expect(200);
-      expect(res.body.user).toEqual({ id: root.id, email: root.email, role: 'SUPER_ADMIN', businessId: null, active: true });
+      expect(res.body.user).toEqual({ id: root.id, email: root.email, role: 'SUPER_ADMIN', businessId: null, active: true, mustChangePassword: false });
       expect(payloadOf(res.body.accessToken)).toMatchObject({ role: 'SUPER_ADMIN', businessId: null, cv: 1 });
       await me(res.body.accessToken).expect(200);
     });
