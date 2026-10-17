@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { JwtModule, type JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditLog } from '../audit/audit-log.entity.js';
+import { AuditService } from '../audit/audit.service.js';
 import { Business } from '../business/business.entity.js';
 import jwtConfig from '../config/jwt.config.js';
 import { UserModule } from '../user/user.module.js';
@@ -21,7 +23,9 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
 @Module({
   imports: [
     UserModule,
-    TypeOrmModule.forFeature([Business]),
+    // AuditLog + AuditService here (not an AuditModule import): AuditModule already imports AuthModule for its guards, so
+    // importing it back would be circular. AuditService is stateless (it only needs the AuditLog repository).
+    TypeOrmModule.forFeature([Business, AuditLog]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [jwtConfig.KEY],
@@ -37,7 +41,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, BusinessAccessService, JwtStrategy, JwtAuthGuard, RolesGuard],
+  providers: [AuthService, AuditService, BusinessAccessService, JwtStrategy, JwtAuthGuard, RolesGuard],
   exports: [PassportModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

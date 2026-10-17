@@ -40,6 +40,17 @@ export class User {
   @Column({ default: true })
   active: boolean;
 
+  // Bumped by exactly one on every password change (compare-and-set, see UserService.replacePasswordIfUnchanged).
+  // Every JWT carries the version it was issued for (claim `cv`) and JwtStrategy compares it with this column on each
+  // request, so changing the password revokes every older token at once. Column added by AddCredentialsSecurity.
+  @Column({ name: 'credentials_version', type: 'integer', default: 0 })
+  credentialsVersion: number;
+
+  // Mapped only (8D.2d-2b). Nothing reads it yet: the forced-change guard arrives in 8D.2d-2c. A successful password
+  // change sets it to false.
+  @Column({ name: 'must_change_password', type: 'boolean', default: false })
+  mustChangePassword: boolean;
+
   // Explicit timestamptz — see Order.createdAt for why (TypeORM's Postgres
   // default here is a naive `timestamp`, which node-postgres misreads using
   // the server's local time zone instead of UTC).

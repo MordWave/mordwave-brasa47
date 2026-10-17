@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
@@ -17,9 +18,10 @@ const TEST_BCRYPT_COST = 4;
 const NEW_COLUMNS = ['credentials_version', 'must_change_password'];
 
 // The additive credentials-security migration (8D.2d-2a), exercised on a real Postgres (ephemeral PGlite) at the
-// exact schema state right before it, with "legacy" users that exist BEFORE the migration. The application booted
-// here is the CURRENT one: the User entity, login and JwtStrategy do not know the new columns, which is exactly
-// the situation of the backend deployed in production while the migration is applied.
+// exact schema state right before it, with "legacy" users that exist BEFORE the migration (inserted with raw SQL:
+// since 8D.2d-2b the User entity maps the new columns, so the application itself only works AFTER the migration —
+// which is the deploy order the runbook enforces). The tokens of the previous runtime (no `cv` claim) are simulated by
+// signing a payload without it.
 //
 // Deliberately NOT proven here (PGlite is one session; see the migration's own notes): lock waits and
 // lock_timeout expiry under a competing transaction. Only that the timeout is set around the ALTER and restored.
@@ -28,6 +30,7 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
   let app: INestApplication<App>;
   let dataSource: DataSource;
   let business: Business;
+  let jwt: JwtService;
 
   const migration = new AddCredentialsSecurity1790400000000();
   const admin = { email: 'admin@credentials-schema.test', password: 'Sup3rSecret!Admin' };
@@ -103,6 +106,7 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
     await app.init();
     dataSource = moduleFixture.get(DataSource);
+    jwt = moduleFixture.get(JwtService);
 
     // Schema exactly as production has it today (every migration before this one) ...
     await runMigrationsBefore(dataSource, AddCredentialsSecurity1790400000000);
@@ -110,11 +114,16 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
     // ... with users that already exist.
     const businessRepo = dataSource.getRepository(Business);
     business = await businessRepo.save(businessRepo.create({ name: 'Legacy Co', slug: 'legacy-co-credentials' }));
-    const userRepo = dataSource.getRepository(User);
-    const make = async (u: { email: string; password: string }, role: UserRole, businessId: string | null) =>
-      userRepo.save(userRepo.create({ email: u.email, passwordHash: await bcrypt.hash(u.password, TEST_BCRYPT_COST), role, businessId }));
-    legacyAdminId = (await make(admin, UserRole.ADMIN, business.id)).id;
-    legacySuperAdminId = (await make(superAdmin, UserRole.SUPER_ADMIN, null)).id;
+    const insertUser = async (u: { email: string; password: string }, role: UserRole, businessId: string | null): Promise<string> => {
+      const hash = await bcrypt.hash(u.password, TEST_BCRYPT_COST);
+      const rows = (await dataSource.query(
+        `INSERT INTO users (email, password_hash, role, business_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [u.email, hash, role, businessId],
+      )) as Array<{ id: string }>;
+      return rows[0]!.id;
+    };
+    legacyAdminId = await insertUser(admin, UserRole.ADMIN, business.id);
+    legacySuperAdminId = await insertUser(superAdmin, UserRole.SUPER_ADMIN, null);
   }, 60_000);
 
   afterAll(async () => {
@@ -125,13 +134,12 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
   let fingerprintBefore: string;
   let columnsBefore: string[];
   let lockTimeoutBefore: string;
-  let tokenIssuedBeforeMigration: string;
-  // POST /auth/login is limited to 5 per minute per IP, so this file logs in 4 times in total and reuses tokens.
+  let legacyToken: string; // what the previous runtime issued: no `cv` claim
+  // POST /auth/login is limited to 5 per minute per IP, so this file logs in twice in total and reuses tokens.
 
-  it('before the migration the columns do not exist and the current app works with the legacy users', async () => {
+  it('before the migration the columns do not exist and the legacy users are there', async () => {
     expect(await newColumns()).toEqual([]);
-    const login = await request(app.getHttpServer()).post('/auth/login').send(admin).expect(200);
-    expect(login.body.accessToken).toEqual(expect.any(String));
+    legacyToken = await jwt.signAsync({ sub: legacyAdminId, email: admin.email, role: UserRole.ADMIN, businessId: business.id });
     fingerprintBefore = await legacyFingerprint();
     columnsBefore = await columnNames();
     lockTimeoutBefore = await lockTimeout();
@@ -277,7 +285,7 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
       ]);
     });
 
-    it('new users get the same defaults, whether inserted by the entity (not mapping the columns), by raw SQL, or like the bootstrap CLI does', async () => {
+    it('new users get the same defaults, whether inserted by the entity (mapping the columns, none set), by raw SQL, or like the bootstrap CLI does', async () => {
       const userRepo = dataSource.getRepository(User);
       await userRepo.save(userRepo.create({ email: 'entity@credentials-schema.test', passwordHash: 'h', role: UserRole.ADMIN, businessId: business.id }));
       await q(`INSERT INTO users (email, password_hash, role, business_id) VALUES ('raw@credentials-schema.test', 'h', 'ADMIN', $1)`, [business.id]);
@@ -314,7 +322,7 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
       expect(await legacyFingerprint()).toBe(fingerprintBefore);
     });
 
-    it('the CURRENT application keeps working with the columns present: login, /auth/me and the JWT format are unchanged', async () => {
+    it('the application works on the migrated schema: login and /auth/me; new tokens carry cv = 0, nothing else changed in the JWT', async () => {
       const adminLogin = await request(app.getHttpServer()).post('/auth/login').send(admin).expect(200);
       const superLogin = await request(app.getHttpServer()).post('/auth/login').send(superAdmin).expect(200);
       expect(Object.keys(adminLogin.body).sort()).toEqual(['accessToken', 'user']);
@@ -323,20 +331,15 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
 
       for (const login of [adminLogin, superLogin]) {
         const payload = JSON.parse(Buffer.from(String(login.body.accessToken).split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
-        expect(Object.keys(payload).sort()).toEqual(['businessId', 'email', 'exp', 'iat', 'role', 'sub']); // no credentials claim yet
+        expect(Object.keys(payload).sort()).toEqual(['businessId', 'cv', 'email', 'exp', 'iat', 'role', 'sub']);
+        expect(payload.cv).toBe(0);
         const me = await request(app.getHttpServer()).get('/auth/me').set('Authorization', `Bearer ${String(login.body.accessToken)}`).expect(200);
         expect(me.body).toEqual(login.body.user);
       }
     });
 
-    it('a token issued BEFORE the migration still works after it', async () => {
-      // (the first test of this file logged in before the columns existed, but the token was not kept: issue one
-      // on the pre-migration schema by reversing, logging in, and re-applying)
-      await run('down');
-      const before = await request(app.getHttpServer()).post('/auth/login').send(admin).expect(200);
-      tokenIssuedBeforeMigration = String(before.body.accessToken);
-      await run('up');
-      await request(app.getHttpServer()).get('/auth/me').set('Authorization', `Bearer ${tokenIssuedBeforeMigration}`).expect(200);
+    it('a token issued BEFORE the migration by the previous runtime (no cv claim) is still accepted after it: existing sessions survive the deploy', async () => {
+      await request(app.getHttpServer()).get('/auth/me').set('Authorization', `Bearer ${legacyToken}`).expect(200);
       expect(await legacyFingerprint()).toBe(fingerprintBefore);
     });
   });
@@ -348,8 +351,8 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
       expect(await columnNames()).toEqual(columnsBefore);
       expect(await legacyFingerprint()).toBe(fingerprintBefore);
       expect(await lockTimeout()).toBe(lockTimeoutBefore);
-      // the current app is fine on the pre-migration schema again (same token, no new login)
-      await request(app.getHttpServer()).get('/auth/me').set('Authorization', `Bearer ${tokenIssuedBeforeMigration}`).expect(200);
+      // (the application itself needs the columns now, so it is not exercised on the rolled-back schema: that is why the
+      // migration must be applied BEFORE the code that maps them, and down() must not be used while that code runs)
     });
 
     it('can be applied again after a rollback (up -> down -> up) with the same result', async () => {

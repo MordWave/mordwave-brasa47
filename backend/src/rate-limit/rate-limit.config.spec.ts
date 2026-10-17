@@ -10,6 +10,7 @@ describe('DEFAULT_RATE_LIMITS', () => {
     expect(DEFAULT_RATE_LIMITS.policies).toEqual({
       publicMenu: { ip: { limit: 120, ttlMs: minute } },
       login: { ip: { limit: 5, ttlMs: minute } },
+      changePassword: { ip: { limit: 10, ttlMs: minute }, user: { limit: 5, ttlMs: minute } },
       upload: { user: { limit: 30, ttlMs: minute } },
       ordersCreate: {
         session: { limit: 10, ttlMs: minute },
