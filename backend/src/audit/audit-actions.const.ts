@@ -23,6 +23,12 @@ export const AUDIT_ACTIONS = {
 
   // A user changing their OWN password. Metadata is empty on purpose: nothing about the passwords is ever recorded.
   USER_PASSWORD_CHANGED: 'USER_PASSWORD_CHANGED',
+  // A SUPER_ADMIN managing the ADMIN accounts of a business (BusinessAdminService). Recorded against the TARGET business
+  // (audit_logs.business_id), with the SUPER_ADMIN as the actor. Metadata never holds a password, hash or token.
+  USER_ADMIN_CREATED: 'USER_ADMIN_CREATED',
+  USER_ADMIN_ACTIVATED: 'USER_ADMIN_ACTIVATED',
+  USER_ADMIN_DEACTIVATED: 'USER_ADMIN_DEACTIVATED',
+  USER_ADMIN_PASSWORD_RESET: 'USER_ADMIN_PASSWORD_RESET',
 
   BUSINESS_CREATED: 'BUSINESS_CREATED',
   BUSINESS_DEACTIVATED: 'BUSINESS_DEACTIVATED',

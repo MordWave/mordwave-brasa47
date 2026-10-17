@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { And, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
+import { And, type EntityManager, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { resolveBusinessIdForRead } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { PAGINATION_DEFAULT_LIMIT, PAGINATION_DEFAULT_PAGE } from '../common/pagination.const.js';
@@ -68,24 +68,35 @@ export class AuditService {
   // with retries) — without changing this method's own call sites.
   async record(input: RecordAuditEntryInput): Promise<void> {
     try {
-      const entry = this.auditLogRepository.create({
-        businessId: input.businessId,
-        userId: input.userId,
-        userEmail: input.userEmail,
-        action: input.action,
-        entityType: input.entityType,
-        entityId: input.entityId ?? null,
-        metadata: sanitizeMetadata(input.metadata),
-        ipAddress: input.ipAddress ?? null,
-        userAgent: truncateUserAgent(input.userAgent),
-      });
-      await this.auditLogRepository.save(entry);
+      await this.auditLogRepository.save(this.buildEntry(input));
     } catch (err) {
       this.logger.error(
         `Failed to persist audit entry (action=${input.action}, entityType=${input.entityType}) — entry was not saved`,
         err instanceof Error ? err.stack : String(err),
       );
     }
+  }
+
+  // The same entry, but written through the CALLER'S transaction (`manager`) and NOT best-effort: if the insert fails the
+  // error propagates and the caller's transaction rolls back, so the audited change and its audit row commit together
+  // or not at all. For the few operations where a change without a trace is unacceptable (managing ADMIN accounts —
+  // see BusinessAdminService); every other call site keeps using record().
+  async recordInTransaction(manager: EntityManager, input: RecordAuditEntryInput): Promise<void> {
+    await manager.getRepository(AuditLog).save(this.buildEntry(input));
+  }
+
+  private buildEntry(input: RecordAuditEntryInput): AuditLog {
+    return this.auditLogRepository.create({
+      businessId: input.businessId,
+      userId: input.userId,
+      userEmail: input.userEmail,
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId ?? null,
+      metadata: sanitizeMetadata(input.metadata),
+      ipAddress: input.ipAddress ?? null,
+      userAgent: truncateUserAgent(input.userAgent),
+    });
   }
 
   // Admin read — ADMIN always their own business (query.businessId ignored);
