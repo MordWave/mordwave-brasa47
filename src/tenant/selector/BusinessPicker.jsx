@@ -8,8 +8,9 @@ import { useStoreState } from './useStoreState.js'
 const SEARCH_DEBOUNCE_MS = 300
 
 // SUPER_ADMIN's restaurant picker: GET /businesses with search, an active filter and progressive loading ("Cargar más"),
-// never assuming everything fits on the first page. Choosing one only calls onSelect(id); the gate validates it.
-export default function BusinessPicker({ notice = '', management = null, admins = null, onSelect }) {
+// never assuming everything fits on the first page. Choosing one only calls onSelect(id); the gate validates it. When the
+// gate hands over the creation store, the header offers "Crear negocio" and reflects what it creates.
+export default function BusinessPicker({ notice = '', management = null, admins = null, creation = null, onSelect }) {
   const { token } = useAuth()
   const tokenRef = useRef(token)
   useEffect(() => {
@@ -38,6 +39,20 @@ export default function BusinessPicker({ notice = '', management = null, admins 
     })
   }, [management, store])
 
+  // A business created from the "Crear negocio" dialog: pinned at the top at once and the list refreshed (filters cleared,
+  // so nothing hides it). After an attempt whose outcome could not be confirmed, closing the dialog just reloads the list.
+  useEffect(() => {
+    if (!creation) return undefined
+    return creation.onChange((event) => {
+      if (event.type === 'created') {
+        setSearchText('')
+        store.showCreated(event.business)
+      } else if (event.type === 'maybe-created') {
+        store.load()
+      }
+    })
+  }, [creation, store])
+
   const rowActions = management
     ? { onEdit: management.openEdit, onSuspend: management.openSuspend, onActivate: management.openActivate, onAdmins: admins ? admins.open : null }
     : null
@@ -46,6 +61,7 @@ export default function BusinessPicker({ notice = '', management = null, admins 
     <BusinessPickerView
       state={state}
       management={rowActions}
+      onCreate={creation ? creation.open : null}
       searchText={searchText}
       notice={notice}
       onSearchText={setSearchText}
