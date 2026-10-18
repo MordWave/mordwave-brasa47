@@ -1,4 +1,5 @@
-import { BOOTSTRAP_LOCK_KEY, SUPER_ADMIN_ROLE } from './constants.js';
+import { AUDIT_ACTION, AUDIT_SOURCE, auditEnvironment, insertPlatformAudit, PLATFORM_ADMIN_LOCK_KEY } from '../shared/platform-audit.js';
+import { SUPER_ADMIN_ROLE } from './constants.js';
 
 // Everything the bootstrap does to the database, over a minimal SQL executor (a `pg` Client in production, the same client
 // in the PGlite integration test). Plain SQL with bound parameters: no ORM, so an error can never drag the statement's
@@ -8,7 +9,7 @@ export interface SqlExecutor {
 }
 
 export type CreateOutcome =
-  | { status: 'created'; id: string }
+  | { status: 'created'; id: string; auditId: string }
   | { status: 'super-admin-exists' }
   | { status: 'email-exists' };
 
@@ -36,6 +37,23 @@ const EXPECTED_COLUMNS: Record<string, string> = {
   active: 'boolean',
   created_at: 'timestamp with time zone',
   updated_at: 'timestamp with time zone',
+  credentials_version: 'integer', // AddCredentialsSecurity: recovery bumps it; bootstrap leaves the default
+  must_change_password: 'boolean',
+};
+
+// The platform audit table (AddPlatformAuditLogs): every SUPER_ADMIN operation records itself there in its own transaction.
+const EXPECTED_AUDIT_COLUMNS: Record<string, string> = {
+  id: 'uuid',
+  created_at: 'timestamp with time zone',
+  action: 'character varying',
+  source: 'character varying',
+  environment: 'character varying',
+  target_user_id: 'uuid',
+  target_email: 'character varying',
+  actor_user_id: 'uuid',
+  operator_label: 'character varying',
+  reason: 'character varying',
+  metadata: 'jsonb',
 };
 
 export class BootstrapDb {
@@ -75,6 +93,20 @@ export class BootstrapDb {
       if (byName.get('business_id')?.is_nullable !== 'YES') problems.push('users.business_id debe admitir NULL (un SUPER_ADMIN no depende de un negocio).');
     }
 
+    const audit = await this.sql.query(
+      `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'platform_audit_logs'`,
+    );
+    if (audit.rows.length === 0) {
+      problems.push('No existe la tabla "platform_audit_logs" (migración AddPlatformAuditLogs): sin ella no se puede registrar la auditoría.');
+    } else {
+      const byName = new Map(audit.rows.map((r) => [String(r.column_name), String(r.data_type)]));
+      for (const [name, type] of Object.entries(EXPECTED_AUDIT_COLUMNS)) {
+        const found = byName.get(name);
+        if (found === undefined) problems.push(`Falta la columna platform_audit_logs.${name}.`);
+        else if (found !== type) problems.push(`platform_audit_logs.${name} tiene el tipo ${found} (se esperaba ${type}).`);
+      }
+    }
+
     const roles = await this.sql.query(
       `SELECT e.enumlabel FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid WHERE t.typname = 'users_role_enum'`,
     );
@@ -108,13 +140,16 @@ export class BootstrapDb {
     return { users: Number(counts.rows[0]?.users ?? 0), superAdmins: Number(counts.rows[0]?.super_admins ?? 0), emailTaken };
   }
 
-  // The ONLY write. One transaction: take a transaction-scoped advisory lock (so a second simultaneous run waits here and
-  // then sees the first one's result), RE-CHECK that no SUPER_ADMIN and no such email exist, INSERT, COMMIT. Anything that
-  // goes wrong rolls everything back, so a half-created user cannot exist. The UNIQUE(email) constraint is the last backstop.
-  async createSuperAdmin(input: { email: string; passwordHash: string }): Promise<CreateOutcome> {
+  // The ONLY write. One transaction: take the platform advisory lock (shared with the recovery CLI, so a second simultaneous
+  // run waits here and then sees the first one's result), RE-CHECK that no SUPER_ADMIN and no such email exist, INSERT the
+  // user and INSERT its SUPER_ADMIN_BOOTSTRAPPED audit event, COMMIT. Anything that goes wrong — the audit insert included —
+  // rolls everything back, so neither a half-created user nor an unaudited one can exist. UNIQUE(email) is the last backstop.
+  async createSuperAdmin(input: { email: string; passwordHash: string; environment: string }): Promise<CreateOutcome> {
     await this.sql.query('BEGIN');
+    let insertingUser = false;
     try {
-      await this.sql.query('SELECT pg_advisory_xact_lock(hashtext($1))', [BOOTSTRAP_LOCK_KEY]);
+      await this.sql.query('SET LOCAL lock_timeout = \'5s\''); // never wait forever for the lock or a row
+      await this.sql.query('SELECT pg_advisory_xact_lock(hashtext($1))', [PLATFORM_ADMIN_LOCK_KEY]);
 
       const existing = await this.sql.query('SELECT 1 FROM users WHERE role = $1 LIMIT 1', [SUPER_ADMIN_ROLE]);
       if (existing.rows.length > 0) {
@@ -129,19 +164,34 @@ export class BootstrapDb {
       }
 
       // business_id is left NULL on purpose: the account does not depend on any restaurant, active or not.
+      insertingUser = true;
       const inserted = await this.sql.query(
         `INSERT INTO users (email, password_hash, role, business_id, active) VALUES ($1, $2, $3, NULL, true) RETURNING id`,
         [input.email, input.passwordHash, SUPER_ADMIN_ROLE],
       );
+      insertingUser = false;
+      const id = String(inserted.rows[0]!.id);
+
+      // Same transaction. The version/flag values are the column defaults this INSERT just produced (0 / false).
+      const auditId = await insertPlatformAudit(this.sql, {
+        action: AUDIT_ACTION.bootstrapped,
+        source: AUDIT_SOURCE.bootstrap,
+        environment: auditEnvironment(input.environment),
+        targetUserId: id,
+        targetEmail: input.email,
+        reason: null,
+        operatorLabel: null,
+        metadata: { version_after: 0, active_after: true, forced_change_after: false, operator_identity: 'none' },
+      });
       await this.sql.query('COMMIT');
-      return { status: 'created', id: String(inserted.rows[0]!.id) };
+      return { status: 'created', id, auditId };
     } catch (error) {
       try {
         await this.sql.query('ROLLBACK');
       } catch {
         // the connection is gone; the server rolls the transaction back on its own
       }
-      if ((error as { code?: unknown })?.code === POSTGRES_UNIQUE_VIOLATION) return { status: 'email-exists' };
+      if (insertingUser && (error as { code?: unknown })?.code === POSTGRES_UNIQUE_VIOLATION) return { status: 'email-exists' };
       throw error;
     }
   }

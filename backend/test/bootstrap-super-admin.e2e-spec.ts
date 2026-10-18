@@ -30,6 +30,9 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
   const q = async (sql: string, params?: unknown[]) => (await client.query(sql, params)).rows as Array<Record<string, unknown>>;
   const users = () => q('SELECT id, email, role, business_id, active, password_hash, created_at, updated_at FROM users ORDER BY created_at, email');
   const expectedMigrations = listExpectedMigrations();
+  // platform_audit_logs is append-only (no DELETE/TRUNCATE, not even in tests), so tests compare counts and look at the newest rows
+  const auditRows = () => q('SELECT * FROM platform_audit_logs ORDER BY created_at, id');
+  const auditCount = async () => Number((await q('SELECT count(*)::int AS n FROM platform_audit_logs'))[0]!.n);
 
   function configured(): Configured {
     return { target: TARGET, db, connect: async () => undefined, close: async () => undefined };
@@ -83,8 +86,10 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
   describe('--check is strictly read-only', () => {
     it('reports everything OK on a migrated database without a SUPER_ADMIN, and changes nothing', async () => {
       const before = await users();
+      const auditBefore = await auditCount();
       const o = operator();
       expect(await runCheck(o.deps)).toBe(EXIT.ok);
+      expect(await auditCount()).toBe(auditBefore);
       expect(o.text()).toMatch(/\[OK\] Conexión disponible/);
       expect(o.text()).toMatch(/Esquema esperado y 18 migraciones/);
       expect(o.text()).toMatch(/SUPER_ADMIN existentes: 0/);
@@ -120,6 +125,25 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
       expect((await db.readOnly(() => db.inspectSchema(expectedMigrations))).ok).toBe(true);
       expect(await users()).toEqual([]); // nothing was written by any of this
     });
+
+    it('a missing audit table (or a changed audit column) stops the bootstrap before any prompt: no unaudited SUPER_ADMIN can be created', async () => {
+      await client.query('ALTER TABLE platform_audit_logs RENAME TO platform_audit_logs_off');
+      const missing = await db.readOnly(() => db.inspectSchema(expectedMigrations));
+      expect(missing.ok).toBe(false);
+      expect(missing.problems.join(' ')).toMatch(/No existe la tabla "platform_audit_logs"/);
+      const o = operator();
+      expect(await runBootstrap(o.deps, { email: EMAIL })).toBe(EXIT.refused);
+      expect(o.text()).toMatch(/platform_audit_logs/);
+      expect(await users()).toEqual([]);
+      const c = operator();
+      expect(await runCheck(c.deps)).toBe(EXIT.refused);
+      await client.query('ALTER TABLE platform_audit_logs_off RENAME TO platform_audit_logs');
+
+      await client.query('ALTER TABLE platform_audit_logs RENAME COLUMN reason TO reason_old');
+      expect((await db.readOnly(() => db.inspectSchema(expectedMigrations))).problems.join(' ')).toMatch(/Falta la columna platform_audit_logs\.reason/);
+      await client.query('ALTER TABLE platform_audit_logs RENAME COLUMN reason_old TO reason');
+      expect((await db.readOnly(() => db.inspectSchema(expectedMigrations))).ok).toBe(true);
+    });
   });
 
   describe('creation', () => {
@@ -135,7 +159,7 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
       expect(await users()).toEqual(before);
 
       // the transaction itself also refuses (a pre-check that had gone stale)
-      expect(await db.createSuperAdmin({ email: EMAIL, passwordHash: 'h' })).toEqual({ status: 'email-exists' });
+      expect(await db.createSuperAdmin({ email: EMAIL, passwordHash: 'h', environment: 'test' })).toEqual({ status: 'email-exists' });
       expect(await users()).toEqual(before);
       await q('DELETE FROM users');
     });
@@ -143,7 +167,7 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
     it('a pre-existing address that differs only in case still counts as taken (the UNIQUE index alone would not catch it)', async () => {
       await q(`INSERT INTO users (email, password_hash, role, business_id) VALUES ('Mixed@MordWave.Test', 'old-hash', 'ADMIN', (SELECT id FROM businesses LIMIT 1))`);
       const before = await users();
-      expect(await db.createSuperAdmin({ email: 'mixed@mordwave.test', passwordHash: 'h' })).toEqual({ status: 'email-exists' });
+      expect(await db.createSuperAdmin({ email: 'mixed@mordwave.test', passwordHash: 'h', environment: 'test' })).toEqual({ status: 'email-exists' });
       expect((await db.readOnly(() => db.readState('mixed@mordwave.test'))).emailTaken).toBe(true);
       expect(await users()).toEqual(before);
       await q('DELETE FROM users');
@@ -169,6 +193,26 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
       expect(await q(`SELECT credentials_version, must_change_password FROM users WHERE id = $1`, [row!.id])).toEqual([
         { credentials_version: 0, must_change_password: false },
       ]);
+
+      // ...and the SUPER_ADMIN_BOOTSTRAPPED event was written in the same transaction
+      const audit = await auditRows();
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({
+        action: 'SUPER_ADMIN_BOOTSTRAPPED',
+        source: 'bootstrap-cli',
+        environment: 'test',
+        target_user_id: row!.id,
+        target_email: EMAIL,
+        actor_user_id: null,
+        operator_label: null,
+        reason: null,
+        metadata: { version_after: 0, active_after: true, forced_change_after: false, operator_identity: 'none' },
+      });
+      expect(o.text()).toContain(`id=${String(audit[0]!.id)}`);
+      // no secret anywhere in the stored event
+      expect(JSON.stringify(audit)).not.toContain(PASSWORD);
+      expect(JSON.stringify(audit)).not.toContain(String(row!.password_hash));
+      expect(JSON.stringify(audit)).not.toMatch(/\$2[aby]\$/);
     });
 
     it('never prints the password or the hash', async () => {
@@ -188,10 +232,12 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
 
     it('a second run is refused by default and changes nothing (the hash stays the same)', async () => {
       const before = await users();
+      const auditBefore = await auditRows();
       const o = operator({ visible: ['CREAR SUPER_ADMIN second@mordwave.test'] });
       expect(await runBootstrap(o.deps, { email: 'second@mordwave.test' })).toBe(EXIT.refused);
       expect(o.text()).toMatch(/Ya existe un SUPER_ADMIN/);
       expect(await users()).toEqual(before);
+      expect(await auditRows()).toEqual(auditBefore); // a refused run records nothing
     });
 
     it('--check now reports the existing SUPER_ADMIN, with no hash or email in the output', async () => {
@@ -206,8 +252,10 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
   describe('transaction: races and rollback (deterministic; PGlite cannot interleave real transactions)', () => {
     it('a stale pre-check cannot create a second SUPER_ADMIN: the transaction re-checks after taking the lock', async () => {
       const before = await users();
-      expect(await db.createSuperAdmin({ email: 'late@mordwave.test', passwordHash: 'h' })).toEqual({ status: 'super-admin-exists' });
+      const auditBefore = await auditCount();
+      expect(await db.createSuperAdmin({ email: 'late@mordwave.test', passwordHash: 'h', environment: 'test' })).toEqual({ status: 'super-admin-exists' });
       expect(await users()).toEqual(before);
+      expect(await auditCount()).toBe(auditBefore);
     });
 
     it('releases the advisory lock when it finishes (it is transaction-scoped)', async () => {
@@ -223,21 +271,38 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
 
     it('a failure at the INSERT rolls the transaction back: no user is left, the lock is released, the connection stays usable', async () => {
       await q('DELETE FROM users');
+      const auditBefore = await auditCount();
       const boom = Object.assign(new Error('connection lost mid-insert'), { code: '08006' });
-      await expect(failing(/^INSERT INTO users/, boom).createSuperAdmin({ email: 'fail@mordwave.test', passwordHash: 'h' })).rejects.toBe(boom);
+      await expect(failing(/^INSERT INTO users/, boom).createSuperAdmin({ email: 'fail@mordwave.test', passwordHash: 'h', environment: 'test' })).rejects.toBe(boom);
       expect(await users()).toEqual([]);
+      expect(await auditCount()).toBe(auditBefore);
       expect((await q(`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory'`))[0]!.n).toBe(0);
       // the same connection works, and a normal creation succeeds afterwards: no transaction was left open
-      expect(await db.createSuperAdmin({ email: 'after-insert@mordwave.test', passwordHash: 'h' })).toMatchObject({ status: 'created' });
+      expect(await db.createSuperAdmin({ email: 'after-insert@mordwave.test', passwordHash: 'h', environment: 'test' })).toMatchObject({ status: 'created' });
+      expect(await auditCount()).toBe(auditBefore + 1);
+      await q('DELETE FROM users');
+    });
+
+    it('a failure at the AUDIT insert undoes the REAL, already-executed user INSERT: no SUPER_ADMIN without its audit event', async () => {
+      await q('DELETE FROM users');
+      const auditBefore = await auditCount();
+      const boom = Object.assign(new Error('audit insert failed'), { code: '23514' });
+      await expect(failing(/^\s*INSERT INTO platform_audit_logs/, boom).createSuperAdmin({ email: 'audit-fail@mordwave.test', passwordHash: 'h', environment: 'test' })).rejects.toBe(boom);
+      expect(await users()).toEqual([]); // the INSERT INTO users ran inside the transaction and the ROLLBACK removed it
+      expect(await auditCount()).toBe(auditBefore);
+      expect((await q(`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory'`))[0]!.n).toBe(0);
+      expect(await db.createSuperAdmin({ email: 'after-audit@mordwave.test', passwordHash: 'h', environment: 'test' })).toMatchObject({ status: 'created' });
       await q('DELETE FROM users');
     });
 
     it('a failure at COMMIT undoes a REAL, already-executed INSERT: no partially created user remains', async () => {
       await q('DELETE FROM users');
+      const auditBefore = await auditCount();
       const boom = Object.assign(new Error('commit failed'), { code: '40001' });
-      await expect(failing(/^COMMIT/, boom).createSuperAdmin({ email: 'commit@mordwave.test', passwordHash: 'h' })).rejects.toBe(boom);
+      await expect(failing(/^COMMIT/, boom).createSuperAdmin({ email: 'commit@mordwave.test', passwordHash: 'h', environment: 'test' })).rejects.toBe(boom);
       expect(await users()).toEqual([]); // the INSERT ran inside the transaction and the ROLLBACK removed it
-      expect(await db.createSuperAdmin({ email: 'after-commit@mordwave.test', passwordHash: 'h' })).toMatchObject({ status: 'created' });
+      expect(await auditCount()).toBe(auditBefore); // ...and so did the audit event
+      expect(await db.createSuperAdmin({ email: 'after-commit@mordwave.test', passwordHash: 'h', environment: 'test' })).toMatchObject({ status: 'created' });
       await q('DELETE FROM users');
     });
 

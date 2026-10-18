@@ -32,7 +32,7 @@ export interface BootstrapDeps extends CoreDeps {
 
 const MAX_PASSWORD_ATTEMPTS = 3;
 
-const safeCode = (error: unknown): string => {
+export const safeCode = (error: unknown): string => {
   const code = (error as { code?: unknown })?.code;
   if (typeof code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(code)) return code;
   return error instanceof Error ? error.name : 'desconocido';
@@ -198,12 +198,10 @@ export async function runBootstrap(deps: BootstrapDeps, args: { email: string | 
     // 7. Hash (bcrypt, the project's cost) and create, in one transaction behind an advisory lock.
     const passwordHash = await deps.hashPassword(password);
     password = null;
-    const outcome = await configured.db.createSuperAdmin({ email, passwordHash });
+    const outcome = await configured.db.createSuperAdmin({ email, passwordHash, environment: configured.target.environment });
     if (outcome.status === 'created') {
       out(`[OK] SUPER_ADMIN creado (id=${outcome.id}).`);
-      out(
-        '[bootstrap-super-admin] resultado=creado. Este mensaje es un registro operativo de esta ejecución: NO equivale a una auditoría persistente en la base de datos.',
-      );
+      out(`[OK] Evento de auditoría SUPER_ADMIN_BOOTSTRAPPED registrado en platform_audit_logs (id=${outcome.auditId}), en la misma transacción.`);
       return EXIT.ok;
     }
     out(
@@ -217,7 +215,7 @@ export async function runBootstrap(deps: BootstrapDeps, args: { email: string | 
       out('[CANCELADO] Operación cancelada por el operador. No se creó nada.');
       return EXIT.refused;
     }
-    out(`[FALLO] Error inesperado (${safeCode(error)}). Se intentó revertir la transacción, pero si la conexión se perdió el resultado puede ser ambiguo: NO reintentes a ciegas; comprueba primero el estado con --check.`);
+    out(`[FALLO] Error inesperado (${safeCode(error)}). Se intentó revertir la transacción (usuario y auditoría van juntos: o se guardan los dos o ninguno), pero si la conexión se perdió el resultado puede ser ambiguo: NO reintentes a ciegas; comprueba primero el estado con --check.`);
     return EXIT.failure;
   } finally {
     await closeQuietly(configured);

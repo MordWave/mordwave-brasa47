@@ -8,6 +8,7 @@ import { EXIT, runBootstrap, runCheck, type Configured } from './core.js';
 import { normalizeEmail, validateEmail } from './email.js';
 import { validateBootstrapPassword } from './password-policy.js';
 import { createTtyPrompter, PromptAborted, type Prompter, type TtyInput, type TtyOutput } from './prompter.js';
+import { PLATFORM_ADMIN_LOCK_KEY } from '../shared/platform-audit.js';
 
 const here = new URL('.', import.meta.url);
 const read = (relative: string) => readFileSync(new URL(relative, here), 'utf8');
@@ -232,11 +233,35 @@ function scriptedSql(handlers: (sql: string, params?: unknown[]) => Array<Record
 
 describe('BootstrapDb.createSuperAdmin', () => {
   it('BEGIN -> advisory lock -> re-check SUPER_ADMIN -> re-check email -> INSERT (NULL business, bound hash) -> COMMIT', async () => {
-    const s = scriptedSql((text) => (/INSERT INTO users/.test(text) ? [{ id: 'new-id' }] : []));
-    const result = await new BootstrapDb(s.sql).createSuperAdmin({ email: EMAIL, passwordHash: '$2b$12$abcdefghijklmnopqrstuv' });
+    const s = scriptedSql((text) => (/INSERT INTO users/.test(text) ? [{ id: 'new-id' }] : /INSERT INTO platform_audit_logs/.test(text) ? [{ id: 'audit-id' }] : []));
+    const result = await new BootstrapDb(s.sql).createSuperAdmin({ email: EMAIL, passwordHash: '$2b$12$abcdefghijklmnopqrstuv', environment: 'production' });
 
-    expect(result).toEqual({ status: 'created', id: 'new-id' });
-    expect(s.statements()).toEqual(['BEGIN', 'SELECT pg_advisory_xact_lock(hashtext($1))', 'SELECT 1 FROM users', 'SELECT 1 FROM users', 'INSERT INTO users (email,', 'COMMIT']);
+    expect(result).toEqual({ status: 'created', id: 'new-id', auditId: 'audit-id' });
+    // the user and its SUPER_ADMIN_BOOTSTRAPPED event are written in the SAME transaction, behind the platform advisory lock
+    expect(s.statements()).toEqual([
+      'BEGIN',
+      'SET LOCAL lock_timeout =',
+      'SELECT pg_advisory_xact_lock(hashtext($1))',
+      'SELECT 1 FROM users',
+      'SELECT 1 FROM users',
+      'INSERT INTO users (email,',
+      'INSERT INTO platform_audit_logs (action,',
+      'COMMIT',
+    ]);
+    expect(s.log.find((l) => /pg_advisory_xact_lock/.test(l.sql))!.params).toEqual([PLATFORM_ADMIN_LOCK_KEY]);
+    const audit = s.log.find((l) => /INSERT INTO platform_audit_logs/.test(l.sql))!;
+    expect(audit.sql).toMatch(/NULL, \$6, \$7/); // actor_user_id is the literal NULL
+    expect(audit.params).toEqual([
+      'SUPER_ADMIN_BOOTSTRAPPED',
+      'bootstrap-cli',
+      'production',
+      'new-id',
+      EMAIL,
+      null,
+      null,
+      '{"version_after":0,"active_after":true,"forced_change_after":false,"operator_identity":"none"}',
+    ]);
+    expect(JSON.stringify(audit.params)).not.toMatch(/\$2b\$|abcdefghijklmnopqrstuv/); // the hash never reaches the audit row
     const insert = s.log.find((l) => /INSERT INTO users/.test(l.sql))!;
     expect(insert.sql).toMatch(/business_id.*NULL/s);
     expect(insert.params).toEqual([EMAIL, '$2b$12$abcdefghijklmnopqrstuv', 'SUPER_ADMIN']);
@@ -245,30 +270,38 @@ describe('BootstrapDb.createSuperAdmin', () => {
 
   it('refuses (and rolls back, no INSERT) when a SUPER_ADMIN appeared, and when the email appeared', async () => {
     const withSuper = scriptedSql((text) => (/role = \$1/.test(text) ? [{ '?column?': 1 }] : []));
-    expect(await new BootstrapDb(withSuper.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h' })).toEqual({ status: 'super-admin-exists' });
+    expect(await new BootstrapDb(withSuper.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h', environment: 'production' })).toEqual({ status: 'super-admin-exists' });
     expect(withSuper.statements().at(-1)).toBe('ROLLBACK');
     expect(withSuper.log.some((l) => /INSERT/.test(l.sql))).toBe(false);
 
     const withEmail = scriptedSql((text) => (/lower\(email\) = \$1/.test(text) ? [{ '?column?': 1 }] : []));
-    expect(await new BootstrapDb(withEmail.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h' })).toEqual({ status: 'email-exists' });
+    expect(await new BootstrapDb(withEmail.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h', environment: 'production' })).toEqual({ status: 'email-exists' });
     expect(withEmail.statements().at(-1)).toBe('ROLLBACK');
     expect(withEmail.log.some((l) => /INSERT/.test(l.sql))).toBe(false);
   });
 
   it('a unique violation on the email (the last backstop) is "email-exists", after a ROLLBACK', async () => {
     const s = scriptedSql((text) => (/INSERT INTO users/.test(text) ? Object.assign(new Error('duplicate key'), { code: '23505' }) : []));
-    expect(await new BootstrapDb(s.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h' })).toEqual({ status: 'email-exists' });
+    expect(await new BootstrapDb(s.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h', environment: 'production' })).toEqual({ status: 'email-exists' });
     expect(s.statements().at(-1)).toBe('ROLLBACK');
+  });
+
+  it('a failure of the AUDIT insert rolls the whole creation back and is rethrown (no unaudited SUPER_ADMIN), even if it looks like a unique violation', async () => {
+    const boom = Object.assign(new Error('audit insert failed'), { code: '23505' });
+    const s = scriptedSql((text) => (/INSERT INTO users/.test(text) ? [{ id: 'new-id' }] : /INSERT INTO platform_audit_logs/.test(text) ? boom : []));
+    await expect(new BootstrapDb(s.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h', environment: 'production' })).rejects.toBe(boom);
+    expect(s.statements().at(-1)).toBe('ROLLBACK');
+    expect(s.log.some((l) => /COMMIT/.test(l.sql))).toBe(false);
   });
 
   it('any other failure rolls back and is rethrown; a failing ROLLBACK does not hide the original error', async () => {
     const boom = Object.assign(new Error('connection lost'), { code: '08006' });
     const s = scriptedSql((text) => (/INSERT INTO users/.test(text) ? boom : []));
-    await expect(new BootstrapDb(s.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h' })).rejects.toBe(boom);
+    await expect(new BootstrapDb(s.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h', environment: 'production' })).rejects.toBe(boom);
     expect(s.statements().at(-1)).toBe('ROLLBACK');
 
     const broken = scriptedSql((text) => (/INSERT INTO users/.test(text) ? boom : text === 'ROLLBACK' ? new Error('gone') : []));
-    await expect(new BootstrapDb(broken.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h' })).rejects.toBe(boom);
+    await expect(new BootstrapDb(broken.sql).createSuperAdmin({ email: EMAIL, passwordHash: 'h', environment: 'production' })).rejects.toBe(boom);
   });
 });
 
@@ -318,7 +351,7 @@ interface World {
 function world(w: World = {}) {
   const out: string[] = [];
   const calls: string[] = [];
-  const created: Array<{ email: string; passwordHash: string }> = [];
+  const created: Array<{ email: string; passwordHash: string; environment: string }> = [];
   const hidden = [...(w.hidden ?? [PASSWORD, PASSWORD])];
   const visible = [...(w.visible ?? [`CREAR SUPER_ADMIN ${EMAIL}`])];
   const db = {
@@ -333,11 +366,11 @@ function world(w: World = {}) {
     },
     inspectSchema: async () => (calls.push('inspectSchema'), { ok: !(w.schemaProblems?.length), problems: w.schemaProblems ?? [], appliedMigrations: 16 }),
     readState: async (email: string | null) => (calls.push(`readState:${email}`), { users: 2, superAdmins: w.superAdmins ?? 0, emailTaken: w.emailTaken ?? false }),
-    createSuperAdmin: async (input: { email: string; passwordHash: string }) => {
+    createSuperAdmin: async (input: { email: string; passwordHash: string; environment: string }) => {
       calls.push('createSuperAdmin');
       created.push(input);
       if (w.createOutcome instanceof Error) throw w.createOutcome;
-      return w.createOutcome ?? { status: 'created' as const, id: '11111111-1111-4111-8111-111111111111' };
+      return w.createOutcome ?? { status: 'created' as const, id: '11111111-1111-4111-8111-111111111111', auditId: '22222222-2222-4222-8222-222222222222' };
     },
   } as unknown as BootstrapDb;
   const configured: Configured = {
@@ -381,7 +414,7 @@ describe('bootstrap: successful creation', () => {
     const w = world();
     expect(await runBootstrap(w.deps, { email: '  Root@MordWave.Test ' })).toBe(EXIT.ok);
 
-    expect(w.created).toEqual([{ email: EMAIL, passwordHash: '$2b$12$HASHOF(28)' }]); // normalised email, hash only
+    expect(w.created).toEqual([{ email: EMAIL, passwordHash: '$2b$12$HASHOF(28)', environment: 'production' }]); // normalised email, hash only, and the environment for the audit event
     const firstSecret = w.calls.indexOf('askHidden');
     expect(w.calls.indexOf('readOnly:begin')).toBeLessThan(firstSecret);
     expect(w.calls.indexOf('inspectSchema')).toBeLessThan(firstSecret);
@@ -390,7 +423,7 @@ describe('bootstrap: successful creation', () => {
     expect(w.calls.indexOf('createSuperAdmin')).toBeGreaterThan(w.calls.indexOf('hash'));
     expect(w.calls.at(-1)).toBe('close');
     expect(w.text()).toMatch(/\[OK\] SUPER_ADMIN creado \(id=11111111-1111-4111-8111-111111111111\)/);
-    expect(w.text()).toMatch(/NO equivale a una auditoría persistente/);
+    expect(w.text()).toMatch(/SUPER_ADMIN_BOOTSTRAPPED registrado en platform_audit_logs \(id=22222222-2222-4222-8222-222222222222\), en la misma transacción/);
   });
 
   it('shows the non-sensitive target and what will be created before asking for the password', async () => {
@@ -557,7 +590,7 @@ describe('bootstrap: races and failures', () => {
       (w.deps.configure() as Configured).db.createSuperAdmin = async () => {
         if (taken) return { status: 'super-admin-exists' as const };
         taken = true;
-        return { status: 'created' as const, id: 'id-1' };
+        return { status: 'created' as const, id: 'id-1', auditId: 'audit-1' };
       };
       return w;
     };

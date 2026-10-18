@@ -23,7 +23,7 @@ export interface ResolvedConnection {
 const TIMEOUTS = { connectionTimeoutMillis: 10_000, statement_timeout: 15_000, query_timeout: 20_000 };
 const APPLICATION_NAME = 'mordwave-bootstrap-super-admin';
 
-export function resolveConnection(env: Record<string, string | undefined>): ResolvedConnection {
+export function resolveConnection(env: Record<string, string | undefined>, applicationName: string = APPLICATION_NAME): ResolvedConnection {
   const environment = env.RAILWAY_ENVIRONMENT_NAME || env.NODE_ENV || 'desconocido';
   const service = env.RAILWAY_SERVICE_NAME || null;
   const databaseUrl = env.DATABASE_URL;
@@ -40,7 +40,7 @@ export function resolveConnection(env: Record<string, string | undefined>): Reso
     }
     return {
       // Same SSL setting as the application (src/config/typeorm.config.ts) for a connection string.
-      clientConfig: { connectionString: databaseUrl, ssl: { rejectUnauthorized: false }, application_name: APPLICATION_NAME, ...TIMEOUTS },
+      clientConfig: { connectionString: databaseUrl, ssl: { rejectUnauthorized: false }, application_name: applicationName, ...TIMEOUTS },
       target: {
         source: 'DATABASE_URL',
         host: url.hostname,
@@ -65,7 +65,7 @@ export function resolveConnection(env: Record<string, string | undefined>): Reso
       user: env.DB_USERNAME,
       password: env.DB_PASSWORD,
       database: env.DB_NAME,
-      application_name: APPLICATION_NAME,
+      application_name: applicationName,
       ...TIMEOUTS,
     },
     target: { source: 'DB_*', host: env.DB_HOST!, port, database: env.DB_NAME!, ssl: false, environment, service },
