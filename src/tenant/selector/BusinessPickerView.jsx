@@ -1,80 +1,46 @@
 import { useId } from 'react'
+import BusinessCard from './BusinessCard.jsx'
+import { PlusIcon, SearchIcon, StoreIcon } from './platformIcons.jsx'
 
-function initialsOf(name) {
-  const words = String(name ?? '').trim().split(/\s+/).filter(Boolean)
-  return (words.length === 0 ? '?' : words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0]).toUpperCase()
-}
+const STATUS_FILTERS = [
+  { value: 'all', label: 'Todos' },
+  { value: 'true', label: 'Activos' },
+  { value: 'false', label: 'Suspendidos' },
+]
 
-function Logo({ business }) {
-  return business.logoUrl ? (
-    <img className="business-card__logo" src={business.logoUrl} alt="" loading="lazy" />
-  ) : (
-    <span className="business-card__logo business-card__logo--placeholder" aria-hidden="true">
-      {initialsOf(business.name)}
-    </span>
-  )
-}
-
-// One restaurant. Active ones have a real <button> to enter them (keyboard and screen reader friendly); suspended ones are
-// shown, clearly marked, but can never be entered from here. When the management callbacks are given (the SUPER_ADMIN
-// gate passes them) each row also offers Edit and Suspend (active) or Reactivate (suspended) as SEPARATE buttons — never
-// nested inside the select button — and these work on a suspended business without selecting it.
-function BusinessCard({ business, onSelect, management, isNew = false }) {
-  const body = (
-    <>
-      <Logo business={business} />
-      <span className="business-card__text">
-        <span className="business-card__name">{business.name}</span>
-        <span className="business-card__slug">{business.slug}</span>
-        {!business.active && <span className="business-card__hint">Suspendido: no se puede administrar hasta reactivarlo.</span>}
-        {isNew && <span className="business-card__new">Recién creado</span>}
-      </span>
-      <span className={`business-card__badge business-card__badge--${business.active ? 'active' : 'inactive'}`}>
-        {business.active ? 'Activo' : 'Suspendido'}
-      </span>
-    </>
-  )
+function SkeletonGrid() {
   return (
-    <div className="business-card-row">
-      {business.active ? (
-        <button type="button" className="business-card" onClick={() => onSelect(business.id)} aria-label={`Administrar ${business.name}`}>
-          {body}
-        </button>
-      ) : (
-        <div className="business-card business-card--inactive" aria-disabled="true">
-          {body}
-        </div>
-      )}
-      {management && (
-        <div className="business-card__actions" role="group" aria-label={`Gestionar ${business.name}`}>
-          <button type="button" className="btn btn--outline btn--small" onClick={() => management.onEdit(business)} aria-label={`Editar ${business.name}`}>
-            Editar
-          </button>
-          {management.onAdmins && (
-            <button type="button" className="btn btn--outline btn--small" onClick={() => management.onAdmins(business)} aria-label={`Administradores de ${business.name}`}>
-              Administradores
-            </button>
-          )}
-          {business.active ? (
-            <button type="button" className="btn btn--outline btn--small business-card__suspend" onClick={() => management.onSuspend(business)} aria-label={`Suspender ${business.name}`}>
-              Suspender
-            </button>
-          ) : (
-            <button type="button" className="btn btn--primary btn--small" onClick={() => management.onActivate(business)} aria-label={`Reactivar ${business.name}`}>
-              Reactivar
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    <ul className="platform__grid platform__grid--skeleton" aria-hidden="true">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <li key={i} className="biz-card biz-card--skeleton">
+          <span className="biz-skeleton biz-skeleton--logo" />
+          <span className="biz-skeleton biz-skeleton--line" />
+          <span className="biz-skeleton biz-skeleton--line biz-skeleton--short" />
+        </li>
+      ))}
+    </ul>
   )
 }
 
-// Presentational: everything the picker shows, driven by the store state (see businessListStore). No data fetching here.
-export default function BusinessPickerView({ state, searchText, notice = '', management = null, onCreate = null, onSearchText, onActive, onSelect, onLoadMore, onRetry }) {
+// SUPER_ADMIN's "Negocios" page. Presentational: everything shown is driven by the store state (see businessListStore); no
+// data fetching here. It is a full-width page (not a card inside a card): header with the one primary action, a toolbar
+// (search + status filter), and a responsive grid of business cards. Only what the backend returns is shown, and the
+// "Mostrando X de Y" counter uses the server's own total, so it is never an incomplete number.
+export default function BusinessPickerView({
+  state,
+  searchText,
+  notice = '',
+  management = null,
+  onCreate = null,
+  onSearchText,
+  onActive,
+  onSelect,
+  onLoadMore,
+  onRetry,
+  onClearFilters = null,
+}) {
   const titleId = useId()
   const searchId = useId()
-  const filterId = useId()
   const filtered = state.search !== '' || state.active !== 'all'
   // the business just created (if any) leads the list; it is not repeated when the loaded pages already contain it
   const created = state.created ?? null
@@ -82,58 +48,61 @@ export default function BusinessPickerView({ state, searchText, notice = '', man
   const showingCount = rows.length
 
   return (
-    <section className="business-picker" aria-labelledby={titleId}>
-      <div className="business-picker__head">
-        <div className="business-picker__heading">
-          <h2 id={titleId} className="business-picker__title">
-            Selecciona un negocio
+    <section className="platform" aria-labelledby={titleId}>
+      <header className="platform__head">
+        <div className="platform__heading">
+          <h2 id={titleId} className="platform__title">
+            Negocios
           </h2>
-          <p className="business-picker__hint">Elige el restaurante que quieres administrar.</p>
+          <p className="platform__lead">Crea y administra los restaurantes y cafeterías de la plataforma. Elige uno para gestionar su menú, sus mesas y sus pedidos.</p>
         </div>
         {onCreate && (
-          <button type="button" className="btn btn--primary btn--small business-picker__create" onClick={onCreate}>
+          <button type="button" className="btn btn--primary platform__create" onClick={onCreate}>
+            <PlusIcon />
             Crear negocio
           </button>
         )}
-      </div>
+      </header>
+
       {notice && (
-        <p className="business-picker__notice" role="status">
+        <p className="platform__notice" role="status">
           {notice}
         </p>
       )}
 
-      <div className="business-picker__filters">
-        <div className="business-picker__field business-picker__field--search">
-          <label htmlFor={searchId}>Buscar</label>
-          <input
-            id={searchId}
-            type="search"
-            value={searchText}
-            onChange={(e) => onSearchText(e.target.value)}
-            maxLength={80}
-            placeholder="Nombre o slug"
-            autoComplete="off"
-          />
+      <div className="platform__toolbar">
+        <div className="platform__search">
+          <label htmlFor={searchId} className="visually-hidden">
+            Buscar
+          </label>
+          <SearchIcon className="platform__search-icon" />
+          <input id={searchId} type="search" value={searchText} onChange={(e) => onSearchText(e.target.value)} maxLength={80} placeholder="Buscar por nombre o slug" autoComplete="off" />
         </div>
-        <div className="business-picker__field">
-          <label htmlFor={filterId}>Estado</label>
-          <select id={filterId} value={state.active} onChange={(e) => onActive(e.target.value)}>
-            <option value="all">Todos</option>
-            <option value="true">Activos</option>
-            <option value="false">Suspendidos</option>
-          </select>
+        <div className="segmented" role="group" aria-label="Filtrar por estado">
+          {STATUS_FILTERS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`segmented__option${state.active === option.value ? ' segmented__option--on' : ''}`}
+              aria-pressed={state.active === option.value}
+              onClick={() => onActive(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {state.status === 'loading' && (
-        <p className="business-picker__status" role="status">
+        <p className="platform__status" role="status">
           Cargando negocios…
         </p>
       )}
+      {state.status === 'loading' && showingCount === 0 && <SkeletonGrid />}
 
       {state.status === 'error' && (
-        <div className="business-picker__error" role="alert">
-          <p>{state.error.message}</p>
+        <div className="platform__state platform__state--error" role="alert">
+          <p className="platform__state-title">{state.error.message}</p>
           {state.error.kind !== 'forbidden' && state.error.kind !== 'unauthorized' && (
             <button type="button" className="btn btn--primary btn--small" onClick={onRetry}>
               Reintentar
@@ -143,20 +112,36 @@ export default function BusinessPickerView({ state, searchText, notice = '', man
       )}
 
       {state.status === 'ready' && showingCount === 0 && (
-        <p className="business-picker__status" role="status">
-          {filtered ? 'Ningún negocio coincide con la búsqueda o el filtro.' : 'Todavía no hay negocios registrados.'}
-          {!filtered && onCreate ? ' Crea el primero con el botón «Crear negocio».' : ''}
-        </p>
+        <div className="platform__state" role="status">
+          <span className="platform__state-icon">
+            <StoreIcon />
+          </span>
+          {filtered ? (
+            <>
+              <p className="platform__state-title">Ningún negocio coincide con la búsqueda o el filtro.</p>
+              {onClearFilters && (
+                <button type="button" className="btn btn--outline btn--small" onClick={onClearFilters}>
+                  Quitar búsqueda y filtro
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="platform__state-title">Todavía no hay negocios registrados.</p>
+              {onCreate && <p className="platform__state-text">Crea el primero con el botón «Crear negocio».</p>}
+            </>
+          )}
+        </div>
       )}
 
       {showingCount > 0 && (
         <>
-          <p className="business-picker__count" aria-live="polite">
+          <p className="platform__count" aria-live="polite">
             Mostrando {showingCount} de {Math.max(state.total, showingCount)}
           </p>
-          <ul className="business-picker__list">
+          <ul className="platform__grid">
             {rows.map((business) => (
-              <li key={business.id}>
+              <li key={business.id} className="platform__item">
                 <BusinessCard business={business} onSelect={onSelect} management={management} isNew={created?.id === business.id} />
               </li>
             ))}
@@ -165,8 +150,8 @@ export default function BusinessPickerView({ state, searchText, notice = '', man
       )}
 
       {state.status === 'ready' && state.error && (
-        <div className="business-picker__error" role="alert">
-          <p>{state.error.message}</p>
+        <div className="platform__state platform__state--error" role="alert">
+          <p className="platform__state-title">{state.error.message}</p>
           <button type="button" className="btn btn--outline btn--small" onClick={onRetry}>
             Reintentar
           </button>
@@ -174,9 +159,11 @@ export default function BusinessPickerView({ state, searchText, notice = '', man
       )}
 
       {state.status === 'ready' && state.hasMore && (
-        <button type="button" className="btn btn--outline btn--small business-picker__more" onClick={onLoadMore} disabled={state.loadingMore}>
-          {state.loadingMore ? 'Cargando…' : 'Cargar más'}
-        </button>
+        <div className="platform__more">
+          <button type="button" className="btn btn--outline btn--small" onClick={onLoadMore} disabled={state.loadingMore}>
+            {state.loadingMore ? 'Cargando…' : 'Cargar más'}
+          </button>
+        </div>
       )}
     </section>
   )

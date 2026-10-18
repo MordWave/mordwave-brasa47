@@ -649,23 +649,41 @@ test('activate dialog: explains access is recovered, data kept, previous table s
   assert.match(mod.renderActivate({ id: 1, kind: 'activate', phase: 'saving', businessId: ID_A, name: 'C', slug: 'c', error: null }), /Reactivando…/)
 })
 
-test('picker rows: management buttons per state, separate from the select button; none without the callbacks', () => {
-  const st = (items) => ({ items, page: 1, total: items.length, totalPages: 1, hasMore: false, search: '', active: 'all', status: 'ready', loadingMore: false, error: null })
-  const mgmt = { onEdit() {}, onSuspend() {}, onActivate() {} }
-  const html = mod.renderPicker(st([item(ID_A, 'Alfa'), { ...item(ID_B, 'Beta'), active: false }]), mgmt)
-  assert.match(html, /aria-label="Editar Alfa"/)
-  assert.match(html, /aria-label="Suspender Alfa"/)
-  assert.doesNotMatch(html, /aria-label="Reactivar Alfa"/)
-  assert.match(html, /aria-label="Editar Beta"/)
+test('picker cards: management actions per state live in the contextual menu; the select button is separate; none without the callbacks', async () => {
+  const { businessMenuItems } = await import('../selector/cardActions.js')
+  const st = (items) => ({ items, page: 1, total: items.length, totalPages: 1, hasMore: false, search: '', active: 'all', status: 'ready', loadingMore: false, error: null, created: null })
+  const calls = []
+  const mgmt = { onEdit: (b) => calls.push(['edit', b.id]), onSuspend: (b) => calls.push(['suspend', b.id]), onActivate: (b) => calls.push(['activate', b.id]) }
+  const alfa = item(ID_A, 'Alfa')
+  const beta = { ...item(ID_B, 'Beta'), active: false }
+  // menu content per state: an active business can be edited or suspended; a suspended one is edited and reactivated from its own button
+  const activeItems = businessMenuItems(alfa, mgmt)
+  assert.deepEqual(activeItems.map((i) => i.key), ['edit', 'suspend'])
+  assert.deepEqual(businessMenuItems(beta, mgmt).map((i) => i.key), ['edit'])
+  // the delicate action is last, apart and marked destructive; the everyday one is not
+  const [edit, suspend] = activeItems
+  assert.equal(suspend.destructive, true)
+  assert.equal(suspend.separatorBefore, true)
+  assert.notEqual(edit.destructive, true)
+  // each item calls ITS callback with ITS business, and nothing else happens (no selection)
+  edit.onSelect()
+  suspend.onSelect()
+  assert.deepEqual(calls, [['edit', ID_A], ['suspend', ID_A]])
+  assert.deepEqual(businessMenuItems(alfa, null), [])
+  const html = mod.renderPicker(st([alfa, beta]), mgmt)
+  assert.match(html, /aria-label="Más acciones de Alfa"/)
+  assert.match(html, /aria-label="Más acciones de Beta"/)
   assert.match(html, /aria-label="Reactivar Beta"/)
-  assert.doesNotMatch(html, /aria-label="Suspender Beta"/)
-  assert.match(html, /<div class="business-card business-card--inactive" aria-disabled="true">/, 'a suspended business still cannot be entered')
+  assert.doesNotMatch(html, /aria-label="Reactivar Alfa"/)
+  assert.doesNotMatch(html, /Suspender|>Editar</, 'the menu is closed: its items are not in the page until it is opened')
+  assert.match(html, /<article class="biz-card biz-card--inactive"/, 'a suspended business still cannot be entered')
   assert.equal((html.match(/aria-label="Administrar /g) ?? []).length, 1, 'only the active one can be selected')
+  assert.doesNotMatch(html, /aria-label="Administrar Beta"/)
   assert.match(html, />Suspendido</)
-  // buttons are siblings of the select button, never nested inside it
-  assert.doesNotMatch(html, /<button[^>]*class="business-card"[^>]*>(?:(?!<\/button>)[\s\S])*<button/)
-  const plain = mod.renderPicker(st([item(ID_A, 'Alfa')]), null)
-  assert.doesNotMatch(plain, /Editar|Suspender|Reactivar/)
+  // the select button and the menu are siblings, never nested
+  assert.doesNotMatch(html, /<button[^>]*biz-card__cta[^>]*>(?:(?!<\/button>)[\s\S])*<button/)
+  const plain = mod.renderPicker(st([alfa]), null)
+  assert.doesNotMatch(plain, /Editar|Suspender|Reactivar|Más acciones/)
 })
 
 // ======================================================================================================================

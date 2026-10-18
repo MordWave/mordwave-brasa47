@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import RowActionsMenu from '../../components/admin/RowActionsMenu.jsx'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
@@ -13,6 +14,7 @@ import { createBusinessManagementApi } from '../management/businessManagementApi
 import { createBusinessManagementStore } from '../management/managementStore.js'
 import { useActiveBusiness } from '../useActiveBusiness.js'
 import BusinessPicker from './BusinessPicker.jsx'
+import { ChevronIcon } from './platformIcons.jsx'
 import { createBusinessValidator } from './businessValidation.js'
 import { useStoreState } from './useStoreState.js'
 
@@ -28,36 +30,48 @@ import { useStoreState } from './useStoreState.js'
 // A selection that no longer exists / is inactive is dropped; one that cannot be verified keeps the user here with a
 // retry. Dev Tools "Ver como" never takes part: the real role decided that this gate exists at all.
 
-function TenantBar({ business, onChange, management, onAdmins }) {
+// The contextual header of a chosen business: where you are (breadcrumb "Negocios / <business>"), the way back to the list,
+// and the business-level actions. It replaces the old four-button bar and is the ONLY navigation row between the platform
+// header and the business panels. "Suspender" is not a peer of the everyday actions: it sits last in the "⋯" menu, in the
+// danger colour, and still opens its confirmation dialog.
+export function TenantBar({ business, onChange, management, onAdmins }) {
   return (
-    <div className="admin-panel__tenant" role="region" aria-label="Negocio que estás administrando">
-      <div className="admin-panel__tenant-info">
-        {business.logoUrl ? (
-          <img className="admin-panel__tenant-logo" src={business.logoUrl} alt="" />
-        ) : (
-          <span className="admin-panel__tenant-logo admin-panel__tenant-logo--placeholder" aria-hidden="true">
-            {String(business.name ?? '?').trim().slice(0, 1).toUpperCase()}
+    <div className="context-bar" role="region" aria-label="Negocio que estás administrando">
+      <div className="context-bar__where">
+        <nav className="breadcrumb" aria-label="Ruta">
+          <button type="button" className="breadcrumb__back" onClick={onChange} aria-label="Cambiar negocio: volver a la lista de negocios" title="Volver a la selección de negocios">
+            <ChevronIcon direction="left" width={16} height={16} />
+            Negocios
+          </button>
+          <span className="breadcrumb__sep" aria-hidden="true">
+            /
           </span>
-        )}
-        <span className="admin-panel__tenant-text">
-          <span className="admin-panel__tenant-label">Administrando</span>
-          <strong className="admin-panel__tenant-name">{business.name}</strong>
-          <span className="admin-panel__tenant-slug">{business.slug}</span>
-        </span>
+          <span className="breadcrumb__current" aria-current="page">
+            Administrando
+          </span>
+        </nav>
+        <div className="context-bar__business">
+          {business.logoUrl ? (
+            <img className="context-bar__logo" src={business.logoUrl} alt="" />
+          ) : (
+            <span className="context-bar__logo context-bar__logo--placeholder" aria-hidden="true">
+              {String(business.name ?? '?').trim().slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <span className="context-bar__text">
+            <strong className="context-bar__name">{business.name}</strong>
+            <span className="context-bar__slug">{business.slug}</span>
+          </span>
+        </div>
       </div>
-      <div className="admin-panel__tenant-actions">
+      <div className="context-bar__actions">
         <button type="button" className="btn btn--outline btn--small" onClick={() => management.openEdit(business)}>
           Editar
         </button>
         <button type="button" className="btn btn--outline btn--small" onClick={() => onAdmins(business)}>
           Administradores
         </button>
-        <button type="button" className="btn btn--outline btn--small business-card__suspend" onClick={() => management.openSuspend(business)}>
-          Suspender
-        </button>
-        <button type="button" className="btn btn--outline btn--small" onClick={onChange} title="Volver a la selección de negocios">
-          Cambiar negocio
-        </button>
+        <RowActionsMenu label={`Más acciones de ${business.name}`} items={[{ key: 'suspend', label: 'Suspender', destructive: true, onSelect: () => management.openSuspend(business) }]} />
       </div>
     </div>
   )
@@ -168,23 +182,25 @@ export default function BusinessGate({ onBusiness, children }) {
 
     if (state.status === 'error' && state.businessId === businessId) {
       return (
-        <section className="business-picker" role="alert">
-          <h2 className="business-picker__title">No pudimos comprobar el negocio</h2>
-          <p className="business-picker__hint">No se cargó ningún dato hasta poder verificar que el negocio existe y está activo.</p>
-          <div className="business-picker__actions">
-            <button type="button" className="btn btn--primary btn--small" onClick={() => validator.validate(businessId)}>
-              Reintentar
-            </button>
-            <button type="button" className="btn btn--outline btn--small" onClick={clearActiveBusiness}>
-              Elegir otro negocio
-            </button>
+        <section className="platform platform--narrow" role="alert">
+          <div className="platform__state platform__state--error">
+            <h2 className="platform__state-title">No pudimos comprobar el negocio</h2>
+            <p className="platform__state-text">No se cargó ningún dato hasta poder verificar que el negocio existe y está activo.</p>
+            <div className="platform__state-actions">
+              <button type="button" className="btn btn--primary btn--small" onClick={() => validator.validate(businessId)}>
+                Reintentar
+              </button>
+              <button type="button" className="btn btn--outline btn--small" onClick={clearActiveBusiness}>
+                Elegir otro negocio
+              </button>
+            </div>
           </div>
         </section>
       )
     }
 
     return (
-      <p className="business-picker__status" role="status">
+      <p className="platform__status platform__status--page" role="status">
         {state.status === 'unauthorized' ? 'Tu sesión expiró. Inicia sesión nuevamente.' : 'Comprobando negocio…'}
       </p>
     )

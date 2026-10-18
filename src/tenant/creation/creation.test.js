@@ -411,14 +411,14 @@ test('role visibility: the "Crear negocio" button exists only when the creation 
   const without = mod.renderView({ state: state({ items: [row(ID_A, 'Alfa')], total: 1 }) })
   assert.doesNotMatch(without, /Crear negocio/)
   const withCreate = mod.renderView({ state: state({ items: [row(ID_A, 'Alfa')], total: 1 }), onCreate: () => {} })
-  assert.match(withCreate, /<button type="button" class="btn btn--primary btn--small business-picker__create">Crear negocio<\/button>/)
+  assert.match(withCreate, /<button type="button" class="btn btn--primary platform__create"><svg[\s\S]*?<\/svg>Crear negocio<\/button>/)
   assert.equal((withCreate.match(/Crear negocio/g) ?? []).length, 1)
 })
 
 test('the button is there when there are no businesses yet — and in loading and error states — with a hint to use it', () => {
   const empty = mod.renderView({ state: state(), onCreate: () => {} })
   assert.match(empty, /Crear negocio/)
-  assert.match(empty, /Todavía no hay negocios registrados\. Crea el primero con el botón «Crear negocio»\./)
+  assert.match(empty, /Todavía no hay negocios registrados\.<\/p><p class="platform__state-text">Crea el primero con el botón «Crear negocio»\./)
   assert.doesNotMatch(mod.renderView({ state: state() }), /Crea el primero/, 'without the button there is no instruction to press it')
   assert.match(mod.renderView({ state: state({ status: 'loading' }), onCreate: () => {} }), /Crear negocio/)
   assert.match(mod.renderView({ state: state({ status: 'error', error: { kind: 'server', message: 'No pudimos cargar los negocios. Intenta nuevamente.' } }), onCreate: () => {} }), /Crear negocio/)
@@ -431,7 +431,7 @@ test('the list shows the business just created first, marked "Recién creado", o
     state: state({ items: [row(ID_B, 'Alfa'), row(ID_A, 'Café Olivo')], total: 2, created: row(ID_A, 'Café Olivo') }),
     onCreate: () => {},
   })
-  assert.equal((html.match(/Café Olivo<\/span>/g) ?? []).length, 1, 'not repeated')
+  assert.equal((html.match(/Café Olivo<\/h3>/g) ?? []).length, 1, 'not repeated')
   assert.ok(html.indexOf('Café Olivo') < html.indexOf('Alfa'), 'leads the list')
   assert.match(html, /Recién creado/)
   assert.equal((html.match(/Recién creado/g) ?? []).length, 1)

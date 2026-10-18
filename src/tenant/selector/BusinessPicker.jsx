@@ -68,6 +68,11 @@ export default function BusinessPicker({ notice = '', management = null, admins 
       onActive={store.setActive}
       onSelect={onSelect}
       onLoadMore={store.loadMore}
+      onClearFilters={() => {
+        setSearchText('')
+        store.setSearch('')
+        store.setActive('all')
+      }}
       onRetry={store.retry}
     />
   )
