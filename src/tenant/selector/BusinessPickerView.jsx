@@ -19,7 +19,7 @@ function Logo({ business }) {
 // shown, clearly marked, but can never be entered from here. When the management callbacks are given (the SUPER_ADMIN
 // gate passes them) each row also offers Edit and Suspend (active) or Reactivate (suspended) as SEPARATE buttons — never
 // nested inside the select button — and these work on a suspended business without selecting it.
-function BusinessCard({ business, onSelect, management }) {
+function BusinessCard({ business, onSelect, management, isNew = false }) {
   const body = (
     <>
       <Logo business={business} />
@@ -27,6 +27,7 @@ function BusinessCard({ business, onSelect, management }) {
         <span className="business-card__name">{business.name}</span>
         <span className="business-card__slug">{business.slug}</span>
         {!business.active && <span className="business-card__hint">Suspendido: no se puede administrar hasta reactivarlo.</span>}
+        {isNew && <span className="business-card__new">Recién creado</span>}
       </span>
       <span className={`business-card__badge business-card__badge--${business.active ? 'active' : 'inactive'}`}>
         {business.active ? 'Activo' : 'Suspendido'}
@@ -70,19 +71,31 @@ function BusinessCard({ business, onSelect, management }) {
 }
 
 // Presentational: everything the picker shows, driven by the store state (see businessListStore). No data fetching here.
-export default function BusinessPickerView({ state, searchText, notice = '', management = null, onSearchText, onActive, onSelect, onLoadMore, onRetry }) {
+export default function BusinessPickerView({ state, searchText, notice = '', management = null, onCreate = null, onSearchText, onActive, onSelect, onLoadMore, onRetry }) {
   const titleId = useId()
   const searchId = useId()
   const filterId = useId()
   const filtered = state.search !== '' || state.active !== 'all'
-  const showingCount = state.items.length
+  // the business just created (if any) leads the list; it is not repeated when the loaded pages already contain it
+  const created = state.created ?? null
+  const rows = created ? [created, ...state.items.filter((b) => b.id !== created.id)] : state.items
+  const showingCount = rows.length
 
   return (
     <section className="business-picker" aria-labelledby={titleId}>
-      <h2 id={titleId} className="business-picker__title">
-        Selecciona un negocio
-      </h2>
-      <p className="business-picker__hint">Elige el restaurante que quieres administrar.</p>
+      <div className="business-picker__head">
+        <div className="business-picker__heading">
+          <h2 id={titleId} className="business-picker__title">
+            Selecciona un negocio
+          </h2>
+          <p className="business-picker__hint">Elige el restaurante que quieres administrar.</p>
+        </div>
+        {onCreate && (
+          <button type="button" className="btn btn--primary btn--small business-picker__create" onClick={onCreate}>
+            Crear negocio
+          </button>
+        )}
+      </div>
       {notice && (
         <p className="business-picker__notice" role="status">
           {notice}
@@ -132,18 +145,19 @@ export default function BusinessPickerView({ state, searchText, notice = '', man
       {state.status === 'ready' && showingCount === 0 && (
         <p className="business-picker__status" role="status">
           {filtered ? 'Ningún negocio coincide con la búsqueda o el filtro.' : 'Todavía no hay negocios registrados.'}
+          {!filtered && onCreate ? ' Crea el primero con el botón «Crear negocio».' : ''}
         </p>
       )}
 
       {showingCount > 0 && (
         <>
           <p className="business-picker__count" aria-live="polite">
-            Mostrando {showingCount} de {state.total}
+            Mostrando {showingCount} de {Math.max(state.total, showingCount)}
           </p>
           <ul className="business-picker__list">
-            {state.items.map((business) => (
+            {rows.map((business) => (
               <li key={business.id}>
-                <BusinessCard business={business} onSelect={onSelect} management={management} />
+                <BusinessCard business={business} onSelect={onSelect} management={management} isNew={created?.id === business.id} />
               </li>
             ))}
           </ul>

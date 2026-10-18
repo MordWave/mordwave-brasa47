@@ -388,11 +388,16 @@ test('the customer app and public API have no tenant context (they resolve the b
   }
 })
 
-test('no new role, no business management UI: only ADMIN and SUPER_ADMIN exist and nothing creates/deletes businesses', () => {
+test('no new role, no impersonation: only ADMIN and SUPER_ADMIN exist and exactly ONE module creates businesses (POST /businesses, 9B)', () => {
   const core = code(read('./tenantCore.js'))
   assert.deepEqual([...core.matchAll(/ROLE_[A-Z_]+ = '([A-Z_]+)'/g)].map((m) => m[1]).sort(), ['ADMIN', 'SUPER_ADMIN'])
   const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(new URL(`${e.name}/`, dir)) : [new URL(e.name, dir)]))
+  const creators = []
   for (const u of walk(new URL('../', import.meta.url)).filter((x) => /\.(js|jsx)$/.test(x.pathname) && !x.pathname.endsWith('.test.js'))) {
-    assert.doesNotMatch(code(readFileSync(u, 'utf8')), /apiFetch\(['`]\/businesses['`]|impersonat|\/users['`/]/i, u.pathname)
+    const source = code(readFileSync(u, 'utf8'))
+    // impersonation and the /users endpoints stay absent EVERYWHERE, the creation module included
+    assert.doesNotMatch(source, /impersonat|\/users['`/]/i, u.pathname)
+    if (/apiFetch\(['`]\/businesses['`]/.test(source)) creators.push(u.pathname.split('/src/')[1])
   }
+  assert.deepEqual(creators, ['tenant/creation/businessCreateApi.js'], 'the only caller of POST /businesses')
 })

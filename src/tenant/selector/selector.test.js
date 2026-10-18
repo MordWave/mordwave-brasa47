@@ -402,6 +402,7 @@ test('gate, SUPER_ADMIN with no selection: the picker, and none of the Admin pan
   const html = gateHtml({ user: SUPER })
   assert.match(html, /Selecciona un negocio/)
   assert.match(html, /business-picker/)
+  assert.match(html, />Crear negocio<\/button>/, '9B: the gate (SUPER_ADMIN only) offers the creation button')
   assert.doesNotMatch(html, /PANELS|Administrando|Cambiar negocio/)
 })
 
@@ -508,8 +509,15 @@ test('the picker only lets an ACTIVE business be chosen; there is no auto-select
   assert.match(view, /management\.onEdit\(business\)/)
   assert.match(view, /management\.onSuspend\(business\)/)
   assert.match(view, /management\.onActivate\(business\)/)
-  // the selector folder itself never talks to the management endpoints or sends anything but the listing GET
-  for (const [name, source] of selectorSources) assert.doesNotMatch(source, /method: '(POST|PATCH|PUT|DELETE)'|\/businesses\/me\/logo|crear negocio|nuevo negocio|desactivar|impersonar/i, name)
+  // the selector folder itself never talks to the management endpoints or sends anything but the listing GET. (9B: the
+  // "Crear negocio" BUTTON now lives in the picker view — deliberately no longer forbidden — but the request that it
+  // opens belongs to tenant/creation, never to this folder: the mutation ban below is unchanged.)
+  for (const [name, source] of selectorSources) assert.doesNotMatch(source, /method: '(POST|PATCH|PUT|DELETE)'|\/businesses\/me\/logo|desactivar|impersonar/i, name)
+  assert.deepEqual(
+    selectorSources.filter(([, source]) => /Crear negocio/.test(source)).map(([name]) => name),
+    ['BusinessPickerView.jsx'],
+    'the button label appears in the view only',
+  )
 })
 
 test('selector styles use only theme tokens (light and dark): no literal colour', () => {

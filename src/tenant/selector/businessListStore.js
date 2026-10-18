@@ -31,6 +31,9 @@ const initialState = () => ({
   status: 'loading',
   loadingMore: false,
   error: null,
+  // The business the SUPER_ADMIN has just created: shown first (marked as new) no matter which page or filter the list
+  // is on, until they search / filter again. Never touched by a list request.
+  created: null,
 })
 
 export function createBusinessListStore({ fetchPage, pageSize = BUSINESS_PAGE_SIZE }) {
@@ -114,13 +117,13 @@ export function createBusinessListStore({ fetchPage, pageSize = BUSINESS_PAGE_SI
     setSearch(text) {
       const search = normalizeSearch(text)
       if (search === state.search) return Promise.resolve()
-      state = { ...state, search }
+      state = { ...state, search, created: null }
       return request(1, 'replace')
     },
     setActive(active) {
       const next = active === 'true' || active === 'false' ? active : 'all'
       if (next === state.active) return Promise.resolve()
-      state = { ...state, active: next }
+      state = { ...state, active: next, created: null }
       return request(1, 'replace')
     },
     // progressive loading: the next page is appended, never replaces what is shown
@@ -136,6 +139,7 @@ export function createBusinessListStore({ fetchPage, pageSize = BUSINESS_PAGE_SI
       if (!business?.id) return
       const row = rowOf(business)
       changes.set(business.id, { rev: ++revision, row })
+      if (state.created?.id === business.id) set({ created: row })
       if (!state.items.some((b) => b.id === business.id)) return
       if (!matchesFilter(row.active)) {
         set({ items: state.items.filter((b) => b.id !== business.id), total: Math.max(0, state.total - 1) })
@@ -143,9 +147,19 @@ export function createBusinessListStore({ fetchPage, pageSize = BUSINESS_PAGE_SI
       }
       set({ items: state.items.map((b) => (b.id === business.id ? row : b)) })
     },
+    // A business was created from this screen: show it at the top at once, clear the search and the status filter so
+    // nothing hides it, and refresh the list in the background (the answer keeps the pinned row on screen; the row is
+    // not duplicated when the refreshed page contains it).
+    showCreated(business) {
+      if (!business?.id) return Promise.resolve()
+      state = { ...state, search: '', active: 'all', created: rowOf(business), total: state.total + 1 }
+      listeners.forEach((fn) => fn())
+      return request(1, 'replace')
+    },
     // the business no longer exists (404 while managing it)
     removeItem(businessId) {
       changes.set(businessId, { rev: ++revision, row: null })
+      if (state.created?.id === businessId) set({ created: null })
       if (!state.items.some((b) => b.id === businessId)) return
       set({ items: state.items.filter((b) => b.id !== businessId), total: Math.max(0, state.total - 1) })
     },

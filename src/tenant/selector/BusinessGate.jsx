@@ -5,6 +5,9 @@ import { apiFetch } from '../../services/api'
 import AdminsView from '../admins/AdminsView.jsx'
 import { createAdminsApi } from '../admins/adminsApi.js'
 import { createAdminsStore } from '../admins/adminsStore.js'
+import BusinessCreateDialog from '../creation/BusinessCreateDialog.jsx'
+import { createBusinessCreateApi } from '../creation/businessCreateApi.js'
+import { createCreationStore } from '../creation/creationStore.js'
 import BusinessManagementDialogs from '../management/BusinessManagementDialogs.jsx'
 import { createBusinessManagementApi } from '../management/businessManagementApi.js'
 import { createBusinessManagementStore } from '../management/managementStore.js'
@@ -77,6 +80,8 @@ export default function BusinessGate({ onBusiness, children }) {
     }),
   )
   const [management] = useState(() => createBusinessManagementStore({ api: createBusinessManagementApi({ getToken: () => latest.current.token }) }))
+  // "Crear negocio" (POST /businesses): the dialog and its store, mounted here — i.e. only for a real SUPER_ADMIN.
+  const [creation] = useState(() => createCreationStore({ api: createBusinessCreateApi({ getToken: () => latest.current.token }) }))
   // The "Administradores" view (SUPER_ADMIN only, like everything in this gate): opened for any restaurant by id — from a
   // picker row (suspended ones included) or from the bar of the chosen one — and it replaces the picker / panels while open.
   const [admins] = useState(() => createAdminsStore({ api: createAdminsApi({ getToken: () => latest.current.token }) }))
@@ -143,6 +148,7 @@ export default function BusinessGate({ onBusiness, children }) {
           notice={notice}
           management={management}
           admins={admins}
+          creation={creation}
           onSelect={(id) => {
             setNotice('')
             setActiveBusiness(id)
@@ -188,6 +194,18 @@ export default function BusinessGate({ onBusiness, children }) {
     <>
       {view}
       <BusinessManagementDialogs store={management} />
+      <BusinessCreateDialog
+        store={creation}
+        onManage={(business) => {
+          creation.close()
+          setNotice('')
+          setActiveBusiness(business.id)
+        }}
+        onAddAdmin={(business) => {
+          creation.close()
+          admins.open(business)
+        }}
+      />
     </>
   )
 }
