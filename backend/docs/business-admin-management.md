@@ -10,6 +10,7 @@ Un SUPER_ADMIN que aún debe cambiar su contraseña recibe antes `403 PASSWORD_C
 | `POST /businesses/:businessId/admins/:userId/deactivate` | 200 `AdminView` |
 | `POST /businesses/:businessId/admins/:userId/activate` | 200 `AdminView` |
 | `POST /businesses/:businessId/admins/:userId/reset-password` | 200 `{ user, temporaryPassword }` |
+| `POST /businesses/:businessId/admins/:userId/delete` `{ confirmEmail }` | 200 `{ deleted, alreadyDeleted, id, email, businessId }` |
 
 `AdminView = { id, email, businessId, role, active, mustChangePassword, createdAt, updatedAt }` — nunca hash ni versión de credenciales.
 Todas las respuestas llevan `Cache-Control: no-store`.
@@ -50,6 +51,30 @@ contraseña se descarta sin devolverse. Si se pierde la respuesta, se inicia otr
 
 Si PostgreSQL aborta una transacción por `40001` (serialización), `40P01` (deadlock) o `55P03` (bloqueo no disponible), la operación responde **`409 ADMIN_CONCURRENT_MODIFICATION`** (`create`, `activate`, `deactivate`, `reset-password`): no se aplicó nada, no se auditó nada y no se devolvió ninguna contraseña; reintentar es decisión de quien llamó (no hay reintentos automáticos). Cualquier otro error (fallo de auditoría, violación de restricción, conexión caída) no se convierte en 409.
 
+## Eliminación definitiva (9D.1)
+Solo para deshacer una cuenta ADMIN creada por error. **No es "quitar un administrador"**: borra la fila de `users` y no se puede revertir.
+Todo se juzga **dentro de la transacción, con el negocio y la cuenta bloqueados `FOR UPDATE`** (orden Negocio → Usuario) y se re-confirma al borrar.
+
+Criterio de elegibilidad (todas las condiciones):
+1. Es un ADMIN de **este** negocio. Un SUPER_ADMIN → `403 ROLE_NOT_ALLOWED` (nunca se toca); admin de otro negocio, id inexistente → `404 ADMIN_NOT_FOUND`; negocio inexistente → `404 BUSINESS_NOT_FOUND`.
+2. `confirmEmail` coincide con el correo guardado (se normaliza trim + minúsculas) → si no, `400 CONFIRMATION_MISMATCH`.
+3. Está **desactivada** → si no, `409 ADMIN_STILL_ACTIVE` (o `409 LAST_ACTIVE_ADMIN` si además es el único admin activo del negocio).
+4. Conserva el **cambio inicial de contraseña pendiente** (`must_change_password = true`) → si no, `409 ADMIN_PASSWORD_ALREADY_CHANGED`.
+5. Ninguna fila de `audit_logs` le es atribuida (`user_id` = la cuenta, o `user_email` = su correo, en cualquier negocio) ni de `platform_audit_logs` → si no, `409 ADMIN_HAS_ACTIVITY`.
+6. Su historial es **exactamente** un `USER_ADMIN_CREATED` y un `USER_ADMIN_DEACTIVATED` sobre ella (identificada por su uuid como `entity_id`, tipo `User`, este negocio y su propio correo en los metadatos; cualquier otra fila sobre ese id lo invalida), y `credentials_version = 1` (auditoría y contador son dos registros independientes que deben coincidir) → si no (reactivación, reseteo, cuenta sin rastro, contador que no cuadra), `409 ADMIN_HISTORY_INCOMPATIBLE`.
+Conflictos de concurrencia (SQLSTATE 40001/40P01/55P03 o el borrado condicional no afecta exactamente una fila) → `409 ADMIN_CONCURRENT_MODIFICATION` (reintentable).
+
+**Qué NO se puede probar.** Los inicios de sesión no se auditan y `users` no tiene "último login": no se puede demostrar que la cuenta nunca inició sesión.
+Lo que sí se establece es suficiente: mientras `must_change_password` sea `true`, `JwtAuthGuard` solo deja llamar `GET /auth/me` y `POST /auth/change-password`,
+así que la cuenta no pudo realizar **ninguna** acción administrativa; la única forma de limpiar la bandera es cambiar la contraseña (queda auditado); no posee filas
+de auditoría; y ninguna clave foránea apunta a `users` con algo distinto de `ON DELETE SET NULL` (sin filas que anular). Una sesión restringida iniciada con la
+contraseña temporal es posible y se admite (test e2e); desactivarla ya revocó cualquier token.
+
+Efectos: se borra la fila (todos sus tokens dejan de valer al instante: `JwtStrategy` no encuentra al usuario) y el correo queda libre de inmediato; una cuenta nueva con ese
+correo tiene otro `id`, por lo que los tokens antiguos nunca reviven. `USER_ADMIN_DELETED` (`entity_id` = id anterior, metadatos `{ email }`, negocio, actor SUPER_ADMIN)
+se escribe en la **misma transacción** (fail-closed): si no se puede registrar, no se borra. No se modifican claves foráneas ni hay cascadas.
+Repetición tras una respuesta perdida: si la auditoría prueba esa eliminación en ese negocio, responde `200 alreadyDeleted: true` (sigue exigiendo el correo); si no, `404`.
+
 ## Aislamiento
 El objetivo debe ser un usuario `ADMIN` cuyo `business_id` sea el de la URL; cualquier otra cosa (usuario de otro negocio, un SUPER_ADMIN, un id que no
 existe) es el mismo `404 ADMIN_NOT_FOUND`. Estas rutas nunca pueden modificar cuentas SUPER_ADMIN.
@@ -60,12 +85,12 @@ operativo de sus ADMIN, no la gestión del SUPER_ADMIN), con la misma regla del 
 negocio no cambia.
 
 ## Auditoría
-`USER_ADMIN_CREATED`, `USER_ADMIN_ACTIVATED`, `USER_ADMIN_DEACTIVATED` y `USER_ADMIN_PASSWORD_RESET` se registran contra el **negocio objetivo**
+`USER_ADMIN_CREATED`, `USER_ADMIN_ACTIVATED`, `USER_ADMIN_DEACTIVATED`, `USER_ADMIN_PASSWORD_RESET` y `USER_ADMIN_DELETED` se registran contra el **negocio objetivo**
 (`audit_logs.business_id`) con el SUPER_ADMIN como actor, metadatos solo `{ email }`, **en la misma transacción** que el cambio
 (`AuditService.recordInTransaction`, no best-effort): si el registro falla, la operación se revierte. Operaciones repetidas sin cambio no se auditan.
 
 ## Rate limits
-`POST .../admins` y `.../reset-password`: 20/min por IP y 10/min por usuario (cada ruta tiene su propio contador); `activate`/`deactivate`: 30/min por
+`POST .../admins`, `.../reset-password` y `.../delete`: 20/min por IP y 10/min por usuario (cada ruta tiene su propio contador); `activate`/`deactivate`: 30/min por
 usuario por ruta. Los intentos fallidos cuentan. Los límites globales siguen aplicando.
 
 ## Limitaciones
