@@ -66,4 +66,4 @@ usuario por ruta. Los intentos fallidos cuentan. Los límites globales siguen ap
 ## Limitaciones
 - PGlite no reproduce carreras reales entre conexiones: la regla del último ADMIN y el compare-and-set se prueban de forma determinista.
 - El frontend aún no tiene pantallas para esto ni para el cambio obligatorio (8D.2d-4).
-- Sin invitaciones por correo ni recuperación de SUPER_ADMIN.
+- Sin invitaciones por correo. La recuperación de un SUPER_ADMIN no es por la API sino por la CLI manual (`runbook-recover-super-admin.md`).

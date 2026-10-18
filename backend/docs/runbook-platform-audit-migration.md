@@ -2,7 +2,8 @@
 
 Migración: `src/migrations/1790500000000-AddPlatformAuditLogs.ts`. Crea la tabla **`platform_audit_logs`** (auditoría de operaciones de
 plataforma: bootstrap del primer SUPER_ADMIN y recuperación de su cuenta).
-Estado: **preparada y probada localmente (PGlite). No se ha aplicado a ningún entorno real.**
+Estado: **aplicada en producción (2026-10-18, ~00:12 UTC) y verificada: tabla vacía, 18 migraciones.** Desde 8D.2d-6b las CLIs de bootstrap y de
+recuperación escriben en ella (ver `runbook-bootstrap-super-admin.md` y `runbook-recover-super-admin.md`); mientras no se ejecuten, sigue vacía.
 
 > **Publicar o fusionar el PR de esta migración NO autoriza aplicarla en producción.** Los despliegues de Railway no ejecutan migraciones.
 > Cada paso con conexión o escritura _(requiere autorización)_ se hace solo cuando el responsable lo apruebe de forma explícita.
@@ -12,8 +13,8 @@ Estado: **preparada y probada localmente (PGlite). No se ha aplicado a ningún e
   existente (ni `users`, ni `audit_logs`) ni la autenticación.
 - **Independiente de `audit_logs`:** esa tabla exige un negocio (`business_id NOT NULL`); esta no, porque registra cosas de plataforma que pueden
   ocurrir sin ningún usuario autenticado (el bootstrap). Los registros de negocio y los de plataforma no se mezclan.
-- **Solo añade estructura:** nada en la aplicación la lee ni la escribe todavía. Las herramientas que la usarán (la CLI de bootstrap y la futura
-  CLI de recuperación) deben escribir **en la misma transacción** que el cambio que registran: si la auditoría falla, la operación se revierte.
+- **Solo añade estructura:** nada en la aplicación (la API HTTP) la lee ni la escribe. Solo la CLI de bootstrap y la CLI de recuperación escriben en
+  ella, **en la misma transacción** que el cambio que registran: si la auditoría falla, la operación se revierte.
 - **Protección limitada frente a secretos (no es absoluta):** ninguna columna está pensada para contraseñas, hashes, tokens ni claves, y un `CHECK` rechaza
   un `metadata` con **claves** que parezcan secretos (`password`, `hash`, `token`, `jwt`, `secret`, `ssh`, `credential`…). **No inspecciona los valores:** el
   texto libre de `reason` y `operator_label`, el correo objetivo y los **valores** dentro de `metadata` pueden contener cualquier cosa que alguien escriba.
