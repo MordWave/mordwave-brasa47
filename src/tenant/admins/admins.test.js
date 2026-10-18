@@ -444,14 +444,20 @@ test('without a reveal the view contains no password at all, and the dialog is n
   assert.match(withReveal, /Copiar contraseña/)
 })
 
-test('the picker offers "Administradores" for active AND suspended restaurants, only when the gate passes the callback', () => {
-  const state = { status: 'ready', items: [{ id: BIZ, name: 'Activo', slug: 'activo', active: true, logoUrl: null }, { id: OTHER, name: 'Cerrado', slug: 'cerrado', active: false, logoUrl: null }], total: 2, search: '', active: 'all', error: null, hasMore: false, loadingMore: false }
+test('the picker menu offers "Administradores" for active AND suspended restaurants, only when the gate passes the callback', async () => {
+  const { businessMenuItems } = await import('../selector/cardActions.js')
+  const active = { id: BIZ, name: 'Activo', slug: 'activo', active: true, logoUrl: null }
+  const suspended = { id: OTHER, name: 'Cerrado', slug: 'cerrado', active: false, logoUrl: null }
+  const seen = []
   const noop = () => {}
-  const withAdmins = mod.renderPicker(state, { onEdit: noop, onSuspend: noop, onActivate: noop, onAdmins: noop })
-  assert.match(withAdmins, /aria-label="Administradores de Activo"/)
-  assert.match(withAdmins, /aria-label="Administradores de Cerrado"/, 'a suspended restaurant can still be managed')
-  assert.doesNotMatch(mod.renderPicker(state, { onEdit: noop, onSuspend: noop, onActivate: noop, onAdmins: null }), /Administradores de/)
-  assert.doesNotMatch(mod.renderPicker(state, null), /Administradores de/)
+  const withAdmins = { onEdit: noop, onSuspend: noop, onActivate: noop, onAdmins: (b) => seen.push(b.id) }
+  const keys = (business, management) => businessMenuItems(business, management).map((i) => i.key)
+  assert.ok(keys(active, withAdmins).includes('admins'))
+  assert.ok(keys(suspended, withAdmins).includes('admins'), 'a suspended restaurant can still be managed')
+  businessMenuItems(suspended, withAdmins).find((i) => i.key === 'admins').onSelect()
+  assert.deepEqual(seen, [OTHER], 'it opens the view of THAT restaurant')
+  assert.ok(!keys(active, { onEdit: noop, onSuspend: noop, onActivate: noop, onAdmins: null }).includes('admins'))
+  assert.deepEqual(keys(active, null), [])
 })
 
 // ======================================================================================================================

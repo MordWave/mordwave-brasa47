@@ -127,10 +127,23 @@ export default function AdminPanel() {
             </Suspense>
           )}
           <header className="admin-panel__header">
-            <div>
-              <p className="admin__eyebrow">{business?.name || FALLBACK_BUSINESS_NAME}</p>
-              <h1 className="admin__title">Panel administrativo</h1>
-            </div>
+            {isBusinessSelectable ? (
+              // a real SUPER_ADMIN works at PLATFORM level: the header names the platform; which restaurant is open
+              // shows in the contextual bar of the selector gate (breadcrumb), never here.
+              <div className="platform-brand">
+                <span className="platform-brand__mark" aria-hidden="true">
+                  MW
+                </span>
+                <h1 className="platform-brand__name">
+                  MordWave<span className="platform-brand__scope"> · Plataforma</span>
+                </h1>
+              </div>
+            ) : (
+              <div>
+                <p className="admin__eyebrow">{business?.name || FALLBACK_BUSINESS_NAME}</p>
+                <h1 className="admin__title">Panel administrativo</h1>
+              </div>
+            )}
             <div className="admin-panel__user">
               {ViewAsSelector && (
                 <Suspense fallback={null}>
@@ -138,7 +151,9 @@ export default function AdminPanel() {
                 </Suspense>
               )}
               <ThemeToggle />
-              <span className="admin-panel__user-email">{user.email}</span>
+              <span className="admin-panel__user-email" title={user.email}>
+                {user.email}
+              </span>
               <button type="button" className="btn btn--outline btn--small" onClick={() => setPasswordDialogOpen(true)}>
                 Cambiar contraseña
               </button>

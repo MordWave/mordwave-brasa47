@@ -369,16 +369,17 @@ test('picker view: shows name, slug, logo (or initials) and Activo/Suspendido; s
   const html = mod.renderView({ state: state({ items, total: 3 }) })
   assert.match(html, /Brasa 47/)
   assert.match(html, /brasa-47/)
-  assert.match(html, /<img class="business-card__logo" src="https:\/\/api\.example\.com\/media\/x\.webp"/)
+  assert.match(html, /<img class="biz-card__logo" src="https:\/\/api\.example\.com\/media\/x\.webp"/)
   assert.match(html, />CO</, 'initials when there is no logo')
   assert.equal((html.match(/>Activo</g) ?? []).length, 2)
   assert.equal((html.match(/>Suspendido</g) ?? []).length, 1)
   assert.match(html, /Mostrando 3 de 3/)
-  // active = real buttons, inactive = a non-interactive, aria-disabled block with an explanation
-  assert.equal((html.match(/<button type="button" class="business-card"/g) ?? []).length, 2)
+  // active = a real "Administrar" button each; a suspended card has none and says why
+  assert.equal((html.match(/aria-label="Administrar /g) ?? []).length, 2)
   assert.match(html, /aria-label="Administrar Brasa 47"/)
-  assert.match(html, /<div class="business-card business-card--inactive" aria-disabled="true">/)
-  assert.doesNotMatch(html, /Editar|Suspender|Reactivar/, 'without the management callbacks there are no management buttons')
+  assert.equal((html.match(/<article class="biz-card"/g) ?? []).length, 2)
+  assert.equal((html.match(/<article class="biz-card biz-card--inactive"/g) ?? []).length, 1)
+  assert.doesNotMatch(html, /Editar|Suspender|Reactivar|Más acciones/, 'without the management callbacks there are no management controls at all')
   assert.doesNotMatch(html, /Administrar Casa Olivo/)
   assert.match(html, /Suspendido: no se puede administrar hasta reactivarlo/)
 })
@@ -391,17 +392,22 @@ test('picker view: pagination controls, notice, labelled filters', () => {
   assert.match(mod.renderView({ state: state({ items: [biz(ID_A, 'Alfa')], hasMore: true, loadingMore: true }) }), /<button[^>]*disabled[^>]*>Cargando…<\/button>/)
   assert.match(mod.renderView({ state: state(), notice: 'El negocio que tenías seleccionado ya no existe. Elige otro.' }), /role="status">El negocio que tenías seleccionado ya no existe/)
   const html = mod.renderView({ state: state() })
-  assert.match(html, /<label for="([^"]+)">Buscar<\/label>\s*<input id="\1" type="search"/)
-  assert.match(html, /<label for="([^"]+)">Estado<\/label>\s*<select id="\1"/)
-  assert.match(html, /<option value="all"[^>]*>Todos<\/option><option value="true"[^>]*>Activos<\/option><option value="false"[^>]*>Suspendidos<\/option>/)
+  assert.match(html, /<label for="([^"]+)" class="visually-hidden">Buscar<\/label>[\s\S]*?<input id="\1" type="search"/)
+  // the status filter: a labelled group of three toggle buttons, exactly one pressed
+  assert.match(html, /<div class="segmented" role="group" aria-label="Filtrar por estado">/)
+  assert.match(html, /aria-pressed="true" [^>]*>Todos<\/button>|<button type="button" class="segmented__option segmented__option--on" aria-pressed="true">Todos<\/button>/)
+  assert.match(html, />Activos<\/button><button[^>]*aria-pressed="false">Suspendidos<\/button>/)
+  assert.equal((html.match(/aria-pressed="true"/g) ?? []).length, 1)
+  assert.match(mod.renderView({ state: state({ active: 'false' }) }), /segmented__option--on" aria-pressed="true">Suspendidos</)
   assert.match(html, /maxLength="80"/)
-  assert.match(html, /<section class="business-picker" aria-labelledby=/)
+  assert.match(html, /<section class="platform" aria-labelledby=/)
+  assert.match(html, /<h2 id="[^"]+" class="platform__title">Negocios<\/h2>/)
 })
 
 test('gate, SUPER_ADMIN with no selection: the picker, and none of the Admin panels', () => {
   const html = gateHtml({ user: SUPER })
-  assert.match(html, /Selecciona un negocio/)
-  assert.match(html, /business-picker/)
+  assert.match(html, /class="platform__title">Negocios</)
+  assert.match(html, /class="platform"/)
   assert.match(html, />Crear negocio<\/button>/, '9B: the gate (SUPER_ADMIN only) offers the creation button')
   assert.doesNotMatch(html, /PANELS|Administrando|Cambiar negocio/)
 })
@@ -409,12 +415,12 @@ test('gate, SUPER_ADMIN with no selection: the picker, and none of the Admin pan
 test('gate, SUPER_ADMIN with a restored selection: it is verified first, no panel is mounted before that', () => {
   const html = gateHtml({ user: SUPER, selection: { userId: SUPER.id, businessId: ID_A } })
   assert.match(html, /Comprobando negocio…/)
-  assert.doesNotMatch(html, /PANELS|Administrando|Cambiar negocio|<section class="business-picker"/)
+  assert.doesNotMatch(html, /PANELS|Administrando|Cambiar negocio|<section class="platform"/)
 })
 
 test("gate: another identity's selection is ignored (the picker is shown)", () => {
   const html = gateHtml({ user: SUPER, selection: { userId: 'someone-else', businessId: ID_A } })
-  assert.match(html, /business-picker/)
+  assert.match(html, /class="platform"/)
   assert.doesNotMatch(html, /Comprobando negocio|PANELS/)
 })
 
@@ -422,13 +428,13 @@ test('gate: a tampered stored value shows the picker, never a business', () => {
   globalThis.localStorage = stubStorage({ brasa47_admin_session: JSON.stringify({ accessToken: 't', user: SUPER }) })
   globalThis.window = { sessionStorage: stubStorage({ [ACTIVE_BUSINESS_STORAGE_KEY]: '{"userId":"u2","businessId":"../../x"}' }) }
   const html = mod.renderGate()
-  assert.match(html, /business-picker/)
+  assert.match(html, /class="platform"/)
   assert.doesNotMatch(html, /PANELS|Comprobando/)
 })
 
 test('Dev Tools never enables the selector nor changes the tenant: a real SUPER_ADMIN previewing ADMIN still gets the picker', () => {
   const html = gateHtml({ user: SUPER, viewAs: 'ADMIN' })
-  assert.match(html, /business-picker/)
+  assert.match(html, /class="platform"/)
   assert.doesNotMatch(html, /PANELS/)
   const restored = gateHtml({ user: SUPER, selection: { userId: SUPER.id, businessId: ID_A }, viewAs: 'ADMIN' })
   assert.match(restored, /Comprobando negocio…/)
@@ -502,13 +508,17 @@ test('the gate verifies before it renders panels, drops stale selections and kee
   assert.match(provider, /validated\?\.userId === userId && validated\?\.businessId === businessId/)
 })
 
-test('the picker only lets an ACTIVE business be chosen; there is no auto-selection; management buttons never select', () => {
-  const view = code(read('./BusinessPickerView.jsx'))
-  assert.match(view, /business\.active \? \(\s*<button type="button" className="business-card" onClick=\{\(\) => onSelect\(business\.id\)\}[\s\S]*\) : \(\s*<div className="business-card business-card--inactive" aria-disabled="true">/)
-  assert.equal((view.match(/onSelect\(/g) ?? []).length, 1, 'the only way to choose a business is the active card button')
-  assert.match(view, /management\.onEdit\(business\)/)
-  assert.match(view, /management\.onSuspend\(business\)/)
-  assert.match(view, /management\.onActivate\(business\)/)
+test('the picker only lets an ACTIVE business be chosen; there is no auto-selection; management actions never select', () => {
+  const card = code(read('./BusinessCard.jsx'))
+  // the "Administrar" button exists only in the ACTIVE branch; the suspended branch offers "Reactivar" (and only with the callbacks)
+  assert.match(card, /\{active \? \(\s*<button type="button" className="btn btn--small biz-card__cta biz-card__cta--main" onClick=\{\(\) => onSelect\(business\.id\)\}[\s\S]*\) : \(\s*management && \(/)
+  assert.equal((card.match(/onSelect\(/g) ?? []).length, 1, 'the only way to choose a business is the active card button')
+  assert.match(card, /management\.onActivate\(business\)/)
+  const actions = code(read('./cardActions.js'))
+  assert.match(actions, /management\.onEdit\(business\)/)
+  assert.match(actions, /management\.onSuspend\(business\)/)
+  assert.doesNotMatch(actions, /setActiveBusiness|selectBusiness|business\.id/, 'menu actions never select a business (no id is ever handed to a selection)')
+  assert.doesNotMatch(code(read('./BusinessPickerView.jsx')), /items\[0\]|\[0\]\.id/)
   // the selector folder itself never talks to the management endpoints or sends anything but the listing GET. (9B: the
   // "Crear negocio" BUTTON now lives in the picker view — deliberately no longer forbidden — but the request that it
   // opens belongs to tenant/creation, never to this folder: the mutation ban below is unchanged.)
@@ -520,15 +530,35 @@ test('the picker only lets an ACTIVE business be chosen; there is no auto-select
   )
 })
 
-test('selector styles use only theme tokens (light and dark): no literal colour', () => {
-  const css = code(read('../../styles/index.css'))
-  const start = css.indexOf('.business-picker {')
-  const end = css.indexOf('@media print', start)
+test('selector / platform styles use only theme tokens (light and dark): no literal colour', () => {
+  const raw = read('../../styles/index.css')
+  const css = code(raw)
+  const start = css.indexOf('.business-picker__title {')
+  const end = css.indexOf('.business-dialog {', start)
   assert.ok(start > 0 && end > start)
   const block = css.slice(start, end)
+  assert.ok(block.length > 6000, 'the scan covers the shared pieces and the whole platform section')
   assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|:\s*(white|black)\b/)
-  assert.match(block, /\.business-card--inactive \{[^}]*background:\s*var\(--dimmed-surface\)/)
-  assert.match(block, /\.business-card__hint \{[^}]*color:\s*var\(--dimmed-text\)/)
-  assert.match(block, /button\.business-card:focus-visible \{[^}]*var\(--focus-ring\)/)
-  assert.match(css, /@media print \{[^}]*\.admin-panel__tenant,\s*\.business-picker/)
+  assert.match(block, /\.biz-card--inactive \{[^}]*background:\s*var\(--dimmed-surface\)/)
+  assert.match(block, /\.biz-card__hint \{[^}]*color:\s*var\(--dimmed-text\)/)
+  // every interactive element of the platform screens shows the theme's focus ring
+  for (const selector of ['.platform__search input:focus-visible', '.segmented__option:focus-visible', '.biz-card__cta--main:focus-visible', '.breadcrumb__back:focus-visible', '.biz-card .row-menu__trigger:focus-visible']) {
+    const rule = block.slice(block.indexOf(`${selector} {`))
+    assert.ok(block.includes(`${selector} {`), selector)
+    assert.match(rule.slice(0, rule.indexOf('}')), /var\(--focus-ring\)/, selector)
+  }
+  // brand colour used as TEXT goes through the AA-safe token, never raw --primary
+  assert.doesNotMatch(block, /color:\s*var\(--primary\)\s*;/)
+  // responsive: one column on phones, fluid columns from 640px, a full-width primary action on small screens
+  assert.match(block, /\.platform__grid \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/)
+  assert.match(block, /@media \(min-width: 640px\) \{\s*\.platform__grid \{[^}]*repeat\(auto-fill, minmax\(300px, 1fr\)\)/)
+  assert.match(block, /@media \(max-width: 539px\)[\s\S]*\.platform__create \{[^}]*width: 100%/)
+  // touch targets: the primary action, the card action and the menu trigger are 44px (the filter options 40px inside a padded group)
+  assert.match(block, /\.platform__create \{[^}]*min-height: 44px/)
+  assert.match(block, /\.biz-card__cta \{[^}]*min-height: 44px/)
+  assert.match(block, /\.biz-card \.row-menu__trigger \{[^}]*width: 44px;[^}]*height: 44px/)
+  assert.match(block, /\.segmented__option \{[^}]*min-height: 40px/)
+  // reduced motion, and the context bar / platform page never print
+  assert.match(block, /@media \(prefers-reduced-motion: reduce\) \{\s*\.biz-skeleton \{\s*animation: none/)
+  assert.match(css, /@media print \{[^}]*\.platform,\s*\.context-bar/)
 })
