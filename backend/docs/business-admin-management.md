@@ -45,6 +45,11 @@ Nueva contraseña temporal (hash), `credentials_version + 1` (revoca todos los J
 con **compare-and-set** sobre la versión leída: de dos restablecimientos concurrentes solo uno confirma, el otro recibe `409 CREDENTIALS_CHANGED` y su
 contraseña se descarta sin devolverse. Si se pierde la respuesta, se inicia otro restablecimiento. Permitido para un ADMIN desactivado (no lo reactiva).
 
+## Concurrencia y orden de bloqueos
+**Convención:** toda transacción administrativa que deba bloquear negocio y usuario adquiere **primero el negocio (`FOR UPDATE`) y después el usuario**, luego escribe y por último audita, todo en la misma transacción. La auditoría toma un `KEY SHARE` sobre la fila del negocio (clave foránea de `audit_logs`), así que una operación que retuviera la fila del usuario antes de llegar ahí podía quedar en deadlock con otra que ya tuviera el negocio y esperara a ese usuario (`reset-password` lo hacía; corregido en 9D.2b). `change-password` (una sola sentencia sobre su propia cuenta) no toma el negocio.
+
+Si PostgreSQL aborta una transacción por `40001` (serialización), `40P01` (deadlock) o `55P03` (bloqueo no disponible), la operación responde **`409 ADMIN_CONCURRENT_MODIFICATION`** (`create`, `activate`, `deactivate`, `reset-password`): no se aplicó nada, no se auditó nada y no se devolvió ninguna contraseña; reintentar es decisión de quien llamó (no hay reintentos automáticos). Cualquier otro error (fallo de auditoría, violación de restricción, conexión caída) no se convierte en 409.
+
 ## Aislamiento
 El objetivo debe ser un usuario `ADMIN` cuyo `business_id` sea el de la URL; cualquier otra cosa (usuario de otro negocio, un SUPER_ADMIN, un id que no
 existe) es el mismo `404 ADMIN_NOT_FOUND`. Estas rutas nunca pueden modificar cuentas SUPER_ADMIN.
