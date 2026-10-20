@@ -10,6 +10,7 @@ import type { SafeUser } from '../auth/safe-user.js';
 import { generateTemporaryPassword } from '../auth/temporary-password.js';
 import { User } from '../user/user.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
+import { withAdminConcurrencyGuard } from './admin-concurrency.js';
 import { BusinessLimitsService } from './business-limits.service.js';
 import { Business } from './business.entity.js';
 import type { CreateBusinessAdminDto } from './dto/create-business-admin.dto.js';
@@ -57,7 +58,10 @@ export function toAdminView(user: User): AdminView {
 //   - a suspended business does NOT block these operations (it blocks its ADMINs' own access, not the SUPER_ADMIN's
 //     management): provisioning, resetting, activating or deactivating accounts while a business is suspended is allowed,
 //     subject to the same last-active-admin rule as an active business.
-// Lock order is always Business -> User, the same order the rest of the codebase uses (Business first).
+// Lock order is always Business -> User -> writes -> audit, in EVERY operation here (create, setActive, resetPassword): the
+// audit insert takes a KEY SHARE on the business row (foreign key), so any operation that held a user row before reaching it
+// could deadlock with one holding the business FOR UPDATE. Database concurrency failures (40001, 40P01, 55P03) are
+// reported as 409 ADMIN_CONCURRENT_MODIFICATION by withAdminConcurrencyGuard, never retried automatically.
 @Injectable()
 export class BusinessAdminService {
   constructor(
@@ -94,7 +98,7 @@ export class BusinessAdminService {
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(temporaryPassword, PASSWORD_BCRYPT_COST);
 
-    const created = await this.dataSource.transaction(async (manager) => {
+    const created = await withAdminConcurrencyGuard(() => this.dataSource.transaction(async (manager) => {
       await this.assertBusinessExists(manager, businessId);
       // Locks the business row FOR UPDATE (so two creations serialise) and enforces the per-business user ceiling.
       await this.businessLimits.assertCanCreate(manager, businessId, 'user', actor);
@@ -132,7 +136,7 @@ export class BusinessAdminService {
         ...client,
       });
       return user;
-    });
+    }));
 
     return { user: toAdminView(created), temporaryPassword };
   }
@@ -149,7 +153,7 @@ export class BusinessAdminService {
   // the rule only forbids removing the last active one, it does not require one to exist. To retire a compromised
   // account: reset its password (revokes its sessions), create another ADMIN if it was the last one, then deactivate it.
   async setActive(businessId: string, userId: string, active: boolean, actor: SafeUser, client: ClientInfo): Promise<{ user: AdminView; changed: boolean }> {
-    return this.dataSource.transaction(async (manager) => {
+    return withAdminConcurrencyGuard(() => this.dataSource.transaction(async (manager) => {
       const business = await manager.getRepository(Business).findOne({ where: { id: businessId }, lock: { mode: 'pessimistic_write' } });
       if (!business) throw this.businessNotFound();
 
@@ -192,7 +196,7 @@ export class BusinessAdminService {
 
       const fresh = await users.findOneOrFail({ where: { id: userId } });
       return { user: toAdminView(fresh), changed: true };
-    });
+    }));
   }
 
   // Compare-and-set on the credentials version the target had when it was read: of two concurrent resets exactly one
@@ -209,37 +213,49 @@ export class BusinessAdminService {
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(temporaryPassword, PASSWORD_BCRYPT_COST);
 
-    const user = await this.dataSource.transaction(async (manager) => {
-      const result = await manager
-        .createQueryBuilder()
-        .update(User)
-        .set({ passwordHash, credentialsVersion: () => '"credentials_version" + 1', mustChangePassword: true })
-        .where('"id" = :id AND "business_id" = :businessId AND "role" = :role AND "credentials_version" = :seenVersion', {
-          id: userId,
+    const user = await withAdminConcurrencyGuard(() =>
+      this.dataSource.transaction(async (manager) => {
+        // LOCK ORDER (Business -> User -> writes -> audit), the same as setActive: the audit insert takes a KEY SHARE on the
+        // business row through its foreign key, so a transaction that already held the user row and only then asked for the
+        // business could deadlock with one that holds the business FOR UPDATE and waits for that user row.
+        const business = await manager.getRepository(Business).findOne({ where: { id: businessId }, lock: { mode: 'pessimistic_write' } });
+        if (!business) throw this.businessNotFound();
+        const locked = await manager
+          .getRepository(User)
+          .findOne({ where: { id: userId, businessId, role: UserRole.ADMIN }, lock: { mode: 'pessimistic_write' } });
+        if (!locked) throw this.adminNotFound();
+
+        const result = await manager
+          .createQueryBuilder()
+          .update(User)
+          .set({ passwordHash, credentialsVersion: () => '"credentials_version" + 1', mustChangePassword: true })
+          .where('"id" = :id AND "business_id" = :businessId AND "role" = :role AND "credentials_version" = :seenVersion', {
+            id: userId,
+            businessId,
+            role: UserRole.ADMIN,
+            seenVersion,
+          })
+          .returning('"id"')
+          .execute();
+        if ((result.raw as unknown[]).length !== 1) {
+          throw new ConflictException({
+            message: 'The credentials of this administrator were changed by another request; review and retry',
+            errorCode: 'CREDENTIALS_CHANGED',
+          });
+        }
+        await this.auditService.recordInTransaction(manager, {
           businessId,
-          role: UserRole.ADMIN,
-          seenVersion,
-        })
-        .returning('"id"')
-        .execute();
-      if ((result.raw as unknown[]).length !== 1) {
-        throw new ConflictException({
-          message: 'The credentials of this administrator were changed by another request; review and retry',
-          errorCode: 'CREDENTIALS_CHANGED',
+          userId: actor.id,
+          userEmail: actor.email,
+          action: AUDIT_ACTIONS.USER_ADMIN_PASSWORD_RESET,
+          entityType: AUDIT_ENTITY_TYPES.USER,
+          entityId: userId,
+          metadata: { email: target.email },
+          ...client,
         });
-      }
-      await this.auditService.recordInTransaction(manager, {
-        businessId,
-        userId: actor.id,
-        userEmail: actor.email,
-        action: AUDIT_ACTIONS.USER_ADMIN_PASSWORD_RESET,
-        entityType: AUDIT_ENTITY_TYPES.USER,
-        entityId: userId,
-        metadata: { email: target.email },
-        ...client,
-      });
-      return manager.getRepository(User).findOneOrFail({ where: { id: userId } });
-    });
+        return manager.getRepository(User).findOneOrFail({ where: { id: userId } });
+      }),
+    );
 
     return { user: toAdminView(user), temporaryPassword };
   }
