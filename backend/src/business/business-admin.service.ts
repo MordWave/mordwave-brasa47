@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { DataSource, type EntityManager, Repository } from 'typeorm';
@@ -10,7 +10,7 @@ import type { SafeUser } from '../auth/safe-user.js';
 import { generateTemporaryPassword } from '../auth/temporary-password.js';
 import { User } from '../user/user.entity.js';
 import { UserRole } from '../user/user-role.enum.js';
-import { withAdminConcurrencyGuard } from './admin-concurrency.js';
+import { ADMIN_CONCURRENT_MODIFICATION, withAdminConcurrencyGuard } from './admin-concurrency.js';
 import { BusinessLimitsService } from './business-limits.service.js';
 import { Business } from './business.entity.js';
 import type { CreateBusinessAdminDto } from './dto/create-business-admin.dto.js';
@@ -36,10 +36,6 @@ export interface AdminDeletionResult {
   email: string;
   businessId: string;
 }
-
-// SQLSTATEs that mean "another transaction got in the way", not "the request is wrong": serialization failure, deadlock,
-// lock not available. Reported as a retryable conflict.
-const CONCURRENCY_SQLSTATES = new Set(['40001', '40P01', '55P03']);
 
 // The ONLY responses that carry a password: creation and reset, once, to the SUPER_ADMIN who asked.
 export interface AdminWithTemporaryPassword {
@@ -303,10 +299,11 @@ export class BusinessAdminService {
   // foreign key points at it with anything but ON DELETE SET NULL, which has nothing to set. Deactivating it already
   // revoked every token it could hold.
   //
-  // Lock order is Business -> User, like setActive. The audit row is written in the same transaction (fail-closed): if it
-  // cannot be written, the account is NOT deleted. Removing the row invalidates every token it ever held at once
-  // (JwtStrategy cannot load the user), and the e-mail becomes available immediately; a later account with that address
-  // has a new id, so the old tokens never revive.
+  // Lock order is Business -> User -> writes -> audit, like every operation here (see the class comment). The audit row is
+  // written in the same transaction (fail-closed): if it cannot be written, the account is NOT deleted. Removing the row
+  // invalidates every token it ever held at once (JwtStrategy cannot load the user), and the e-mail becomes available
+  // immediately; a later account with that address has a new id, so the old tokens never revive. Database concurrency
+  // failures (40001, 40P01, 55P03) become 409 ADMIN_CONCURRENT_MODIFICATION through withAdminConcurrencyGuard, never retried.
   // A retry after a lost response finds no account; if the audit trail shows this very deletion, it answers 200 with
   // alreadyDeleted: true instead of an ambiguous 404.
   async remove(
@@ -316,8 +313,8 @@ export class BusinessAdminService {
     actor: SafeUser,
     client: ClientInfo,
   ): Promise<AdminDeletionResult> {
-    try {
-      return await this.dataSource.transaction(async (manager) => {
+    return withAdminConcurrencyGuard(() =>
+      this.dataSource.transaction(async (manager) => {
         const business = await manager.getRepository(Business).findOne({ where: { id: businessId }, lock: { mode: 'pessimistic_write' } });
         if (!business) throw this.businessNotFound();
 
@@ -360,7 +357,7 @@ export class BusinessAdminService {
           .returning('"id"')
           .execute();
         if ((deleted.raw as unknown[]).length !== 1) {
-          throw this.deletionConflict('ADMIN_CONCURRENT_MODIFICATION', 'The administrator was modified by another request; review and retry');
+          throw this.deletionConflict(ADMIN_CONCURRENT_MODIFICATION, 'The administrator was modified by another request; review and retry');
         }
 
         await this.auditService.recordInTransaction(manager, {
@@ -374,15 +371,8 @@ export class BusinessAdminService {
           ...client,
         });
         return { deleted: true, alreadyDeleted: false, id: userId, email: target.email, businessId };
-      });
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      const code = (error as { driverError?: { code?: string }; code?: string }).driverError?.code ?? (error as { code?: string }).code;
-      if (code && CONCURRENCY_SQLSTATES.has(code)) {
-        throw this.deletionConflict('ADMIN_CONCURRENT_MODIFICATION', 'The administrator was modified by another request; review and retry');
-      }
-      throw error;
-    }
+      }),
+    );
   }
 
   private confirmationMismatch(): never {
