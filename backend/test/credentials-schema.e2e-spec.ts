@@ -12,6 +12,7 @@ import { AddCredentialsSecurity1790400000000 } from '../src/migrations/179040000
 import { User } from '../src/user/user.entity.js';
 import { UserRole } from '../src/user/user-role.enum.js';
 import { runMigrationsBefore } from './support/run-all-migrations.js';
+import { seedBusinessAtSchemaState } from './support/seed-business-at-schema-state.js';
 import { startTestDatabase, type TestDatabase } from './support/test-database.js';
 
 const TEST_BCRYPT_COST = 4;
@@ -112,8 +113,7 @@ describe('AddCredentialsSecurity migration (e2e, real local Postgres)', () => {
     await runMigrationsBefore(dataSource, AddCredentialsSecurity1790400000000);
 
     // ... with users that already exist.
-    const businessRepo = dataSource.getRepository(Business);
-    business = await businessRepo.save(businessRepo.create({ name: 'Legacy Co', slug: 'legacy-co-credentials' }));
+    business = await seedBusinessAtSchemaState(dataSource, 'Legacy Co', 'legacy-co-credentials');
     const insertUser = async (u: { email: string; password: string }, role: UserRole, businessId: string | null): Promise<string> => {
       const hash = await bcrypt.hash(u.password, TEST_BCRYPT_COST);
       const rows = (await dataSource.query(

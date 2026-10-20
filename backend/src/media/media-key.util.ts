@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 //
 //   businesses/<businessId>/products/<productId>/<objectId>.webp
 //   businesses/<businessId>/logo/<objectId>.webp
+//   businesses/<businessId>/cover/<objectId>.webp
 //
 // <objectId> is a fresh uuid per upload, so every upload is a new immutable
 // object and a replaced image is never served stale from a CDN/browser cache.
@@ -20,10 +21,16 @@ const UUID_REGEX = new RegExp(`^${UUID}$`);
 // Strings (not just RegExps) because the same text is embedded in SQL.
 // Valid as both a JS RegExp and a Postgres POSIX regex.
 export const PRODUCT_IMAGE_KEY_PATTERN = `^businesses/${UUID}/products/${UUID}/${UUID}\\.webp$`;
-export const BUSINESS_LOGO_KEY_PATTERN = `^businesses/${UUID}/logo/${UUID}\\.webp$`;
+// A business-level image lives directly under its business: logo and cover share one shape, only the folder differs.
+type BusinessAssetFolder = 'logo' | 'cover';
+const businessAssetKeyPattern = (folder: BusinessAssetFolder): string => `^businesses/${UUID}/${folder}/${UUID}\\.webp$`;
+
+export const BUSINESS_LOGO_KEY_PATTERN = businessAssetKeyPattern('logo');
+export const BUSINESS_COVER_KEY_PATTERN = businessAssetKeyPattern('cover');
 
 const PRODUCT_IMAGE_KEY_REGEX = new RegExp(PRODUCT_IMAGE_KEY_PATTERN);
 const BUSINESS_LOGO_KEY_REGEX = new RegExp(BUSINESS_LOGO_KEY_PATTERN);
+const BUSINESS_COVER_KEY_REGEX = new RegExp(BUSINESS_COVER_KEY_PATTERN);
 
 export function isProductImageKey(value: unknown): value is string {
   return typeof value === 'string' && PRODUCT_IMAGE_KEY_REGEX.test(value);
@@ -33,8 +40,12 @@ export function isBusinessLogoKey(value: unknown): value is string {
   return typeof value === 'string' && BUSINESS_LOGO_KEY_REGEX.test(value);
 }
 
+export function isBusinessCoverKey(value: unknown): value is string {
+  return typeof value === 'string' && BUSINESS_COVER_KEY_REGEX.test(value);
+}
+
 export function isMediaKey(value: unknown): value is string {
-  return isProductImageKey(value) || isBusinessLogoKey(value);
+  return isProductImageKey(value) || isBusinessLogoKey(value) || isBusinessCoverKey(value);
 }
 
 function assertUuid(name: string, value: string): void {
@@ -56,8 +67,16 @@ export function productImageKey(
   return `businesses/${businessId}/products/${productId}/${objectId}.webp`;
 }
 
-export function businessLogoKey(businessId: string, objectId: string = randomUUID()): string {
+function businessAssetKey(folder: BusinessAssetFolder, businessId: string, objectId: string): string {
   assertUuid('businessId', businessId);
   assertUuid('objectId', objectId);
-  return `businesses/${businessId}/logo/${objectId}.webp`;
+  return `businesses/${businessId}/${folder}/${objectId}.webp`;
+}
+
+export function businessLogoKey(businessId: string, objectId: string = randomUUID()): string {
+  return businessAssetKey('logo', businessId, objectId);
+}
+
+export function businessCoverKey(businessId: string, objectId: string = randomUUID()): string {
+  return businessAssetKey('cover', businessId, objectId);
 }

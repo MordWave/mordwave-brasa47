@@ -38,6 +38,8 @@ export interface JoinResult {
   // in which case the frontend falls back to its own defaults.
   businessName: string;
   logoUrl: string | null;
+  // The welcome-screen cover (stable /media URL), null until the business has one — the client then shows its neutral background.
+  coverUrl: string | null;
   primaryColor: string | null;
   accentColor: string | null;
 }
@@ -127,6 +129,7 @@ export class TableSessionService {
       businessSlug: business.slug,
       businessName: business.name,
       logoUrl: this.businessPresenter.logoUrl(business),
+      coverUrl: this.businessPresenter.coverUrl(business),
       primaryColor: business.primaryColor,
       accentColor: business.accentColor,
     };

@@ -156,6 +156,14 @@ URL estable `MEDIA_PUBLIC_BASE_URL/media/<key>`, que redirige (302) a una URL
 firmada temporal del bucket. Subir o reemplazar una imagen siempre genera una
 clave nueva y no borra la anterior.
 
+La **portada** de la pantalla de bienvenida (`businesses.cover_storage_key`,
+clave `businesses/<businessId>/cover/<uuid>.webp`) sigue el mismo esquema: la
+API responde `coverUrl` en las respuestas de negocio y en `POST /table-sessions/join`
+(`null` si el negocio no tiene portada) y nunca expone la clave. Por ahora solo
+existen la columna y la lectura; todavía no hay endpoint para subirla ni quitarla.
+Como todas las migraciones, `AddBusinessCoverStorageKey` (columna opcional, aditiva
+y reversible) se aplica a mano **antes** de desplegar un backend que la lea.
+
 | Variable | Uso |
 | --- | --- |
 | `AWS_ENDPOINT_URL`, `AWS_S3_BUCKET_NAME`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Credenciales del bucket (en Railway, referencias al servicio del bucket). Si falta la configuración, `/media` responde 503 |

@@ -16,6 +16,7 @@ export const PRODUCT_KEY_CASES: ReadonlyArray<readonly [string, string, boolean]
   ['trailing newline', `businesses/${BIZ}/products/${PROD}/${OBJ}.webp\n`, false],
   ['trailing text', `businesses/${BIZ}/products/${PROD}/${OBJ}.webp.exe`, false],
   ['logo shape', `businesses/${BIZ}/logo/${OBJ}.webp`, false],
+  ['cover shape', `businesses/${BIZ}/cover/${OBJ}.webp`, false],
   ['legacy supabase path', `${BIZ}/${PROD}/imagen.webp`, false],
   ['empty', '', false],
 ];
@@ -27,6 +28,29 @@ export const LOGO_KEY_CASES: ReadonlyArray<readonly [string, string, boolean]> =
   ['traversal', `businesses/${BIZ}/logo/../${OBJ}.webp`, false],
   ['trailing newline', `businesses/${BIZ}/logo/${OBJ}.webp\n`, false],
   ['product shape', `businesses/${BIZ}/products/${PROD}/${OBJ}.webp`, false],
+  ['cover shape', `businesses/${BIZ}/cover/${OBJ}.webp`, false],
   ['legacy supabase path', `business-logos/${BIZ}/logo.webp`, false],
+  ['empty', '', false],
+];
+
+export const COVER_KEY_CASES: ReadonlyArray<readonly [string, string, boolean]> = [
+  ['valid', `businesses/${BIZ}/cover/${OBJ}.webp`, true],
+  ['uppercase hex business id', `businesses/${BIZ.toUpperCase()}/cover/${OBJ}.webp`, false],
+  ['uppercase hex object id', `businesses/${BIZ}/cover/${OBJ.toUpperCase()}.webp`, false],
+  ['wrong extension', `businesses/${BIZ}/cover/${OBJ}.jpg`, false],
+  ['no extension', `businesses/${BIZ}/cover/${OBJ}`, false],
+  ['double extension', `businesses/${BIZ}/cover/${OBJ}.webp.exe`, false],
+  ['leading slash', `/businesses/${BIZ}/cover/${OBJ}.webp`, false],
+  ['wrong root', `tenants/${BIZ}/cover/${OBJ}.webp`, false],
+  ['traversal', `businesses/${BIZ}/cover/../${OBJ}.webp`, false],
+  ['traversal to another business', `businesses/${BIZ}/cover/../../${OBJ.replace('cccccccc', 'dddddddd')}/cover/${OBJ}.webp`, false],
+  ['extra segment', `businesses/${BIZ}/cover/x/${OBJ}.webp`, false],
+  ['two keys concatenated', `businesses/${BIZ}/cover/${OBJ}.webpbusinesses/${BIZ}/cover/${OBJ}.webp`, false],
+  ['url instead of a key', `https://evil.example/businesses/${BIZ}/cover/${OBJ}.webp`, false],
+  ['trailing newline', `businesses/${BIZ}/cover/${OBJ}.webp\n`, false],
+  ['logo shape', `businesses/${BIZ}/logo/${OBJ}.webp`, false],
+  ['product shape', `businesses/${BIZ}/products/${PROD}/${OBJ}.webp`, false],
+  ['folder in another case', `businesses/${BIZ}/Cover/${OBJ}.webp`, false],
+  ['legacy supabase path', `business-covers/${BIZ}/cover.webp`, false],
   ['empty', '', false],
 ];

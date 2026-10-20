@@ -117,22 +117,23 @@ describe('POST /businesses — SUPER_ADMIN business creation (e2e, real local Po
         phone: '+56 9 0000 0000',
         hours: 'Lun-Dom 12:00-23:00',
         logoUrl: null,
+        coverUrl: null,
         primaryColor: null,
         accentColor: null,
       });
       expect(new Date(created.createdAt as string).getTime()).not.toBeNaN();
       expect(new Date(created.updatedAt as string).getTime()).not.toBeNaN();
       expect(created.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-      // exactly the same shape GET /businesses/me returns: the entity minus the internal storage key
+      // exactly the same shape GET /businesses/me returns: the entity minus the internal storage keys
       expect(Object.keys(created).sort()).toEqual(
-        ['accentColor', 'active', 'address', 'createdAt', 'hours', 'id', 'logoUrl', 'name', 'phone', 'primaryColor', 'slug', 'updatedAt'],
+        ['accentColor', 'active', 'address', 'coverUrl', 'createdAt', 'hours', 'id', 'logoUrl', 'name', 'phone', 'primaryColor', 'slug', 'updatedAt'],
       );
-      expect(JSON.stringify(created)).not.toMatch(/logoStorageKey|passwordHash|users|token/i);
+      expect(JSON.stringify(created)).not.toMatch(/logoStorageKey|coverStorageKey|passwordHash|users|token/i);
     });
 
     it('persists exactly that row (trimmed name, lowercase slug, no logo key)', async () => {
       const row = await dataSource.getRepository(Business).findOneByOrFail({ id: created.id as string });
-      expect(row).toMatchObject({ name: 'Nuevo Grill', slug: 'nuevo-grill', active: true, logoStorageKey: null });
+      expect(row).toMatchObject({ name: 'Nuevo Grill', slug: 'nuevo-grill', active: true, logoStorageKey: null, coverStorageKey: null });
     });
 
     it('is visible to the existing reads: picker listing, /me with ?businessId= and an (empty) public menu', async () => {
@@ -202,6 +203,8 @@ describe('POST /businesses — SUPER_ADMIN business creation (e2e, real local Po
       ['a client-supplied id', { name: 'X', slug: 'x-place', id: '11111111-1111-4111-8111-111111111111' }],
       ['a client-supplied active', { name: 'X', slug: 'x-place', active: false }],
       ['a client-supplied logoStorageKey', { name: 'X', slug: 'x-place', logoStorageKey: 'businesses/x/logo/y.webp' }],
+      ['a client-supplied coverStorageKey', { name: 'X', slug: 'x-place', coverStorageKey: 'businesses/x/cover/y.webp' }],
+      ['a client-supplied coverUrl', { name: 'X', slug: 'x-place', coverUrl: 'https://x/y.webp' }],
       ['a client-supplied createdAt', { name: 'X', slug: 'x-place', createdAt: '2020-01-01T00:00:00Z' }],
       ['client-supplied colours', { name: 'X', slug: 'x-place', primaryColor: '#112233' }],
       ['a nested relation', { name: 'X', slug: 'x-place', users: [{ email: 'a@b.c' }] }],

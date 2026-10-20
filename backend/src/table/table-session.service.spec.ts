@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
 import { BusinessPresenter } from '../business/business.presenter.js';
+import { businessCoverKey } from '../media/media-key.util.js';
 import { MediaUrlService } from '../media/media-url.service.js';
 import { UserRole } from '../user/user-role.enum.js';
 import { RestaurantTable } from './table.entity.js';
@@ -278,6 +279,7 @@ describe('TableSessionService', () => {
         businessSlug: 'brasa-47',
         businessName: 'Brasa 47',
         logoUrl: null,
+        coverUrl: null,
         primaryColor: null,
         accentColor: null,
       });
@@ -312,6 +314,32 @@ describe('TableSessionService', () => {
           primaryColor: '#D94A2B',
           accentColor: '#E9B44C',
         }),
+      );
+    });
+
+    it('returns the stable /media coverUrl when the business has a cover, and never its storage key', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
+      sessionRepo.findOne.mockResolvedValue({ id: 's1', tableId: 't1', status: TableSessionStatus.OPEN, sessionToken: 'session-xyz' });
+      const coverKey = businessCoverKey('11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333');
+      businessRepo.findOne.mockResolvedValue({
+        id: 'biz-1',
+        slug: 'brasa-47',
+        name: 'Brasa 47',
+        active: true,
+        logoStorageKey: null,
+        coverStorageKey: coverKey,
+        primaryColor: null,
+        accentColor: null,
+      });
+
+      const result = await service.join('qr-abc');
+
+      expect(result.coverUrl).toBe(`https://api.example.test/media/${coverKey}`);
+      expect(result.logoUrl).toBeNull();
+      expect(result).not.toHaveProperty('coverStorageKey');
+      expect(JSON.stringify(result)).not.toContain('coverStorageKey');
+      expect(Object.keys(result).sort()).toEqual(
+        ['accentColor', 'businessName', 'businessSlug', 'coverUrl', 'logoUrl', 'primaryColor', 'sessionToken', 'tableName'],
       );
     });
 

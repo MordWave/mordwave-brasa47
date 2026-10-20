@@ -144,15 +144,15 @@ describe('recover-super-admin with the real backend (e2e, real local Postgres)',
     await testDb?.stop();
   });
 
-  it('the CLIs see the application\'s own database as a valid, fully migrated target (compatibility with the 18 migrations)', async () => {
-    expect(expectedMigrations).toHaveLength(18);
+  it('the CLIs see the application\'s own database as a valid, fully migrated target (compatibility with the 19 migrations)', async () => {
+    expect(expectedMigrations).toHaveLength(19);
     const created = await bootstrap(EMAIL, PASSWORD);
     expect(created.code).toBe(EXIT.ok);
     expect(created.text).toMatch(/SUPER_ADMIN_BOOTSTRAPPED registrado/);
     expect(await auditActions()).toEqual(['SUPER_ADMIN_BOOTSTRAPPED']);
     const checked = await check();
     expect(checked.code).toBe(EXIT.ok);
-    expect(checked.text).toMatch(/18 migraciones/);
+    expect(checked.text).toMatch(/19 migraciones/);
   });
 
   it('the bootstrap refuses a second SUPER_ADMIN once one exists, and writes nothing (account, audit)', async () => {

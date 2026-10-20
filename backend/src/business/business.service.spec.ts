@@ -258,6 +258,7 @@ describe('BusinessService', () => {
         phone: '+56 9 0000',
         hours: 'Lun-Dom',
         logoStorageKey: null,
+        coverStorageKey: null,
         primaryColor: null,
         accentColor: null,
       });
