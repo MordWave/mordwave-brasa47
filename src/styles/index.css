@@ -4615,6 +4615,130 @@ p {
   color: var(--warning);
 }
 
+/* ---- deletion of an administrator (9D.5): the row action and its irreversible confirmation. Tokens only (light and dark). ---- */
+.admin-row__delete {
+  color: var(--danger);
+  background: var(--danger-tint);
+  border-color: var(--danger);
+  font-weight: 800;
+}
+
+@media (hover: hover) {
+  .admin-row__delete:hover:not(:disabled) {
+    background: var(--danger);
+    color: var(--on-danger);
+  }
+}
+
+/* an account the list already proves cannot be deleted: still reachable (aria-disabled) but visibly unavailable */
+.admin-row__delete[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (hover: hover) {
+  .admin-row__delete[aria-disabled='true']:hover:not(:disabled) {
+    background: var(--danger-tint);
+    color: var(--danger);
+  }
+}
+
+/* the list summary receives the keyboard focus after a deletion (programmatic, tabindex -1) */
+.business-picker__count[tabindex='-1']:focus-visible,
+.business-picker__status[tabindex='-1']:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.business-picker__count[tabindex='-1'] {
+  width: fit-content; /* the focus ring hugs the text instead of spanning the whole row */
+}
+
+.delete-admin {
+  /* a tone between --text and --text-secondary for the explanatory copy (legibility); falls back to --text */
+  --delete-admin-soft: var(--text);
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 96px; /* a focused field is never hidden behind the sticky actions of the small-screen layout */
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  .delete-admin {
+    --delete-admin-soft: color-mix(in srgb, var(--text) 80%, var(--surface));
+  }
+}
+
+.delete-admin__description:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.delete-admin__restaurant {
+  margin: -6px 0 12px;
+  font-size: 13.5px;
+  color: var(--delete-admin-soft);
+  overflow-wrap: anywhere;
+}
+
+.delete-admin__warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--danger-tint);
+  border-left: 4px solid var(--danger);
+  border-radius: var(--radius-sm);
+}
+
+.delete-admin .business-dialog__intro {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--delete-admin-soft);
+}
+
+.delete-admin .business-dialog__hint {
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--delete-admin-soft);
+}
+
+.delete-admin .admin-menu__form label {
+  color: var(--text);
+}
+
+.delete-admin__typed-hint {
+  margin: -4px 0 0;
+  min-height: 1.3em;
+  font-size: 13px;
+  color: var(--delete-admin-soft);
+}
+
+.delete-admin input[readonly] {
+  color: var(--text-secondary);
+}
+
+.delete-admin__actions .btn {
+  min-height: 44px;
+}
+
+/* phones: stacked, in the SAME order as the keyboard (Cancelar first, then the red button); the dialog scrolls inside itself
+   and its actions stay pinned to the bottom, so a short screen never hides them */
+@media (max-width: 420px) {
+  .delete-admin__actions {
+    flex-direction: column;
+    position: sticky;
+    bottom: -22px;
+    margin: 4px -22px -22px;
+    padding: 12px 22px 22px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+}
+
 /* the one-time temporary password dialog */
 .temp-password__restaurant {
   margin: -6px 0 12px;
