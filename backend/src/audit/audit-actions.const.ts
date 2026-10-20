@@ -29,6 +29,9 @@ export const AUDIT_ACTIONS = {
   USER_ADMIN_ACTIVATED: 'USER_ADMIN_ACTIVATED',
   USER_ADMIN_DEACTIVATED: 'USER_ADMIN_DEACTIVATED',
   USER_ADMIN_PASSWORD_RESET: 'USER_ADMIN_PASSWORD_RESET',
+  // Definitive deletion of a never-used, deactivated ADMIN account (BusinessAdminService.remove). The user row is gone
+  // afterwards, so this row (entity_id = the old user id, metadata.email = its address) is the only record of it.
+  USER_ADMIN_DELETED: 'USER_ADMIN_DELETED',
 
   BUSINESS_CREATED: 'BUSINESS_CREATED',
   BUSINESS_DEACTIVATED: 'BUSINESS_DEACTIVATED',

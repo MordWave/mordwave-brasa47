@@ -10,12 +10,17 @@ import { BusinessAdminController } from './business-admin.controller.js';
 
 const proto = BusinessAdminController.prototype as unknown as Record<string, object>;
 const handler = (name: string) => Object.getOwnPropertyDescriptor(BusinessAdminController.prototype, name)!.value as object;
-const handlers = ['list', 'create', 'deactivate', 'activate', 'resetPassword'] as const;
+const handlers = ['list', 'create', 'deactivate', 'activate', 'resetPassword', 'remove'] as const;
 
 describe('BusinessAdminController (declared protections)', () => {
   it('is mounted under /businesses/:businessId/admins', () => {
     expect(Reflect.getMetadata('path', BusinessAdminController)).toBe('businesses/:businessId/admins');
     expect(handlers.every((name) => typeof proto[name] === 'function')).toBe(true);
+  });
+
+  it('deletion is POST :userId/delete (the confirmation travels in the body) and answers 200', () => {
+    expect(Reflect.getMetadata('path', handler('remove'))).toBe(':userId/delete');
+    expect(Reflect.getMetadata('__httpCode__', handler('remove'))).toBe(200);
   });
 
   it('is SUPER_ADMIN-only at CLASS level, behind JwtAuthGuard then RolesGuard (so no route can forget it)', () => {
@@ -31,6 +36,7 @@ describe('BusinessAdminController (declared protections)', () => {
   it('create and reset are on the tight adminProvisioning policy, activate and deactivate on adminStatus; the list has none beyond the global ceilings', () => {
     expect(Reflect.getMetadata(RATE_LIMIT_POLICY_KEY, handler('create'))).toBe('adminProvisioning');
     expect(Reflect.getMetadata(RATE_LIMIT_POLICY_KEY, handler('resetPassword'))).toBe('adminProvisioning');
+    expect(Reflect.getMetadata(RATE_LIMIT_POLICY_KEY, handler('remove'))).toBe('adminProvisioning');
     expect(Reflect.getMetadata(RATE_LIMIT_POLICY_KEY, handler('activate'))).toBe('adminStatus');
     expect(Reflect.getMetadata(RATE_LIMIT_POLICY_KEY, handler('deactivate'))).toBe('adminStatus');
     expect(Reflect.getMetadata(RATE_LIMIT_POLICY_KEY, handler('list'))).toBeUndefined();

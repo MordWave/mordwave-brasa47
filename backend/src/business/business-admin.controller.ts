@@ -8,8 +8,9 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { RateLimit } from '../rate-limit/rate-limit.decorator.js';
 import { UserRole } from '../user/user-role.enum.js';
-import { type AdminView, type AdminWithTemporaryPassword, BusinessAdminService } from './business-admin.service.js';
+import { type AdminDeletionResult, type AdminView, type AdminWithTemporaryPassword, BusinessAdminService } from './business-admin.service.js';
 import { CreateBusinessAdminDto } from './dto/create-business-admin.dto.js';
+import { DeleteBusinessAdminDto } from './dto/delete-business-admin.dto.js';
 
 // Nothing here may be stored by a browser or an intermediary: some responses carry a temporary password, the rest list
 // people's email addresses.
@@ -81,5 +82,22 @@ export class BusinessAdminController {
     @Req() req: Request,
   ): Promise<AdminWithTemporaryPassword> {
     return this.admins.resetPassword(businessId, userId, actor, extractClientInfo(req));
+  }
+
+  // Definitive deletion of a deactivated, never-used ADMIN (see BusinessAdminService.remove for the whole criterion).
+  // POST, not DELETE: the exact-email confirmation travels in the body. 200 also when a retry finds the deletion already
+  // done (alreadyDeleted: true).
+  @Post(':userId/delete')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  @RateLimit('adminProvisioning')
+  remove(
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: DeleteBusinessAdminDto,
+    @CurrentUser() actor: SafeUser,
+    @Req() req: Request,
+  ): Promise<AdminDeletionResult> {
+    return this.admins.remove(businessId, userId, dto.confirmEmail, actor, extractClientInfo(req));
   }
 }
