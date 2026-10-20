@@ -230,6 +230,8 @@ describe('Business lifecycle — SUPER_ADMIN (e2e, real local Postgres)', () => 
       ['accentColor', { accentColor: '#112233' }],
       ['logoStorageKey', { logoStorageKey: 'businesses/x/logo/y.webp' }],
       ['logoUrl', { logoUrl: 'https://x/y.webp' }],
+      ['coverStorageKey', { coverStorageKey: 'businesses/x/cover/y.webp' }],
+      ['coverUrl', { coverUrl: 'https://x/y.webp' }],
       ['createdAt', { createdAt: '2020-01-01T00:00:00Z' }],
       ['users', { users: [{ email: 'a@b.c' }] }],
     ])('%s is not editable (400) and nothing changes', async (_field, body) => {

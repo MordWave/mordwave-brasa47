@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { LOGO_KEY_CASES, PRODUCT_KEY_CASES } from '../../test/support/media-key-cases.js';
+import { COVER_KEY_CASES, LOGO_KEY_CASES, PRODUCT_KEY_CASES } from '../../test/support/media-key-cases.js';
 import {
+  BUSINESS_COVER_KEY_PATTERN,
+  BUSINESS_LOGO_KEY_PATTERN,
+  businessCoverKey,
   businessLogoKey,
+  isBusinessCoverKey,
   isBusinessLogoKey,
   isMediaKey,
   isProductImageKey,
@@ -43,6 +47,47 @@ describe('productImageKey / businessLogoKey', () => {
   });
 });
 
+describe('businessCoverKey', () => {
+  it('builds the exact documented layout, a different object id every call, and the result always validates', () => {
+    expect(businessCoverKey(BIZ, OBJ)).toBe(`businesses/${BIZ}/cover/${OBJ}.webp`);
+    const a = businessCoverKey(BIZ);
+    expect(a).not.toBe(businessCoverKey(BIZ));
+    expect(isBusinessCoverKey(a)).toBe(true);
+    expect(a.startsWith(`businesses/${BIZ}/cover/`)).toBe(true);
+  });
+
+  it.each([
+    ['uppercase uuid', BIZ.toUpperCase()],
+    ['path traversal', '../..'],
+    ['slash', `${BIZ}/x`],
+    ['empty', ''],
+    ['not a uuid', 'abc'],
+  ])('refuses to build a key from %s', (_label, bad) => {
+    expect(() => businessCoverKey(bad, OBJ)).toThrow();
+    expect(() => businessCoverKey(BIZ, bad)).toThrow();
+  });
+
+  it('the key is always under the business it was built for (no way to address another business)', () => {
+    const other = 'dddddddd-4444-4abc-8def-444444444abc';
+    expect(businessCoverKey(other, OBJ)).toBe(`businesses/${other}/cover/${OBJ}.webp`);
+    expect(businessCoverKey(other, OBJ)).not.toContain(BIZ);
+  });
+});
+
+describe('logo and cover patterns', () => {
+  it('the logo pattern is unchanged (frozen migrations and the CHECK in the database depend on its exact text)', () => {
+    const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+    expect(BUSINESS_LOGO_KEY_PATTERN).toBe(`^businesses/${UUID}/logo/${UUID}\\.webp$`);
+    expect(BUSINESS_COVER_KEY_PATTERN).toBe(`^businesses/${UUID}/cover/${UUID}\\.webp$`);
+  });
+
+  it('a logo key is never a cover key and vice versa', () => {
+    expect(isBusinessCoverKey(businessLogoKey(BIZ, OBJ))).toBe(false);
+    expect(isBusinessLogoKey(businessCoverKey(BIZ, OBJ))).toBe(false);
+    expect(isProductImageKey(businessCoverKey(BIZ, OBJ))).toBe(false);
+  });
+});
+
 describe('key validators', () => {
   it.each(PRODUCT_KEY_CASES)('product image key: %s', (_label, key, valid) => {
     expect(isProductImageKey(key)).toBe(valid);
@@ -52,9 +97,15 @@ describe('key validators', () => {
     expect(isBusinessLogoKey(key)).toBe(valid);
   });
 
-  it('isMediaKey accepts either shape and rejects non-strings', () => {
+  it.each(COVER_KEY_CASES)('business cover key: %s', (_label, key, valid) => {
+    expect(isBusinessCoverKey(key)).toBe(valid);
+  });
+
+  it('isMediaKey accepts the three shapes (product image, logo, cover) and rejects non-strings', () => {
     expect(isMediaKey(productImageKey(BIZ, PROD, OBJ))).toBe(true);
     expect(isMediaKey(businessLogoKey(BIZ, OBJ))).toBe(true);
+    expect(isMediaKey(businessCoverKey(BIZ, OBJ))).toBe(true);
+    for (const [, key, valid] of COVER_KEY_CASES) if (!valid) expect(isMediaKey(key) && !isBusinessLogoKey(key) && !isProductImageKey(key)).toBe(false);
     expect(isMediaKey(undefined)).toBe(false);
     expect(isMediaKey(null)).toBe(false);
     expect(isMediaKey(42)).toBe(false);

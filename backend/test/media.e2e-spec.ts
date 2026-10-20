@@ -19,6 +19,7 @@ const OBJ = 'cccccccc-3333-4abc-8def-333333333abc';
 const MISSING_OBJ = 'dddddddd-4444-4abc-8def-444444444abc';
 const KEY = `businesses/${BIZ}/products/${PROD}/${OBJ}.webp`;
 const LOGO_KEY = `businesses/${BIZ}/logo/${OBJ}.webp`;
+const COVER_KEY = `businesses/${BIZ}/cover/${OBJ}.webp`;
 const MISSING_KEY = `businesses/${BIZ}/products/${PROD}/${MISSING_OBJ}.webp`;
 
 const minute = 60_000;
@@ -115,6 +116,18 @@ describe('GET/HEAD /media/<key> (e2e, real local Postgres, fake S3)', () => {
       expect(res.headers.location).toBe(signedUrlFor(LOGO_KEY));
     });
 
+    it('serves business cover keys too: GET redirects, HEAD answers directly, nothing is proxied', async () => {
+      const res = await http().get(`/media/${COVER_KEY}`).set(asIp(nextIp())).redirects(0).expect(302);
+      expect(res.headers.location).toBe(signedUrlFor(COVER_KEY));
+      expect(res.headers['cache-control']).toBe('public, max-age=1800');
+      expect(store.head).toHaveBeenCalledWith(COVER_KEY);
+      expect(store.presignGet).toHaveBeenCalledWith(COVER_KEY, 3600);
+      store.presignGet.mockClear();
+      const head = await http().head(`/media/${COVER_KEY}`).set(asIp(nextIp())).redirects(0).expect(200);
+      expect(head.headers.location).toBeUndefined();
+      expect(store.presignGet).not.toHaveBeenCalled();
+    });
+
     // A presigned URL is signed for GET only: redirecting a HEAD to it would
     // make the bucket answer 403. HEAD must answer directly and never sign.
     it('HEAD answers 200 directly (no redirect, no body) and never presigns', async () => {
@@ -155,6 +168,12 @@ describe('GET/HEAD /media/<key> (e2e, real local Postgres, fake S3)', () => {
       ['arbitrary object', `/media/system-tests/media-pr2/${OBJ}.txt`],
       ['not a key at all', `/media/hello`],
       ['trailing newline', `/media/businesses/${BIZ}/logo/${OBJ}.webp%0A`],
+      ['cover with path traversal', `/media/businesses/${BIZ}/cover/../${OBJ}.webp`],
+      ['cover with encoded traversal', `/media/businesses/${BIZ}/cover/%2e%2e/${OBJ}.webp`],
+      ['cover with another extension', `/media/businesses/${BIZ}/cover/${OBJ}.jpg`],
+      ['cover with an extra segment', `/media/businesses/${BIZ}/cover/x/${OBJ}.webp`],
+      ['cover with a trailing newline', `/media/businesses/${BIZ}/cover/${OBJ}.webp%0A`],
+      ['cover folder in another case', `/media/businesses/${BIZ}/Cover/${OBJ}.webp`],
     ];
 
     it.each(cases)('%s -> 404 MEDIA_NOT_FOUND, no-store, S3 never called', async (_label, path) => {

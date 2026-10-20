@@ -116,6 +116,7 @@ export class BusinessService {
       phone: dto.phone ?? null,
       hours: dto.hours ?? null,
       logoStorageKey: null,
+      coverStorageKey: null,
       primaryColor: null,
       accentColor: null,
     });

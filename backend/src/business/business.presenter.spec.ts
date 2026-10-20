@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MediaUrlService } from '../media/media-url.service.js';
-import { businessLogoKey } from '../media/media-key.util.js';
+import { businessCoverKey, businessLogoKey } from '../media/media-key.util.js';
 import type { Business } from './business.entity.js';
 import { BusinessPresenter } from './business.presenter.js';
 
 const BIZ = '11111111-1111-4111-8111-111111111111';
 const KEY = businessLogoKey(BIZ, '33333333-3333-4333-8333-333333333333');
+const COVER_KEY = businessCoverKey(BIZ, '44444444-4444-4444-8444-444444444444');
 const BASE = 'https://api.example.com';
 
 function business(extra: Partial<Business> = {}): Business {
@@ -18,6 +19,7 @@ function business(extra: Partial<Business> = {}): Business {
     phone: null,
     hours: null,
     logoStorageKey: null,
+    coverStorageKey: null,
     primaryColor: '#FF0000',
     accentColor: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -59,11 +61,52 @@ describe('BusinessPresenter', () => {
     }
   });
 
-  it('keeps the response contract: the same fields as before, logoUrl included', () => {
-    const out = presenter(BASE).present(business({ logoStorageKey: KEY }));
+  it('keeps the response contract: the same fields as before plus logoUrl and coverUrl (and no storage key)', () => {
+    const out = presenter(BASE).present(business({ logoStorageKey: KEY, coverStorageKey: COVER_KEY }));
     expect(Object.keys(out).sort()).toEqual(
-      ['id', 'name', 'slug', 'active', 'address', 'phone', 'hours', 'logoUrl', 'primaryColor', 'accentColor', 'createdAt', 'updatedAt'].sort(),
+      ['id', 'name', 'slug', 'active', 'address', 'phone', 'hours', 'logoUrl', 'coverUrl', 'primaryColor', 'accentColor', 'createdAt', 'updatedAt'].sort(),
     );
+  });
+
+  describe('cover', () => {
+    it('serves the stable /media URL when the business has a cover key', () => {
+      expect(presenter(BASE).present(business({ coverStorageKey: COVER_KEY })).coverUrl).toBe(`${BASE}/media/${COVER_KEY}`);
+    });
+
+    it('a business without a cover key has coverUrl null — there is no other source and no default image', () => {
+      expect(presenter(BASE).present(business()).coverUrl).toBeNull();
+      expect(presenter(BASE).present(business({ coverStorageKey: undefined as unknown as null })).coverUrl).toBeNull();
+    });
+
+    it('without MEDIA_PUBLIC_BASE_URL a keyed business has no cover either, and the key does not leak', () => {
+      const out = presenter().present(business({ coverStorageKey: COVER_KEY }));
+      expect(out.coverUrl).toBeNull();
+      expect(JSON.stringify(out)).not.toContain(COVER_KEY);
+    });
+
+    it('never exposes the coverStorageKey property, whatever the configuration', () => {
+      for (const p of [presenter(), presenter(BASE)]) {
+        const out = p.present(business({ logoStorageKey: KEY, coverStorageKey: COVER_KEY }));
+        expect(out).not.toHaveProperty('coverStorageKey');
+        expect(JSON.stringify(out)).not.toContain('coverStorageKey');
+      }
+    });
+
+    it('a stored value that is not a valid media key never becomes a URL (no arbitrary paths)', () => {
+      for (const bad of ['../../etc/passwd', 'https://evil.example/x.webp', `/${COVER_KEY}`, `${COVER_KEY}\n`, `businesses/${BIZ}/cover/x.webp`, '']) {
+        expect(presenter(BASE).present(business({ coverStorageKey: bad })).coverUrl, JSON.stringify(bad)).toBeNull();
+        expect(presenter(BASE).coverUrl(business({ coverStorageKey: bad }))).toBeNull();
+      }
+    });
+
+    it('coverUrl() (used by the table-session join) applies the same rule, and logo and cover do not interfere', () => {
+      expect(presenter(BASE).coverUrl(business())).toBeNull();
+      expect(presenter(BASE).coverUrl(business({ coverStorageKey: COVER_KEY }))).toBe(`${BASE}/media/${COVER_KEY}`);
+      expect(presenter().coverUrl(business({ coverStorageKey: COVER_KEY }))).toBeNull();
+      const both = presenter(BASE).present(business({ logoStorageKey: KEY, coverStorageKey: COVER_KEY }));
+      expect(both.logoUrl).toBe(`${BASE}/media/${KEY}`);
+      expect(both.coverUrl).toBe(`${BASE}/media/${COVER_KEY}`);
+    });
   });
 
   it('ignores a stray legacy logoUrl on the object: it is never read', () => {

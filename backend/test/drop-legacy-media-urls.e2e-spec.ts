@@ -9,6 +9,7 @@ import { businessLogoKey, productImageKey } from '../src/media/media-key.util.js
 import { DropLegacyMediaUrls1790300000000 } from '../src/migrations/1790300000000-DropLegacyMediaUrls.js';
 import { Product } from '../src/product/product.entity.js';
 import { runMigrationsBefore } from './support/run-all-migrations.js';
+import { seedBusinessAtSchemaState } from './support/seed-business-at-schema-state.js';
 import { startTestDatabase, type TestDatabase } from './support/test-database.js';
 
 const OBJ = 'cccccccc-3333-4abc-8def-333333333abc';
@@ -116,8 +117,7 @@ describe('DropLegacyMediaUrls migration (e2e, real local Postgres)', () => {
 
     await runMigrationsBefore(dataSource, DropLegacyMediaUrls1790300000000);
 
-    const businessRepo = dataSource.getRepository(Business);
-    business = await businessRepo.save(businessRepo.create({ name: 'Drop Co', slug: 'drop-co-e2e' }));
+    business = await seedBusinessAtSchemaState(dataSource, 'Drop Co', 'drop-co-e2e');
     const categoryRepo = dataSource.getRepository(Category);
     category = await categoryRepo.save(
       categoryRepo.create({ name: 'Burgers', slug: 'burgers', businessId: business.id, sortOrder: 1 }),

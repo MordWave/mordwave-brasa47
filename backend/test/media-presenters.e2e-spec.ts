@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { Business } from '../src/business/business.entity.js';
 import { Category } from '../src/category/category.entity.js';
-import { businessLogoKey, productImageKey } from '../src/media/media-key.util.js';
+import { businessCoverKey, businessLogoKey, productImageKey } from '../src/media/media-key.util.js';
 import { Product } from '../src/product/product.entity.js';
 import { ImageStorageService } from '../src/storage/image-storage.service.js';
 import { RestaurantTable } from '../src/table/table.entity.js';
@@ -42,6 +42,7 @@ describe.each([
   let keyed: Product;
   let keyedKey: string;
   let logoKey: string;
+  let coverKey: string;
   let uploadedLogoKey: string;
   let qrToken: string;
   let token: string;
@@ -83,7 +84,8 @@ describe.each([
       businessRepo.create({ name: 'Media Co', slug: 'media-co-presenters' }),
     );
     logoKey = businessLogoKey(business.id, OBJ);
-    await businessRepo.update(business.id, { logoStorageKey: logoKey });
+    coverKey = businessCoverKey(business.id, OBJ);
+    await businessRepo.update(business.id, { logoStorageKey: logoKey, coverStorageKey: coverKey });
 
     const userRepo = dataSource.getRepository(User);
     await userRepo.save(
@@ -252,6 +254,8 @@ describe.each([
       const res = await request(app.getHttpServer()).get('/businesses/me').set(auth()).expect(200);
       expectNoLeak(res.body);
       expect(res.body.logoUrl).toBe(mediaUrl(logoKey));
+      expect(res.body.coverUrl).toBe(mediaUrl(coverKey));
+      expect(res.body).not.toHaveProperty('coverStorageKey');
     });
 
     it('PATCH /businesses/me', async () => {
@@ -263,6 +267,7 @@ describe.each([
       expectNoLeak(res.body);
       expect(res.body.hours).toBe('Lun-Dom 12:00-23:00');
       expect(res.body.logoUrl).toBe(mediaUrl(logoKey));
+      expect(res.body.coverUrl).toBe(mediaUrl(coverKey));
     });
 
     it('POST /businesses/me/logo stores a key and leaks nothing', async () => {
@@ -286,6 +291,16 @@ describe.each([
         .expect(400);
     });
 
+    it.each(['coverUrl', 'cover_url', 'coverStorageKey', 'cover_storage_key'])('a client can never write %s (there is no way to set a cover yet)', async (field) => {
+      await request(app.getHttpServer())
+        .patch('/businesses/me')
+        .set(auth())
+        .send({ [field]: businessCoverKey(business.id, OBJ) })
+        .expect(400);
+      const [row] = await dataSource.query(`SELECT cover_storage_key FROM businesses WHERE id = $1`, [business.id]);
+      expect(row.cover_storage_key).toBe(coverKey);
+    });
+
     it('POST /table-sessions/join — branding logoUrl follows the same rule and leaks nothing', async () => {
       const res = await request(app.getHttpServer())
         .post('/table-sessions/join')
@@ -293,10 +308,11 @@ describe.each([
         .expect(200);
       expectNoLeak(res.body);
       expect(Object.keys(res.body).sort()).toEqual(
-        ['sessionToken', 'tableName', 'businessSlug', 'businessName', 'logoUrl', 'primaryColor', 'accentColor'].sort(),
+        ['sessionToken', 'tableName', 'businessSlug', 'businessName', 'logoUrl', 'coverUrl', 'primaryColor', 'accentColor'].sort(),
       );
       // The upload test above replaced the key.
       expect(res.body.logoUrl).toBe(mediaUrl(uploadedLogoKey));
+      expect(res.body.coverUrl).toBe(mediaUrl(coverKey));
     });
   });
 });

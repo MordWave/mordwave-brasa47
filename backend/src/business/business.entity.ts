@@ -9,7 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Category } from '../category/category.entity.js';
-import { BUSINESS_LOGO_KEY_PATTERN } from '../media/media-key.util.js';
+import { BUSINESS_COVER_KEY_PATTERN, BUSINESS_LOGO_KEY_PATTERN } from '../media/media-key.util.js';
 import { Order } from '../order/order.entity.js';
 import { Product } from '../product/product.entity.js';
 import { RestaurantTable } from '../table/table.entity.js';
@@ -19,6 +19,10 @@ import { RestaurantTable } from '../table/table.entity.js';
 @Check(
   'CHK_businesses_logo_storage_key',
   `"logo_storage_key" IS NULL OR "logo_storage_key" ~ '${BUSINESS_LOGO_KEY_PATTERN}'`,
+)
+@Check(
+  'CHK_businesses_cover_storage_key',
+  `"cover_storage_key" IS NULL OR "cover_storage_key" ~ '${BUSINESS_COVER_KEY_PATTERN}'`,
 )
 @Entity('businesses')
 export class Business {
@@ -51,6 +55,12 @@ export class Business {
   // BusinessPresenter turns it into the /media URL in the response's `logoUrl`.
   @Column({ name: 'logo_storage_key', type: 'text', nullable: true })
   logoStorageKey: string | null;
+
+  // Object key of the welcome-screen cover in the Railway Bucket (businesses/<id>/cover/<uuid>.webp). Same rules as the
+  // logo key: internal, never sent to clients (BusinessPresenter turns it into `coverUrl`), null = no cover (the
+  // customer app then shows its neutral background). Nothing writes it yet: uploading and removing covers come later.
+  @Column({ name: 'cover_storage_key', type: 'text', nullable: true })
+  coverStorageKey: string | null;
 
   // "#RRGGBB" hex strings, validated in UpdateBusinessDto — a business
   // that hasn't set these yet is null, and the frontend falls back to the

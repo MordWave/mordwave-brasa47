@@ -11,6 +11,7 @@ import { AddPlatformAuditLogs1790500000000 } from '../src/migrations/17905000000
 import { User } from '../src/user/user.entity.js';
 import { UserRole } from '../src/user/user-role.enum.js';
 import { runMigrationsBefore } from './support/run-all-migrations.js';
+import { seedBusinessAtSchemaState } from './support/seed-business-at-schema-state.js';
 import { startTestDatabase, type TestDatabase } from './support/test-database.js';
 
 const TEST_BCRYPT_COST = 4;
@@ -143,8 +144,7 @@ describe('AddPlatformAuditLogs migration (e2e, real local Postgres)', () => {
     await runMigrationsBefore(dataSource, AddPlatformAuditLogs1790500000000);
 
     // ... with data that already exists
-    const businessRepo = dataSource.getRepository(Business);
-    business = await businessRepo.save(businessRepo.create({ name: 'Audit Co', slug: 'audit-co-platform' }));
+    business = await seedBusinessAtSchemaState(dataSource, 'Audit Co', 'audit-co-platform');
     const userRepo = dataSource.getRepository(User);
     adminId = (await userRepo.save(userRepo.create({ email: admin.email, passwordHash: await bcrypt.hash(admin.password, TEST_BCRYPT_COST), role: UserRole.ADMIN, businessId: business.id }))).id;
     superId = (await userRepo.save(userRepo.create({ email: 'root@platform-audit.test', passwordHash: await bcrypt.hash('Sup3rSecret!Root', TEST_BCRYPT_COST), role: UserRole.SUPER_ADMIN, businessId: null }))).id;

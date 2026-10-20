@@ -80,7 +80,7 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
 
   it('the list of expected migrations (read from the build\'s own folder) is exactly the real, recorded set', () => {
     expect(expectedMigrations).toEqual(ALL_MIGRATIONS.map((M) => new M().name!).sort());
-    expect(expectedMigrations).toHaveLength(18);
+    expect(expectedMigrations).toHaveLength(19);
   });
 
   describe('--check is strictly read-only', () => {
@@ -91,7 +91,7 @@ describe('bootstrap-super-admin against a real local Postgres (PGlite)', () => {
       expect(await runCheck(o.deps)).toBe(EXIT.ok);
       expect(await auditCount()).toBe(auditBefore);
       expect(o.text()).toMatch(/\[OK\] Conexión disponible/);
-      expect(o.text()).toMatch(/Esquema esperado y 18 migraciones/);
+      expect(o.text()).toMatch(/Esquema esperado y 19 migraciones/);
       expect(o.text()).toMatch(/SUPER_ADMIN existentes: 0/);
       expect(await users()).toEqual(before);
     });

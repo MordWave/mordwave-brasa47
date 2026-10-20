@@ -137,7 +137,7 @@ describe('recover-super-admin against a real local Postgres (PGlite)', () => {
       const audit = await auditRows();
       const r = await check();
       expect(r.code).toBe(EXIT.ok);
-      expect(r.text).toMatch(/\[OK\] Esquema esperado, tabla platform_audit_logs presente y 18 migraciones/);
+      expect(r.text).toMatch(/\[OK\] Esquema esperado, tabla platform_audit_logs presente y 19 migraciones/);
       expect(r.text).toMatch(/credentials_version: 0/);
       expect(r.text).toMatch(/activa: sí/);
       expect(r.text).toMatch(/must_change_password: no/);
