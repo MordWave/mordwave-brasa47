@@ -1,3 +1,5 @@
+import { homeCoverFor } from './homeCover.js'
+
 const FALLBACK_NAME = 'Nuestro restaurante'
 
 // Shown in the round mark only when there's no logo yet — derived from the
@@ -11,21 +13,26 @@ function getInitials(name) {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
-export default function HomeScreen({ tableName, businessName, logoUrl, onContinue }) {
+export default function HomeScreen({ tableName, businessName, businessSlug, logoUrl, onContinue }) {
   const displayName = businessName || FALLBACK_NAME
+  // A photo only for the restaurant that has one (see homeCover.js, a transitional exception); every other restaurant gets
+  // a neutral background drawn with CSS: no image of another restaurant can appear here.
+  const cover = homeCoverFor(businessSlug)
 
   return (
     <div className="home">
-      <section className="home__hero">
-        <img
-          className="home__photo"
-          src="/images/restaurant-hero.webp"
-          alt=""
-          aria-hidden="true"
-          onError={(e) => {
-            e.currentTarget.style.display = 'none'
-          }}
-        />
+      <section className={`home__hero${cover ? '' : ' home__hero--neutral'}`}>
+        {cover && (
+          <img
+            className="home__photo"
+            src={cover}
+            alt=""
+            aria-hidden="true"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none'
+            }}
+          />
+        )}
         <div className="home__vignette" aria-hidden="true" />
 
         <div className="home__hero-top">

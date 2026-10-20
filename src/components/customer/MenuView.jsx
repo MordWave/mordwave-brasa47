@@ -2,12 +2,32 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { translateApiError } from '../../services/errorMessages'
 import { fetchPublicCategories, fetchPublicProducts } from '../../services/menuApi'
 import { adaptPublicProduct } from '../../utils/adaptProduct'
+import { isValidBusinessSlug } from '../../utils/businessSlug.js'
 import ThemeToggle from '../ThemeToggle'
 import CategoryTabs from './CategoryTabs'
 import ProductTile from './ProductTile'
 import ProductModal from './ProductModal'
 
 const FALLBACK_NAME = 'Nuestro restaurante'
+
+export const NO_RESTAURANT_MESSAGE = 'No pudimos identificar el restaurante de esta mesa. Escanea de nuevo el código QR de tu mesa o pide ayuda al personal.'
+
+// Without a valid businessSlug nothing is requested (there is no default restaurant) and the customer is told what to do.
+export function MenuUnidentified({ tableName }) {
+  return (
+    <div className="menu">
+      <header className="menu__header">
+        <div className="menu__header-text">
+          <h1 className="menu__title">Menú</h1>
+        </div>
+        <div className="menu__header-actions">{tableName && <span className="menu__mesa">{tableName}</span>}</div>
+      </header>
+      <p className="empty-state" role="alert">
+        {NO_RESTAURANT_MESSAGE}
+      </p>
+    </div>
+  )
+}
 
 export default function MenuView({ tableName, businessSlug, businessName }) {
   const [categories, setCategories] = useState([])
@@ -22,7 +42,10 @@ export default function MenuView({ tableName, businessSlug, businessName }) {
   const suppressTimeout = useRef(null)
   const toastTimeout = useRef(null)
 
+  const identified = isValidBusinessSlug(businessSlug)
+
   const loadMenu = useCallback(async () => {
+    if (!isValidBusinessSlug(businessSlug)) return // never request a menu for an unknown restaurant
     setLoading(true)
     setError('')
     try {
@@ -91,6 +114,8 @@ export default function MenuView({ tableName, businessSlug, businessName }) {
   }
 
   const isEmpty = !loading && !error && (categories.length === 0 || products.length === 0)
+
+  if (!identified) return <MenuUnidentified tableName={tableName} />
 
   return (
     <div className="menu">
