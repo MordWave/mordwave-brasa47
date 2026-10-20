@@ -333,10 +333,13 @@ before(async () => {
     export { createAdminsApi } from './tenant/admins/adminsApi.js'
     import { AdminsViewContent } from './tenant/admins/AdminsView.jsx'
     import TemporaryPasswordDialog from './tenant/admins/TemporaryPasswordDialog.jsx'
+    import { DeleteAdminDialogView } from './tenant/admins/DeleteAdminDialog.jsx'
     import BusinessPickerView from './tenant/selector/BusinessPickerView.jsx'
     const noop = () => {}
     export const renderContent = (state, email = '') =>
       renderToStaticMarkup(<AdminsViewContent state={state} email={email} onEmail={noop} onCreate={noop} onBack={noop} onRetry={noop} onDeactivate={noop} onActivate={noop} onReset={noop} onCloseReveal={noop} />)
+    export const renderRemoval = (removal, typed = '', restaurantName = 'Brasa 47') =>
+      renderToStaticMarkup(<DeleteAdminDialogView removal={removal} restaurantName={restaurantName} typed={typed} onTyped={noop} onSubmit={noop} onCancel={noop} onRefresh={noop} inputRef={null} closeRef={null} refreshRef={null} dialogRef={null} />)
     export const renderReveal = (reveal, restaurantName) => renderToStaticMarkup(<TemporaryPasswordDialog reveal={reveal} restaurantName={restaurantName} onClose={noop} />)
     export const renderPicker = (state, management) =>
       renderToStaticMarkup(<BusinessPickerView state={state} searchText="" management={management} onSearchText={noop} onActive={noop} onSelect={noop} onLoadMore={noop} onRetry={noop} />)
@@ -346,7 +349,7 @@ after(() => {
   globalThis.fetch = saved.fetch
 })
 
-test('API: exactly the five approved endpoints, addressed by UUID, with the real token and never a businessId query', async () => {
+test('API: exactly the six approved endpoints, addressed by UUID, with the real token and never a businessId query', async () => {
   const seen = []
   globalThis.fetch = async (url, init) => (seen.push({ url: String(url), init }), { ok: true, status: 200, json: async () => ({}) })
   const api = mod.createAdminsApi({ getToken: () => 'real-token' })
@@ -355,6 +358,7 @@ test('API: exactly the five approved endpoints, addressed by UUID, with the real
   await api.deactivateAdmin(BIZ, U1)
   await api.activateAdmin(BIZ, U1)
   await api.resetAdminPassword(BIZ, U1)
+  await api.deleteAdmin(BIZ, U1, '  X@Y.test ')
   await assert.rejects(async () => api.listAdmins('../../etc'), TypeError)
   await assert.rejects(async () => api.deactivateAdmin(BIZ, 'me'), TypeError)
   await assert.rejects(async () => api.resetAdminPassword('x', U1), TypeError)
@@ -365,6 +369,7 @@ test('API: exactly the five approved endpoints, addressed by UUID, with the real
     ['POST', `/businesses/${BIZ}/admins/${U1}/deactivate`, '{}'],
     ['POST', `/businesses/${BIZ}/admins/${U1}/activate`, '{}'],
     ['POST', `/businesses/${BIZ}/admins/${U1}/reset-password`, '{}'],
+    ['POST', `/businesses/${BIZ}/admins/${U1}/delete`, '{"confirmEmail":"X@Y.test"}'],
   ])
   for (const s of seen) {
     assert.doesNotMatch(s.url, /businessId|\?/)
@@ -393,6 +398,11 @@ test('view: lists each admin with its state and a pending-password-change badge,
   assert.match(html, /aria-label="Activar a nuevo@x\.test"/)
   assert.doesNotMatch(html, /aria-label="Activar a activo@x\.test"/)
   assert.equal((html.match(/Restablecer la contraseña de /g) ?? []).length, 2, 'a reset is offered for every account')
+  assert.match(html, /aria-label="Eliminar a activo@x\.test"/)
+  assert.match(html, /aria-label="Eliminar a nuevo@x\.test"/)
+  assert.equal((html.match(/admin-row__delete/g) ?? []).length, 2, 'the action is shown on every row; the list only proves two blockers (see removal.test.js) and the server decides the rest')
+  assert.match(html.match(/<button[^>]*aria-label="Eliminar a activo@x\.test"[^>]*>/)[0], /aria-disabled="true"/, 'an active account is shown as unavailable')
+  assert.doesNotMatch(html.match(/<button[^>]*aria-label="Eliminar a nuevo@x\.test"[^>]*>/)[0], /aria-disabled/, 'inactive + initial password pending: nothing known blocks it')
   assert.doesNotMatch(html, /\$2[aby]\$|passwordHash|credentialsVersion/)
 })
 
@@ -466,7 +476,7 @@ test('the picker menu offers "Administradores" for active AND suspended restaura
 test('the admin-management code is reachable only through the SUPER_ADMIN selector gate (an ADMIN never mounts it)', () => {
   const importers = walk(new URL('../../', import.meta.url))
     .filter((u) => /\.(js|jsx)$/.test(u.pathname) && !u.pathname.endsWith('.test.js') && !u.pathname.includes('/tenant/admins/'))
-    .filter((u) => /admins\/(AdminsView|adminsApi|adminsStore|TemporaryPasswordDialog)/.test(code(readFileSync(u, 'utf8'))))
+    .filter((u) => /admins\/(AdminsView|adminsApi|adminsStore|TemporaryPasswordDialog|DeleteAdminDialog|removalDialogModel)/.test(code(readFileSync(u, 'utf8'))))
     .map((u) => u.pathname.split('/src/')[1])
   assert.deepEqual(importers, ['tenant/selector/BusinessGate.jsx'])
   const panel = code(read('../../pages/admin/AdminPanel.jsx'))
@@ -501,12 +511,12 @@ test('the toasts of the view never carry a password', () => {
   assert.match(view, /useEffect\(\(\) => \(\) => store\.dismissReveal\(\), \[store\]\)/, 'unmounting the view drops a password still on screen')
 })
 
-test('only the five approved paths are ever built, and no other backend route is used', () => {
+test('only the six approved paths are ever built, and no other backend route is used', () => {
   const api = code(read('./adminsApi.js'))
-  // the helper's own definition aside (it has default values), each call builds one of the five approved paths
+  // the helper's own definition aside (it has default values), each call builds one of the six approved paths
   const calls = [...api.matchAll(/adminsPath\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ' ').trim()).filter((args) => !args.includes('='))
-  assert.deepEqual([...new Set(calls)].sort(), ['businessId', "businessId, userId, '/activate'", "businessId, userId, '/deactivate'", "businessId, userId, '/reset-password'"])
-  assert.equal((api.match(/method: 'POST'/g) ?? []).length, 4)
+  assert.deepEqual([...new Set(calls)].sort(), ['businessId', "businessId, userId, '/activate'", "businessId, userId, '/deactivate'", "businessId, userId, '/delete'", "businessId, userId, '/reset-password'"])
+  assert.equal((api.match(/method: 'POST'/g) ?? []).length, 5)
   assert.doesNotMatch(api, /PATCH|PUT|DELETE|\/users|\/auth\//)
 })
 

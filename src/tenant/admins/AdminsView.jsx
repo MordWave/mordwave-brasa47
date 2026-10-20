@@ -1,20 +1,29 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useConfirm } from '../../context/ConfirmContext'
 import { useToast } from '../../context/ToastContext'
 import { useStoreState } from '../selector/useStoreState.js'
+import DeleteAdminDialog from './DeleteAdminDialog.jsx'
+import { knownRemovalBlock } from './removalEligibility.js'
 import TemporaryPasswordDialog from './TemporaryPasswordDialog.jsx'
 
 // "Administradores" of ONE restaurant, for a SUPER_ADMIN (mounted only by the selector gate, never for an ADMIN). Lists the
 // ADMIN accounts of the restaurant, creates one from an e-mail, activates / deactivates and resets passwords. It works
 // the same for a suspended restaurant (which cannot be selected as the active one): the target is the id the store was opened with.
 // Sensitive actions (deactivate, reset) go through the shared confirmation dialog naming the account AND the restaurant,
-// and nothing is updated optimistically: after the server confirms, the list is re-read.
+// and nothing is updated optimistically: after the server confirms, the list is re-read. Deleting an account (irreversible) has its
+// own dialog that asks for the exact e-mail. The list proves only two things (the account is active, or its initial password was
+// already changed): those accounts show the action as unavailable, with the reason; for every other account the server decides
+// when it is confirmed. After a deletion the keyboard focus moves to the list summary (the row it was on no longer exists).
 
 function Badge({ tone, children }) {
   return <span className={`business-card__badge business-card__badge--${tone}`}>{children}</span>
 }
 
-function AdminRow({ admin, busy, onDeactivate, onActivate, onReset }) {
+function AdminRow({ admin, busy, onDeactivate, onActivate, onReset, onRemove }) {
+  const blockedId = useId()
+  // `aria-disabled` (not `disabled`): it stays reachable with the keyboard and a screen reader reads WHY it is unavailable;
+  // activating it explains instead of acting
+  const blocked = knownRemovalBlock(admin)
   return (
     <li className={`admin-row${admin.active ? '' : ' admin-row--inactive'}`}>
       <div className="admin-row__main">
@@ -37,16 +46,33 @@ function AdminRow({ admin, busy, onDeactivate, onActivate, onReset }) {
         <button type="button" className="btn btn--outline btn--small" onClick={() => onReset(admin)} disabled={busy} aria-label={`Restablecer la contraseña de ${admin.email}`}>
           Restablecer contraseña
         </button>
+        <button
+          type="button"
+          className="btn btn--outline btn--small admin-row__delete"
+          onClick={() => onRemove(admin)}
+          disabled={busy}
+          aria-disabled={blocked ? 'true' : undefined}
+          aria-describedby={blocked ? blockedId : undefined}
+          title={blocked ? blocked.message : undefined}
+          aria-label={`Eliminar a ${admin.email}`}
+        >
+          Eliminar
+        </button>
+        {blocked && (
+          <span id={blockedId} className="visually-hidden">
+            {blocked.message}
+          </span>
+        )}
       </div>
     </li>
   )
 }
 
 // Presentational: everything the view shows, driven by the store state and plain callbacks (testable as static markup).
-export function AdminsViewContent({ state, email, onEmail, onCreate, onBack, onRetry, onDeactivate, onActivate, onReset, onCloseReveal }) {
+export function AdminsViewContent({ state, email, onEmail, onCreate, onBack, onRetry, onDeactivate, onActivate, onReset, onRemove, onConfirmRemoval, onCancelRemoval, onRefreshRemoval, onCloseReveal, listFocusRef }) {
   const titleId = useId()
   const emailId = useId()
-  const { business, list, create, busy, reveal } = state
+  const { business, list, create, busy, reveal, removal } = state
   const saving = create.phase === 'saving'
   const fieldError = create.error?.field === 'email' ? create.error.message : null
   const generalError = create.error && !fieldError ? create.error.message : null
@@ -137,25 +163,29 @@ export function AdminsViewContent({ state, email, onEmail, onCreate, onBack, onR
       )}
 
       {list.status === 'ready' && list.items.length === 0 && (
-        <p className="business-picker__status" role="status">
+        <p ref={listFocusRef} tabIndex={-1} className="business-picker__status" role="status">
           Este restaurante todavía no tiene administradores. Crea el primero con el formulario de arriba.
         </p>
       )}
 
       {list.items.length > 0 && list.status !== 'error' && (
         <>
-          <p className="business-picker__count" aria-live="polite">
+          <p ref={listFocusRef} tabIndex={-1} className="business-picker__count" aria-live="polite">
             {list.items.length === 1 ? '1 administrador' : `${list.items.length} administradores`}
           </p>
           <ul className="admins__list">
             {list.items.map((admin) => (
-              <AdminRow key={admin.id} admin={admin} busy={busy.includes(admin.id)} onDeactivate={onDeactivate} onActivate={onActivate} onReset={onReset} />
+              <AdminRow key={admin.id} admin={admin} busy={busy.includes(admin.id)} onDeactivate={onDeactivate} onActivate={onActivate} onReset={onReset} onRemove={onRemove} />
             ))}
           </ul>
         </>
       )}
 
       {reveal && <TemporaryPasswordDialog reveal={reveal} restaurantName={business.name} onClose={onCloseReveal} />}
+
+      {removal && (
+        <DeleteAdminDialog key={removal.admin.id} removal={removal} restaurantName={business.name} onConfirm={onConfirmRemoval} onCancel={onCancelRemoval} onRefresh={onRefreshRemoval} />
+      )}
     </section>
   )
 }
@@ -165,6 +195,12 @@ export default function AdminsView({ store, onBack }) {
   const confirm = useConfirm()
   const toast = useToast()
   const [email, setEmail] = useState('')
+  // after a deletion its row is gone: the focus goes to the list summary ("N administradores"), never lost on <body>
+  const listFocusRef = useRef(null)
+  const [focusRequest, setFocusRequest] = useState(0)
+  useEffect(() => {
+    if (focusRequest > 0) listFocusRef.current?.focus()
+  }, [focusRequest])
 
   // unmounting this view always drops a temporary password that is still on screen (React StrictMode runs this cleanup once
   // at mount in development, when there is nothing to drop; closing the whole view is the explicit onBack / gate unmount)
@@ -178,6 +214,12 @@ export default function AdminsView({ store, onBack }) {
         else if (event.type === 'deactivated') toast.success(`Cuenta desactivada: ${event.email}. Sus sesiones se cerraron.`)
         else if (event.type === 'activated') toast.success(`Cuenta activada: ${event.email}.`)
         else if (event.type === 'reset') toast.success(`Contraseña restablecida: ${event.email}. Sus sesiones se cerraron.`)
+        else if (event.type === 'removed' || event.type === 'already-removed' || event.type === 'gone') {
+          if (event.type === 'removed') toast.success(`Administrador eliminado: ${event.email}.`)
+          else if (event.type === 'already-removed') toast.success(`La cuenta ${event.email} ya había sido eliminada. No se hizo ningún cambio nuevo.`)
+          else toast.success(`La cuenta ${event.email} ya no figura en la lista.`)
+          setFocusRequest((n) => n + 1) // the events arrive after the list was re-read, so the target exists when the effect runs
+        }
       }),
     [store, toast],
   )
@@ -220,6 +262,12 @@ export default function AdminsView({ store, onBack }) {
     })
   }
 
+  // an account the list already proves cannot be deleted explains why instead of opening the dialog
+  function handleRemove(admin) {
+    const result = store.requestRemoval(admin)
+    if (result.blocked) toast.info(result.blocked.message)
+  }
+
   async function handleActivate(admin) {
     const result = await store.activate(admin)
     if (!result.ok && !result.ignored) toast.error(result.error?.message ?? 'No se pudo activar la cuenta.')
@@ -239,7 +287,12 @@ export default function AdminsView({ store, onBack }) {
       onDeactivate={handleDeactivate}
       onActivate={handleActivate}
       onReset={handleReset}
+      onRemove={handleRemove}
+      onConfirmRemoval={store.confirmRemoval}
+      onCancelRemoval={store.cancelRemoval}
+      onRefreshRemoval={store.refreshRemoval}
       onCloseReveal={store.dismissReveal}
+      listFocusRef={listFocusRef}
     />
   )
 }
