@@ -185,6 +185,23 @@ p {
   background: #17110c;
 }
 
+/* No photo (every restaurant except the transitional one in components/customer/homeCover.js): a neutral charcoal ground with a
+   soft glow of the restaurant's OWN primary colour at the top. No image, nothing that identifies another restaurant. The glow is
+   capped at 30% so white text keeps AA contrast even over the lightest possible brand colour (tested). */
+.home__hero--neutral {
+  background: #141414;
+}
+
+.home__hero--neutral::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(90% 55% at 50% 0%, var(--primary), transparent 72%);
+  opacity: 0.3;
+}
+
 .home__photo {
   position: absolute;
   inset: 0;

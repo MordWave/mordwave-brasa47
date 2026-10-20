@@ -1,66 +1,40 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useMemo, useState, useSyncExternalStore } from 'react'
+import { createCartStore } from './cartStore.js'
 
 const CartContext = createContext(null)
-const CART_KEY = 'brasa47_cart'
 
-function loadCart() {
+// Storage can throw just by being touched (blocked storage, some private modes): the cart then lives in memory only.
+function safeStorage(kind) {
   try {
-    const raw = localStorage.getItem(CART_KEY)
-    return raw ? JSON.parse(raw) : []
+    return typeof window === 'undefined' ? null : window[kind]
   } catch {
-    return []
+    return null
   }
 }
 
+// The rules (which restaurant / table session a cart belongs to, what is persisted and when) live in cartStore.js.
 export function CartProvider({ children }) {
-  const [items, setItems] = useState(loadCart)
-  const [orderNote, setOrderNote] = useState('')
-
-  useEffect(() => {
-    localStorage.setItem(CART_KEY, JSON.stringify(items))
-  }, [items])
-
-  function addItem(item) {
-    setItems((prev) => [...prev, item])
-  }
-
-  function updateQuantity(cartItemId, quantity) {
-    if (quantity <= 0) {
-      removeItem(cartItemId)
-      return
-    }
-    setItems((prev) =>
-      prev.map((it) =>
-        it.cartItemId === cartItemId
-          ? { ...it, quantity, lineTotal: it.unitPrice * quantity }
-          : it
-      )
-    )
-  }
-
-  function removeItem(cartItemId) {
-    setItems((prev) => prev.filter((it) => it.cartItemId !== cartItemId))
-  }
-
-  function clearCart() {
-    setItems([])
-    setOrderNote('')
-  }
+  const [store] = useState(() => createCartStore({ storage: safeStorage('sessionStorage'), legacyStorage: safeStorage('localStorage') }))
+  const { items, orderNote } = useSyncExternalStore(store.subscribe, store.getState)
 
   const total = useMemo(() => items.reduce((sum, it) => sum + it.lineTotal, 0), [items])
   const itemCount = useMemo(() => items.reduce((sum, it) => sum + it.quantity, 0), [items])
 
-  const value = {
-    items,
-    addItem,
-    updateQuantity,
-    removeItem,
-    clearCart,
-    total,
-    itemCount,
-    orderNote,
-    setOrderNote,
-  }
+  const value = useMemo(
+    () => ({
+      items,
+      orderNote,
+      total,
+      itemCount,
+      attachScope: store.attachScope,
+      addItem: store.addItem,
+      updateQuantity: store.updateQuantity,
+      removeItem: store.removeItem,
+      clearCart: store.clearCart,
+      setOrderNote: store.setOrderNote,
+    }),
+    [store, items, orderNote, total, itemCount],
+  )
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }

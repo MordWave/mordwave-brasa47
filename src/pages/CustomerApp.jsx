@@ -11,6 +11,8 @@ import OrderSuccessModal from '../components/customer/OrderSuccessModal'
 import { createOrder } from '../services/orderApi'
 import { checkTableSessionStatus, joinTableSession } from '../services/tableSessionApi'
 import { translateApiError } from '../services/errorMessages'
+import { cartScopeFor } from '../context/cartStore.js'
+import { isValidBusinessSlug } from '../utils/businessSlug.js'
 import { clearStoredSession, readStoredSession, writeStoredSession } from '../utils/qrSession'
 import { generateUuid } from '../utils/uuid'
 import { brandingStyleVars } from '../theme/brandStyle.js'
@@ -50,16 +52,17 @@ function CustomerFlow() {
   const [checkout, setCheckout] = useState(EMPTY_CHECKOUT)
   const [submittingOrder, setSubmittingOrder] = useState(false)
   const [orderError, setOrderError] = useState('')
-  const { items, orderNote, clearCart } = useCart()
+  const { items, orderNote, clearCart, attachScope } = useCart()
   const initRef = useRef(false)
 
   // Resolves this device's table session once on load: a `?t=<qrToken>` in
   // the URL always wins and is joined against the backend (the only source
   // of truth for whether that table currently has an OPEN session); absent
   // that, a same-tab refresh recovers whatever is already in
-  // sessionStorage. Scanning a *different* QR than whatever was already
-  // stored — or joining for the first time — always clears any leftover
-  // cart, so nothing from an earlier table can bleed into a new order.
+  // sessionStorage. The cart belongs to ONE table session of ONE restaurant
+  // (see context/cartStore.js): it is attached here once the session is known,
+  // so a different QR, a new session or a missing/invalid restaurant can never
+  // show items from another one. Joining always starts from an empty cart.
   useEffect(() => {
     if (initRef.current) return
     initRef.current = true
@@ -71,6 +74,7 @@ function CustomerFlow() {
 
       if (urlQrToken) {
         if (stored && stored.qrToken === urlQrToken) {
+          attachScope(cartScopeFor(stored))
           setSession({ status: 'active', ...stored })
           return
         }
@@ -89,22 +93,27 @@ function CustomerFlow() {
             accentColor: result.accentColor,
             qrToken: urlQrToken,
           }
+          // Without a valid restaurant identifier there is no menu to show and nothing to attach a cart to.
+          if (!isValidBusinessSlug(fresh.businessSlug)) throw new Error('The joined session has no valid businessSlug')
           writeStoredSession(fresh)
-          clearCart()
+          attachScope(cartScopeFor(fresh), { reset: true })
           setCheckout(EMPTY_CHECKOUT)
           setSession({ status: 'active', ...fresh })
         } catch {
           clearStoredSession()
+          attachScope(null)
           setSession({ status: 'unavailable' })
         }
         return
       }
 
       if (stored) {
+        attachScope(cartScopeFor(stored))
         setSession({ status: 'active', ...stored })
         return
       }
 
+      attachScope(null)
       setSession({ status: 'none' })
     }
 
@@ -124,6 +133,7 @@ function CustomerFlow() {
         const result = await checkTableSessionStatus(sessionToken)
         if (!result.open) {
           clearStoredSession()
+          attachScope(null)
           setCheckout(EMPTY_CHECKOUT)
           setSession({ status: 'closed', tableName })
         }
@@ -134,7 +144,7 @@ function CustomerFlow() {
     }
     const interval = setInterval(checkStatus, STATUS_POLL_MS)
     return () => clearInterval(interval)
-  }, [session])
+  }, [session, attachScope])
 
   async function handleConfirmOrder() {
     if (submittingOrder) return // already in flight — the button is also disabled, this just guards a stray double-call
@@ -178,6 +188,7 @@ function CustomerFlow() {
       // customer can fix by editing their cart.
       if (err.code === 'TABLE_SESSION_UNAVAILABLE') {
         clearStoredSession()
+        attachScope(null)
         setCheckout(EMPTY_CHECKOUT)
         setSession({ status: 'closed', tableName: session.tableName })
       } else {
@@ -232,6 +243,7 @@ function CustomerFlow() {
       <HomeScreen
         tableName={session.tableName}
         businessName={session.businessName}
+        businessSlug={session.businessSlug}
         logoUrl={session.logoUrl}
         onContinue={() => setStep('menu')}
       />
