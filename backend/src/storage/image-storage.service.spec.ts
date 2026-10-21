@@ -30,6 +30,7 @@ const PROD = 'bbbbbbbb-2222-4abc-8def-222222222abc';
 const OBJ = 'cccccccc-3333-4abc-8def-333333333abc';
 const KEY = `businesses/${BIZ}/products/${PROD}/${OBJ}.webp`;
 const LOGO_KEY = `businesses/${BIZ}/logo/${OBJ}.webp`;
+const COVER_KEY = `businesses/${BIZ}/cover/${OBJ}.webp`;
 
 function getErrorBody(error: unknown): Record<string, unknown> {
   return (error as { getResponse: () => Record<string, unknown> }).getResponse();
@@ -117,6 +118,41 @@ describe('ImageStorageService', () => {
       withoutEnlargement: true,
     });
     expect(sharpChain.webp).toHaveBeenCalledWith({ quality: 80 });
+  });
+
+  describe('output size depends on the kind of key (decided here, never by the caller)', () => {
+    const resizeFor = async (key: string) => {
+      vi.mocked(fileTypeFromBuffer).mockResolvedValue({ mime: 'image/jpeg', ext: 'jpg' });
+      sharpChain.resize.mockClear();
+      await service.upload(key, { buffer: Buffer.from('jpeg-bytes'), size: 100 });
+      return sharpChain.resize.mock.calls[0]![0];
+    };
+
+    it('a cover keeps up to 1920 px on the longest side, never enlarging', async () => {
+      expect(await resizeFor(COVER_KEY)).toEqual({ width: 1920, height: 1920, fit: 'inside', withoutEnlargement: true });
+    });
+
+    it('product images and logos keep the original 1200 px limit', async () => {
+      expect(await resizeFor(KEY)).toEqual({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true });
+      expect(await resizeFor(LOGO_KEY)).toEqual({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true });
+    });
+
+    it('the rest of the pipeline is the same for a cover: auto-rotate, WebP quality 80, same checks and headers', async () => {
+      vi.mocked(fileTypeFromBuffer).mockResolvedValue({ mime: 'image/png', ext: 'png' });
+      await service.upload(COVER_KEY, { buffer: Buffer.from('png-bytes'), size: 100 });
+      expect(sharpChain.rotate).toHaveBeenCalledTimes(1);
+      expect(sharpChain.webp).toHaveBeenCalledWith({ quality: 80 });
+      expect(sharpFn).toHaveBeenCalledWith(expect.anything(), { limitInputPixels: 50_000_000 });
+      expect(store.put).toHaveBeenCalledWith(COVER_KEY, Buffer.from('webp-bytes'), 'image/webp', 'public, max-age=31536000, immutable');
+    });
+
+    it('a cover gets the same size and format validation (10 MB, real type) before any processing', async () => {
+      await expect(service.upload(COVER_KEY, { buffer: Buffer.alloc(1), size: 10 * 1024 * 1024 + 1 })).rejects.toBeInstanceOf(BadRequestException);
+      vi.mocked(fileTypeFromBuffer).mockResolvedValue(undefined);
+      await expect(service.upload(COVER_KEY, { buffer: Buffer.from('x'), size: 1 })).rejects.toBeInstanceOf(BadRequestException);
+      expect(sharpFn).not.toHaveBeenCalled();
+      expect(store.put).not.toHaveBeenCalled();
+    });
   });
 
   it('on success, puts the processed WebP at the given key with immutable cache headers and returns the key', async () => {

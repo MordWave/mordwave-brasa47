@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -32,6 +33,7 @@ import { BusinessService } from './business.service.js';
 import { BusinessPresenter, type BusinessListItem, type BusinessResponse } from './business.presenter.js';
 import { buildPaginated, type Paginated } from '../common/pagination.util.js';
 import { IMAGE_MULTER_HARD_LIMIT_BYTES } from '../common/limits/resource-limits.const.js';
+import { BusinessImageService } from './business-image.service.js';
 import { BusinessLifecycleService } from './business-lifecycle.service.js';
 import { AdminUpdateBusinessDto } from './dto/admin-update-business.dto.js';
 import { CreateBusinessDto } from './dto/create-business.dto.js';
@@ -53,6 +55,7 @@ export class BusinessController {
   constructor(
     private readonly businessService: BusinessService,
     private readonly lifecycle: BusinessLifecycleService,
+    private readonly images: BusinessImageService,
     private readonly auditService: AuditService,
     private readonly presenter: BusinessPresenter,
   ) {}
@@ -170,6 +173,57 @@ export class BusinessController {
       ...extractClientInfo(req),
     });
     return this.presenter.present(updated);
+  }
+
+  // ---- Cover and logo removal of MY business (same scoping as /me: an ADMIN's own business, a SUPER_ADMIN names one with
+  // ?businessId=). The storage key is never accepted from the client; the change and its audit entry commit in one transaction
+  // (see BusinessImageService). 200 with the business; removing what is not there is a harmless 200 with no audit entry.
+  @Post('me/cover')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @RateLimit('upload')
+  @UploadTimeout()
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: IMAGE_MULTER_HARD_LIMIT_BYTES },
+    }),
+  )
+  async uploadCover(
+    @Query() query: BusinessQueryDto,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<BusinessResponse> {
+    if (!file) {
+      throw new BadRequestException({
+        message: 'No file uploaded',
+        errorCode: 'IMAGE_INVALID_FORMAT',
+      });
+    }
+    return this.presenter.present(await this.images.uploadCover(query, user, file, extractClientInfo(req)));
+  }
+
+  @Delete('me/cover')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async removeCover(
+    @Query() query: BusinessQueryDto,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<BusinessResponse> {
+    return this.presenter.present(await this.images.removeCover(query, user, extractClientInfo(req)));
+  }
+
+  @Delete('me/logo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async removeLogo(
+    @Query() query: BusinessQueryDto,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<BusinessResponse> {
+    return this.presenter.present(await this.images.removeLogo(query, user, extractClientInfo(req)));
   }
 
   // ---- SUPER_ADMIN management of ONE business by id ---------------------------------------------------------

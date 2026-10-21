@@ -159,10 +159,32 @@ clave nueva y no borra la anterior.
 La **portada** de la pantalla de bienvenida (`businesses.cover_storage_key`,
 clave `businesses/<businessId>/cover/<uuid>.webp`) sigue el mismo esquema: la
 API responde `coverUrl` en las respuestas de negocio y en `POST /table-sessions/join`
-(`null` si el negocio no tiene portada) y nunca expone la clave. Por ahora solo
-existen la columna y la lectura; todavía no hay endpoint para subirla ni quitarla.
-Como todas las migraciones, `AddBusinessCoverStorageKey` (columna opcional, aditiva
-y reversible) se aplica a mano **antes** de desplegar un backend que la lea.
+(`null` si el negocio no tiene portada) y nunca expone la clave.
+
+### Portada y logo de «mi» negocio
+
+| Ruta | Qué hace |
+| --- | --- |
+| `POST /businesses/me/cover` (multipart, campo `file`) | Sube o reemplaza la portada. Misma validación que el logo (tipo real, 10 MB, 50 Mpx, WebP, EXIF) pero hasta **1920 px** en el lado largo (el logo y los productos siguen en 1200 px); nunca amplía. No exige ninguna proporción: el recorte 4:5 es cosa del frontend. 201 con el negocio |
+| `DELETE /businesses/me/cover` | Quita la portada (`NULL`). 200 con el negocio; si no había, 200 sin cambios ni auditoría |
+| `DELETE /businesses/me/logo` | Quita el logo (`NULL`). Igual que el anterior |
+
+- **Alcance:** un ADMIN actúa siempre sobre **su** negocio (un `?businessId=` ajeno se ignora); un SUPER_ADMIN debe indicar `?businessId=` (400 si falta). La clave de almacenamiento **nunca** viene del cliente: se construye en el servidor con el negocio resuelto y un uuid nuevo.
+- **Negocio suspendido:** un ADMIN recibe 403 `BUSINESS_INACTIVE` (también si la suspensión empieza mientras su petición está en curso: el estado se vuelve a leer bajo el bloqueo de la fila). Un SUPER_ADMIN sí puede gestionar la identidad de un negocio suspendido.
+- **Auditoría** (`audit_logs`, misma transacción que el cambio y **sin** tolerar fallos: si la auditoría falla se revierte el cambio y no se anuncia éxito): `BUSINESS_COVER_UPDATED` (`{ sizeBytes, replaced }`), `BUSINESS_COVER_REMOVED` y `BUSINESS_LOGO_REMOVED`. Sin clave, URL ni nombre de archivo. (La subida del logo, anterior, mantiene su auditoría de mejor esfuerzo.)
+- **Límite de peticiones:** la subida usa la política `upload` (por usuario), igual que el logo y las imágenes de producto.
+- **Concurrencia:** la transacción solo toma la fila del negocio (`FOR UPDATE`, espera máxima 5 s). Un bloqueo, interbloqueo o fallo de serialización responde 409 `BUSINESS_CONCURRENT_MODIFICATION` (nada se aplicó, se puede repetir; no se reintenta solo).
+
+**Qué pasa si falla algo** (orden: validar → procesar y subir al bucket → confirmar fila + auditoría):
+
+| Falla | Resultado |
+| --- | --- |
+| Validación de la imagen o el bucket (S3) **antes** de guardar | Error 4xx/502/503. No se escribió nada en ningún sitio; el negocio conserva su imagen |
+| La subida a S3 **tuvo éxito** y la transacción de PostgreSQL **falla** (auditoría, bloqueo, negocio suspendido o eliminado entre medias, conexión perdida) | La fila sigue apuntando a la imagen anterior y el cliente recibe un error. El objeto nuevo queda **huérfano** en el bucket (nadie lo referencia ni lo conoce); su clave se registra en el log (`orphan candidate key=…`) y esperará a la limpieza de huérfanos futura, igual que ya ocurre con el logo y las imágenes de producto |
+| El `COMMIT` tuvo éxito pero la respuesta se pierde | La portada **sí** cambió. Repetir la subida crea otro objeto y la reemplaza de nuevo; repetir la eliminación no hace nada |
+| Dos subidas a la vez | Se serializan por el bloqueo de la fila; gana la última y el objeto de la otra queda huérfano |
+
+Quitar una imagen solo escribe `NULL`: **nada borra objetos del bucket** en esta fase.
 
 | Variable | Uso |
 | --- | --- |

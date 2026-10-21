@@ -53,4 +53,7 @@ export const IMAGE_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB, matches the
 export const IMAGE_MAX_INPUT_PIXELS = 50_000_000;
 
 export const IMAGE_MAX_OUTPUT_DIMENSION = 1200; // plenty for a menu card/detail view or a logo
+// A welcome-screen cover fills the whole viewport (phones at 2-3x pixel density, desktop up to 1920 px wide), so it keeps
+// more detail. Applied only to cover keys (see ImageStorageService); never enlarges a smaller image.
+export const IMAGE_COVER_MAX_OUTPUT_DIMENSION = 1920;
 export const IMAGE_OUTPUT_QUALITY = 80;

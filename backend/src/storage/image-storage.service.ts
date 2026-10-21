@@ -8,13 +8,14 @@ import {
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
 import {
+  IMAGE_COVER_MAX_OUTPUT_DIMENSION,
   IMAGE_MAX_FILE_SIZE_BYTES,
   IMAGE_MAX_INPUT_PIXELS,
   IMAGE_MAX_OUTPUT_DIMENSION,
   IMAGE_OUTPUT_QUALITY,
 } from '../common/limits/resource-limits.const.js';
 import { MEDIA_OBJECT_CACHE_CONTROL, MEDIA_OBJECT_CONTENT_TYPE } from '../media/media.const.js';
-import { isMediaKey } from '../media/media-key.util.js';
+import { isBusinessCoverKey, isMediaKey } from '../media/media-key.util.js';
 import { MediaUrlService } from '../media/media-url.service.js';
 import { ObjectStoreUnavailableError, S3ObjectStoreService } from '../media/s3-object-store.service.js';
 
@@ -41,6 +42,10 @@ export interface UploadableFile {
 // sharp logic — this service knows nothing about products or businesses,
 // only keys and files. Callers (ProductImageService, BusinessService) build
 // the key with media-key.util; a key never comes from a client.
+//
+// The output size depends on WHAT is being stored, decided here from the key itself (a key is always built server-side, so a
+// caller cannot ask for a bigger image than its kind allows): covers keep up to 1920 px on the longest side, everything else
+// (product images, logos) keeps the original 1200 px. Neither is ever enlarged.
 //
 // Nothing is ever deleted from the bucket: replaced and removed images are left
 // for a later orphan cleanup.
@@ -85,13 +90,14 @@ export class ImageStorageService {
       });
     }
 
+    const maxDimension = isBusinessCoverKey(key) ? IMAGE_COVER_MAX_OUTPUT_DIMENSION : IMAGE_MAX_OUTPUT_DIMENSION;
     let webpBuffer: Buffer;
     try {
       webpBuffer = await sharp(file.buffer, { limitInputPixels: IMAGE_MAX_INPUT_PIXELS })
         .rotate() // auto-orients from EXIF before it gets stripped below
         .resize({
-          width: IMAGE_MAX_OUTPUT_DIMENSION,
-          height: IMAGE_MAX_OUTPUT_DIMENSION,
+          width: maxDimension,
+          height: maxDimension,
           fit: 'inside',
           withoutEnlargement: true,
         })
