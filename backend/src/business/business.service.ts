@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { type FindOptionsWhere, ILike, Repository } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
 import { resolveBusinessIdForRead } from '../auth/tenant.util.js';
 import {
   PAGINATION_DEFAULT_LIMIT,
@@ -10,6 +11,8 @@ import { buildPaginated, escapeLikePattern, type Paginated } from '../common/pag
 import type { SafeUser } from '../auth/safe-user.js';
 import { businessLogoKey } from '../media/media-key.util.js';
 import { ImageStorageService, type UploadableFile } from '../storage/image-storage.service.js';
+import { UserRole } from '../user/user-role.enum.js';
+import { businessInactiveError } from './business-active.js';
 import { Business } from './business.entity.js';
 import type { BusinessListRow } from './business.presenter.js';
 import { BusinessListQueryDto } from './dto/business-list-query.dto.js';
@@ -146,29 +149,72 @@ export class BusinessService {
     return this.findOrThrow(businessId);
   }
 
+  // The ONLY columns PATCH /businesses/me may write, whatever else the DTO class may grow: never slug, active, id or a storage key.
+  private static readonly PROFILE_COLUMNS = ['name', 'address', 'phone', 'hours', 'primaryColor', 'accentColor'] as const;
+
+  // WRITES OF A BUSINESS ROW (updateMe, uploadLogo). Two rules, both about concurrent writers:
+  //
+  // 1. COLUMN-SCOPED. Each write is ONE `UPDATE businesses SET <only the columns it changes> WHERE ...`. It never reads the row first and
+  //    then saves that (possibly stale) copy: TypeORM's save() of an entity read earlier writes back EVERY column that differs from the
+  //    row as it is now, so it restored an old cover / logo / colour / name — and even `active` (a suspension) — that another
+  //    transaction had committed in between. A column nobody asked to change is simply not in the statement, so it cannot be reverted.
+  //    Two writes that change the SAME column are last-writer-wins, as for any plain UPDATE.
+  //
+  // 2. ATOMIC STATE CHECK. An ADMIN may write only while their business is active. The JWT guard checked that when the request began;
+  //    a suspension can start afterwards (and, for uploadLogo, while the image is being processed). So the condition travels INSIDE the
+  //    statement: `... WHERE id = $1 AND active = true`. A concurrent suspension holds the row lock until it commits; this UPDATE waits
+  //    for it and then re-evaluates the condition on the new version of the row, so it matches nothing (0 rows affected) instead of
+  //    writing into a suspended business. A SUPER_ADMIN may edit the identity of a suspended business (as PATCH /businesses/:id), so
+  //    their statement has no `active` condition. No explicit lock, timeout or new error code is involved.
+  //
+  // 0 rows affected is explained afterwards, with nothing written: no such business -> 404; suspended -> 403 BUSINESS_INACTIVE (the
+  // same answer as the guard); anything else (reactivated in between) -> 409 BUSINESS_CONCURRENT_MODIFICATION, safe to repeat.
+  private async writeColumns(businessId: string, user: SafeUser, columns: QueryDeepPartialEntity<Business>): Promise<void> {
+    const where: FindOptionsWhere<Business> = user.role === UserRole.SUPER_ADMIN ? { id: businessId } : { id: businessId, active: true };
+    const result = await this.businessRepository.update(where, columns);
+    if ((result.affected ?? 0) > 0) return;
+
+    const current = await this.businessRepository.findOne({ select: { id: true, active: true }, where: { id: businessId } });
+    if (!current) throw new NotFoundException(`Business with id "${businessId}" not found`);
+    if (!current.active) throw businessInactiveError();
+    throw new ConflictException({
+      message: 'This business was being changed at the same time; nothing was applied, review and retry',
+      errorCode: 'BUSINESS_CONCURRENT_MODIFICATION',
+    });
+  }
+
   async updateMe(query: BusinessQueryDto, dto: UpdateBusinessDto, user: SafeUser): Promise<Business> {
     const businessId = this.resolveTargetBusinessId(user, query.businessId);
-    const business = await this.findOrThrow(businessId);
-    Object.assign(business, dto);
-    return this.businessRepository.save(business);
+
+    // only the fields the request really carries (undefined = untouched; null = cleared on purpose; a string = the new value)
+    const columns: QueryDeepPartialEntity<Business> = {};
+    for (const field of BusinessService.PROFILE_COLUMNS) {
+      const value = dto[field];
+      if (value !== undefined) columns[field] = value;
+    }
+
+    if (Object.keys(columns).length > 0) await this.writeColumns(businessId, user, columns);
+    return this.findOrThrow(businessId);
   }
 
   // New logo: upload to the bucket under a brand-new key (businesses/<id>/logo/
-  // <uuid>.webp), THEN point the row at it. The previous logo object is never
-  // deleted here, and a DB failure after the upload only leaves a logged orphan
-  // candidate.
+  // <uuid>.webp), THEN point the row at it with a statement that writes ONLY logo_storage_key (see writeColumns: nothing read before
+  // the upload can be written back afterwards, and a business suspended meanwhile is not written to). The previous logo object is never
+  // deleted here, and a failure after the upload only leaves a logged orphan candidate.
   async uploadLogo(query: BusinessQueryDto, user: SafeUser, file: UploadableFile): Promise<Business> {
     const businessId = this.resolveTargetBusinessId(user, query.businessId);
     const business = await this.findOrThrow(businessId);
+    // cheap refusal BEFORE processing the image; the decisive check is the one inside the UPDATE below
+    if (!business.active && user.role !== UserRole.SUPER_ADMIN) throw businessInactiveError();
 
     const storageKey = await this.imageStorage.upload(businessLogoKey(businessId), file);
 
-    business.logoStorageKey = storageKey;
     try {
-      return await this.businessRepository.save(business);
+      await this.writeColumns(businessId, user, { logoStorageKey: storageKey });
     } catch (error) {
       this.logger.error(`Logo uploaded but not saved; orphan candidate key=${storageKey}`);
       throw error;
     }
+    return this.findOrThrow(businessId);
   }
 }
