@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, FindOptionsWhere, ILike, In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, FindOptionsWhere, ILike, In, IsNull, Repository } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
 import {
   resolveBusinessIdForCreate,
@@ -12,6 +12,7 @@ import { Business } from '../business/business.entity.js';
 import { BusinessLimitsService } from '../business/business-limits.service.js';
 import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
+import { lockCategoryShared } from '../category/category-locks.js';
 import { PAGINATION_DEFAULT_LIMIT, PAGINATION_DEFAULT_PAGE } from '../common/pagination.const.js';
 import { buildPaginated, escapeLikePattern, type Paginated } from '../common/pagination.util.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
@@ -68,6 +69,18 @@ export class ProductService {
       );
     }
     return category;
+  }
+
+  // The authoritative category check of every product write that depends on the category (create, reactivate, change category, move):
+  // read UNDER a FOR SHARE lock that is held until the transaction ends, so a concurrent deactivation or deletion of the category
+  // (FOR UPDATE, see category-locks.ts) either completed before this read — and is seen — or waits for this transaction.
+  private async lockAndCheckCategory(manager: EntityManager, categoryId: string, businessId: string): Promise<void> {
+    const category = await lockCategoryShared(manager, categoryId);
+    if (!category) {
+      throw new NotFoundException(`Category with id "${categoryId}" does not exist`);
+    }
+    this.assertCategoryBelongsToBusiness(category, businessId);
+    this.assertCategoryIsActive(category);
   }
 
   private assertCategoryBelongsToBusiness(category: Category, businessId: string): void {
@@ -165,6 +178,8 @@ export class ProductService {
     // per-Business product ceiling can't be overshot by concurrent creates.
     return this.dataSource.transaction(async (manager) => {
       await this.businessLimits.assertCanCreate(manager, businessId, 'product', user);
+      // the category rules judged again under the category's FOR SHARE lock (the unlocked check above only fails fast)
+      await this.lockAndCheckCategory(manager, dto.categoryId, businessId);
       const productRepository = manager.getRepository(Product);
       const product = productRepository.create(dto);
       product.businessId = businessId;
@@ -404,9 +419,7 @@ export class ProductService {
       const reactivating = dto.active === true && !product.active;
 
       if (categoryTargetChanged || reactivating) {
-        const category = await this.getCategoryOrThrow(categoryId, manager.getRepository(Category));
-        this.assertCategoryBelongsToBusiness(category, businessId);
-        this.assertCategoryIsActive(category);
+        await this.lockAndCheckCategory(manager, categoryId, businessId);
       }
 
       // Validated against the FINAL combined state (whatever this PATCH

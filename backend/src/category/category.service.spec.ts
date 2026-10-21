@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
@@ -25,6 +25,9 @@ function createRepoMock() {
     find: vi.fn(),
     count: vi.fn(),
     softDelete: vi.fn(),
+    // the column-scoped write of update(): one row affected unless a test says otherwise
+    update: vi.fn(async () => ({ affected: 1 })),
+    findOneByOrFail: vi.fn(async () => ({ id: 'cat-1', businessId: 'biz-1' })),
   };
 }
 
@@ -79,6 +82,8 @@ describe('CategoryService', () => {
     transactionManager = {
       getRepository: vi.fn((entity: unknown) => {
         if (entity === Category) return categoryRepo;
+        // the category writers count the products UNDER the category's lock, on the transaction's connection
+        if (entity === Product) return productRepo;
         throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
       }),
     };
@@ -269,6 +274,7 @@ describe('CategoryService', () => {
     expect(productRepo.count).toHaveBeenCalledWith(
       expect.objectContaining({ where: { categoryId: 'cat-1', active: true } }),
     );
+    expect(categoryRepo.update).not.toHaveBeenCalled();
     expect(categoryRepo.save).not.toHaveBeenCalled();
   });
 
@@ -278,9 +284,8 @@ describe('CategoryService', () => {
 
     await service.update('cat-1', { active: false }, admin);
 
-    expect(categoryRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ active: false }),
-    );
+    expect(categoryRepo.update).toHaveBeenCalledWith({ id: 'cat-1', deletedAt: IsNull() }, { active: false });
+    expect(categoryRepo.save).not.toHaveBeenCalled();
   });
 
   it('allows reactivating a category without checking product counts', async () => {
@@ -289,9 +294,114 @@ describe('CategoryService', () => {
     await service.update('cat-1', { active: true }, admin);
 
     expect(productRepo.count).not.toHaveBeenCalled();
-    expect(categoryRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ active: true }),
-    );
+    expect(categoryRepo.update).toHaveBeenCalledWith({ id: 'cat-1', deletedAt: IsNull() }, { active: true });
+  });
+
+  describe('column-scoped writes and the category lock protocol (9E.23)', () => {
+    const live = { id: 'cat-1', businessId: 'biz-1', name: 'Burgers', slug: 'burgers', active: true, sortOrder: 0 };
+
+    it('update() locks the category row FOR UPDATE before judging anything, and counts the products inside that transaction', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live });
+      productRepo.count.mockResolvedValue(0);
+
+      await service.update('cat-1', { active: false }, admin);
+
+      // 2nd findOne is the locked re-read inside the transaction (the 1st is the unlocked fail-fast read)
+      expect(categoryRepo.findOne).toHaveBeenNthCalledWith(2, { where: { id: 'cat-1' }, lock: { mode: 'pessimistic_write' } });
+      expect(categoryRepo.findOne.mock.invocationCallOrder[1]).toBeLessThan(productRepo.count.mock.invocationCallOrder[0]);
+      expect(productRepo.count.mock.invocationCallOrder[0]).toBeLessThan(categoryRepo.update.mock.invocationCallOrder[0]);
+    });
+
+    it('update() writes ONLY the columns the request carries (undefined = untouched; false, 0 and "" are written), never save()', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live });
+
+      await service.update('cat-1', { name: 'Hamburguesas', slug: undefined, sortOrder: 0 }, admin);
+
+      expect(categoryRepo.update).toHaveBeenCalledTimes(1);
+      expect(categoryRepo.update).toHaveBeenCalledWith({ id: 'cat-1', deletedAt: IsNull() }, { name: 'Hamburguesas', sortOrder: 0 });
+      expect(categoryRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('update(): fields that are not editable columns (id, businessId, timestamps, deletedAt) never reach the statement', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live });
+
+      await service.update('cat-1', { name: 'x', id: 'other', businessId: 'other-biz', deletedAt: null, createdAt: 'now' } as never, admin);
+
+      expect(categoryRepo.update).toHaveBeenCalledWith({ id: 'cat-1', deletedAt: IsNull() }, { name: 'x' });
+    });
+
+    it('update(): a request with nothing to change writes nothing and answers the current row', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live });
+      categoryRepo.findOneByOrFail.mockResolvedValue({ ...live });
+
+      const result = await service.update('cat-1', {}, admin);
+
+      expect(categoryRepo.update).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ id: 'cat-1', name: 'Burgers' });
+    });
+
+    it('update(): the answer is the row re-read after the write, every column included', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live });
+      categoryRepo.findOneByOrFail.mockResolvedValue({ ...live, name: 'Hamburguesas' });
+
+      const result = await service.update('cat-1', { name: 'Hamburguesas' }, admin);
+
+      expect(categoryRepo.findOneByOrFail).toHaveBeenCalledWith({ id: 'cat-1' });
+      expect(result).toMatchObject({ name: 'Hamburguesas', active: true, slug: 'burgers' });
+    });
+
+    it('update(): a category deleted while the request waited for the lock is a 404 and nothing is written', async () => {
+      categoryRepo.findOne.mockResolvedValueOnce({ ...live }).mockResolvedValueOnce(null);
+
+      await expect(service.update('cat-1', { name: 'x' }, admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(categoryRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('update(): ownership is judged again on the LOCKED row', async () => {
+      categoryRepo.findOne.mockResolvedValueOnce({ ...live }).mockResolvedValueOnce({ ...live, businessId: 'other-biz' });
+
+      await expect(service.update('cat-1', { name: 'x' }, admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(categoryRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('update(): the "active products" check uses the state under the lock: an already-inactive category is not re-checked', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live, active: false });
+
+      await service.update('cat-1', { active: false }, admin);
+
+      expect(productRepo.count).not.toHaveBeenCalled();
+    });
+
+    it('SUPER_ADMIN may edit and delete any business\' category', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live, businessId: 'other-biz' });
+      productRepo.count.mockResolvedValue(0);
+
+      await service.update('cat-1', { name: 'x' }, superAdmin);
+      await service.remove('cat-1', superAdmin);
+
+      expect(categoryRepo.update).toHaveBeenCalledTimes(1);
+      expect(categoryRepo.softDelete).toHaveBeenCalledWith('cat-1');
+    });
+
+    it('remove() locks the category FOR UPDATE, counts every non-deleted product inside the transaction and only then deletes', async () => {
+      categoryRepo.findOne.mockResolvedValue({ ...live });
+      productRepo.count.mockResolvedValue(0);
+
+      const result = await service.remove('cat-1', admin);
+
+      expect(categoryRepo.findOne).toHaveBeenNthCalledWith(2, { where: { id: 'cat-1' }, lock: { mode: 'pessimistic_write' } });
+      expect(categoryRepo.findOne.mock.invocationCallOrder[1]).toBeLessThan(productRepo.count.mock.invocationCallOrder[0]);
+      expect(productRepo.count.mock.invocationCallOrder[0]).toBeLessThan(categoryRepo.softDelete.mock.invocationCallOrder[0]);
+      expect(result).toEqual({ businessId: 'biz-1' });
+    });
+
+    it('remove(): a category already deleted when the lock is obtained is a 404 and nothing is deleted again', async () => {
+      categoryRepo.findOne.mockResolvedValueOnce({ ...live }).mockResolvedValueOnce(null);
+
+      await expect(service.remove('cat-1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(categoryRepo.softDelete).not.toHaveBeenCalled();
+      expect(productRepo.count).not.toHaveBeenCalled();
+    });
   });
 
   // Soft delete: TypeORM's @DeleteDateColumn makes every find/findOne/count
