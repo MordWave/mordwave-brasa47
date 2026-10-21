@@ -7,6 +7,8 @@ import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import BusinessImages from '../../components/admin/business/BusinessImages'
+import RestaurantPreview from '../../components/admin/business/RestaurantPreview'
+import { composePreview } from '../../branding/previewModel.js'
 
 const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 const DEFAULT_SWATCH = '#999999'
@@ -67,6 +69,9 @@ export default function AdminBusiness({ onBusinessSaved }) {
   const [primaryColor, setPrimaryColor] = useState('')
   const [accentColor, setAccentColor] = useState('')
 
+  // 'form' (customise) | 'preview'. Both stay mounted-state-safe: the form and the images section are only HIDDEN while the preview is
+  // open, so typed values, pending uploads and notices are never lost by looking at the preview.
+  const [view, setView] = useState('form')
   const [saving, setSaving] = useState(false)
   // Client-side validation only (checked before any API call) — stays
   // inline, next to the form. The PATCH's own failure goes to Toast.
@@ -132,6 +137,10 @@ export default function AdminBusiness({ onBusinessSaved }) {
   }, [business, name, address, phone, hours, primaryColor, accentColor])
   const resetsColors = business && (business.primaryColor !== null || business.accentColor !== null) && !primaryColor.trim() && !accentColor.trim()
   const colorsAreDefault = !primaryColor.trim() && !accentColor.trim()
+
+  // What the preview shows on top of what is saved: the form's own (unsaved) text, never sent anywhere.
+  const previewDraft = useMemo(() => ({ name, primaryColor, accentColor }), [name, primaryColor, accentColor])
+  const previewBranding = useMemo(() => (business ? composePreview({ saved: business, draft: previewDraft }).effective : null), [business, previewDraft])
 
   // Same scope as every other read/write of "my" business: an ADMIN's own, a SUPER_ADMIN's selected one (?businessId=).
   const imageRequest = useCallback((path, options) => apiFetch(scopePath(path), { token, ...options }), [token, scopePath])
@@ -224,119 +233,132 @@ export default function AdminBusiness({ onBusinessSaved }) {
         <h2>Datos del negocio</h2>
       </div>
 
-      <BusinessImages key={business.id} business={business} request={imageRequest} describeError={translateApiError} onConfirmed={handleImagesConfirmed} />
-
-      <form className="admin-menu__form" onSubmit={handleSubmit}>
-        {DEV_TOOLS_BUILD_ENABLED && (
-          <DevAutofill
-            kind="business"
-            values={{ name, address, phone, hours }}
-            context={{ isEditing: true }}
-            onApply={(patch) => {
-              if ('name' in patch) setName(patch.name)
-              if ('address' in patch) setAddress(patch.address)
-              if ('phone' in patch) setPhone(patch.phone)
-              if ('hours' in patch) setHours(patch.hours)
-            }}
-          />
-        )}
-        <label>
-          <span>Nombre</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={MAX_NAME_LENGTH} required />
-        </label>
-
-        <label>
-          <span>Dirección</span>
-          <input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={MAX_ADDRESS_LENGTH} />
-        </label>
-
-        <label>
-          <span>Teléfono</span>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={MAX_PHONE_LENGTH} />
-        </label>
-
-        <label>
-          <span>Horario</span>
-          <textarea
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-            rows={2}
-            maxLength={MAX_HOURS_LENGTH}
-            placeholder="Ej: Lun-Dom 12:00-23:00"
-          />
-        </label>
-
-        <label>
-          <span>Color principal</span>
-          <div className="admin-business__color-row">
-            <input
-              type="color"
-              className="admin-business__color-swatch"
-              value={HEX_COLOR_PATTERN.test(primaryColor.trim()) ? primaryColor.trim() : DEFAULT_SWATCH}
-              onChange={(e) => setPrimaryColor(e.target.value)}
-              aria-label="Selector de color principal"
-            />
-            <input
-              type="text"
-              className="admin-business__color-hex"
-              value={primaryColor}
-              onChange={(e) => setPrimaryColor(e.target.value)}
-              placeholder="#RRGGBB"
-              maxLength={7}
-            />
-          </div>
-        </label>
-
-        <label>
-          <span>Color secundario</span>
-          <div className="admin-business__color-row">
-            <input
-              type="color"
-              className="admin-business__color-swatch"
-              value={HEX_COLOR_PATTERN.test(accentColor.trim()) ? accentColor.trim() : DEFAULT_SWATCH}
-              onChange={(e) => setAccentColor(e.target.value)}
-              aria-label="Selector de color secundario"
-            />
-            <input
-              type="text"
-              className="admin-business__color-hex"
-              value={accentColor}
-              onChange={(e) => setAccentColor(e.target.value)}
-              placeholder="#RRGGBB"
-              maxLength={7}
-            />
-          </div>
-        </label>
-
-        <div className="admin-business__color-reset">
-          <button
-            type="button"
-            className="btn btn--outline btn--small"
-            onClick={() => {
-              setPrimaryColor('')
-              setAccentColor('')
-            }}
-            disabled={colorsAreDefault}
-          >
-            Restablecer colores predeterminados
-          </button>
-          <span className="admin-business__color-note">
-            {resetsColors ? 'Al guardar, se usarán los colores predeterminados de la aplicación.' : colorsAreDefault ? 'Se usan los colores predeterminados de la aplicación.' : ''}
-          </span>
-        </div>
-
-        {saveError && <p className="admin-menu__form-error">{saveError}</p>}
-
-        {pendingLabels.length > 0 && (
-          <p className="admin-business__pending" role="status">
-            Cambios sin guardar: {pendingLabels.join(', ')}. Se guardan solo al pulsar «Guardar cambios».
-          </p>
-        )}
-
-        <button type="submit" className="btn btn--primary btn--small" disabled={saving || !isDirty}>
-          {saving ? 'Guardando…' : 'Guardar cambios'}
+      <div className="business-views" role="group" aria-label="Sección del negocio">
+        <button type="button" className={`preview-seg__btn${view === 'form' ? ' preview-seg__btn--on' : ''}`} aria-pressed={view === 'form'} onClick={() => setView('form')}>
+          Personalizar
         </button>
-      </form>
+        <button type="button" className={`preview-seg__btn${view === 'preview' ? ' preview-seg__btn--on' : ''}`} aria-pressed={view === 'preview'} onClick={() => setView('preview')}>
+          Vista previa
+        </button>
+      </div>
+
+      {view === 'preview' && <RestaurantPreview key={business.id} business={business} draft={previewDraft} onBack={() => setView('form')} />}
+
+      <div className="business-edit" hidden={view === 'preview'}>
+        <BusinessImages key={business.id} business={business} request={imageRequest} describeError={translateApiError} onConfirmed={handleImagesConfirmed} previewBranding={previewBranding} />
+
+        <form className="admin-menu__form" onSubmit={handleSubmit}>
+          {DEV_TOOLS_BUILD_ENABLED && (
+            <DevAutofill
+              kind="business"
+              values={{ name, address, phone, hours }}
+              context={{ isEditing: true }}
+              onApply={(patch) => {
+                if ('name' in patch) setName(patch.name)
+                if ('address' in patch) setAddress(patch.address)
+                if ('phone' in patch) setPhone(patch.phone)
+                if ('hours' in patch) setHours(patch.hours)
+              }}
+            />
+          )}
+          <label>
+            <span>Nombre</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={MAX_NAME_LENGTH} required />
+          </label>
+
+          <label>
+            <span>Dirección</span>
+            <input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={MAX_ADDRESS_LENGTH} />
+          </label>
+
+          <label>
+            <span>Teléfono</span>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={MAX_PHONE_LENGTH} />
+          </label>
+
+          <label>
+            <span>Horario</span>
+            <textarea
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              rows={2}
+              maxLength={MAX_HOURS_LENGTH}
+              placeholder="Ej: Lun-Dom 12:00-23:00"
+            />
+          </label>
+
+          <label>
+            <span>Color principal</span>
+            <div className="admin-business__color-row">
+              <input
+                type="color"
+                className="admin-business__color-swatch"
+                value={HEX_COLOR_PATTERN.test(primaryColor.trim()) ? primaryColor.trim() : DEFAULT_SWATCH}
+                onChange={(e) => setPrimaryColor(e.target.value)}
+                aria-label="Selector de color principal"
+              />
+              <input
+                type="text"
+                className="admin-business__color-hex"
+                value={primaryColor}
+                onChange={(e) => setPrimaryColor(e.target.value)}
+                placeholder="#RRGGBB"
+                maxLength={7}
+              />
+            </div>
+          </label>
+
+          <label>
+            <span>Color secundario</span>
+            <div className="admin-business__color-row">
+              <input
+                type="color"
+                className="admin-business__color-swatch"
+                value={HEX_COLOR_PATTERN.test(accentColor.trim()) ? accentColor.trim() : DEFAULT_SWATCH}
+                onChange={(e) => setAccentColor(e.target.value)}
+                aria-label="Selector de color secundario"
+              />
+              <input
+                type="text"
+                className="admin-business__color-hex"
+                value={accentColor}
+                onChange={(e) => setAccentColor(e.target.value)}
+                placeholder="#RRGGBB"
+                maxLength={7}
+              />
+            </div>
+          </label>
+
+          <div className="admin-business__color-reset">
+            <button
+              type="button"
+              className="btn btn--outline btn--small"
+              onClick={() => {
+                setPrimaryColor('')
+                setAccentColor('')
+              }}
+              disabled={colorsAreDefault}
+            >
+              Restablecer colores predeterminados
+            </button>
+            <span className="admin-business__color-note">
+              {resetsColors ? 'Al guardar, se usarán los colores predeterminados de la aplicación.' : colorsAreDefault ? 'Se usan los colores predeterminados de la aplicación.' : ''}
+            </span>
+          </div>
+
+          {saveError && <p className="admin-menu__form-error">{saveError}</p>}
+
+          {pendingLabels.length > 0 && (
+            <p className="admin-business__pending" role="status">
+              Cambios sin guardar: {pendingLabels.join(', ')}. Se guardan solo al pulsar «Guardar cambios».
+            </p>
+          )}
+
+          <button type="submit" className="btn btn--primary btn--small" disabled={saving || !isDirty}>
+            {saving ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </form>
+      </div>
     </div>
   )
 }

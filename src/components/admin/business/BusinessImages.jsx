@@ -19,6 +19,7 @@ import CoverCropModal from './CoverCropModal'
 //   request       (path, options) -> Promise<body>, scoped + authenticated
 //   describeError (error) -> Spanish sentence for a definitive refusal
 //   onConfirmed   (body) -> the business as the server confirmed it
+//   previewBranding  the restaurant as it looks with the form's unsaved values (for the in-context review of a cut)
 const BUSY_TEXT = {
   'cover-upload': 'Subiendo portada…',
   'cover-remove': 'Quitando portada…',
@@ -37,7 +38,7 @@ function probeImage(url) {
   )
 }
 
-export default function BusinessImages({ business, request, describeError, onConfirmed }) {
+export default function BusinessImages({ business, request, describeError, onConfirmed, previewBranding }) {
   const confirm = useConfirm()
   // the latest props, without re-creating the store when the parent re-renders
   const latest = useRef({ request, describeError, onConfirmed })
@@ -263,6 +264,8 @@ export default function BusinessImages({ business, request, describeError, onCon
           uploading={state.busy === 'cover-upload'}
           uploadError={coverUploadError}
           warnPending={ambiguous !== null}
+          previewBranding={previewBranding}
+          businessSlug={business.slug}
           onUse={handleUseCover}
           onCancel={() => setCoverCrop(null)}
         />

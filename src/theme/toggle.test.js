@@ -64,7 +64,13 @@ test('placement: Admin header and login mount it; no floating preview dock remai
   assert.doesNotMatch(read('../styles/theme-toggle.css'), /theme-dock/)
   assert.doesNotMatch(read('./flag.js'), /isPreviewDockEnabled/)
   // customer menu (8B.3): compact selector inside the menu header, nowhere else (hero / cart / modals stay clean)
-  assert.match(read('../components/customer/MenuView.jsx'), /<header className="menu__header">[\s\S]*<ThemeToggle variant="compact" \/>[\s\S]*<\/header>/)
+  // (9E.16) the header markup lives in the shared presentational MenuScreen; MenuView puts the toggle in its header actions slot, and
+  // neither the shared screen nor the admin preview ever mounts a toggle (the preview must not change the document's theme)
+  assert.match(read('../components/customer/MenuView.jsx'), /headerActions=\{\s*<>\s*<ThemeToggle variant="compact" \/>\s*<span className="menu__mesa">/)
+  assert.match(read('../components/customer/MenuScreen.jsx'), /<header className="menu__header">[\s\S]*\{headerActions\}[\s\S]*<\/header>/)
+  for (const f of ['../components/customer/MenuScreen.jsx', '../components/admin/business/RestaurantPreview.jsx', '../components/admin/business/PreviewFrame.jsx']) {
+    assert.doesNotMatch(read(f), /ThemeToggle/, f)
+  }
   for (const f of ['../pages/CustomerApp.jsx', '../components/customer/HomeScreen.jsx', '../components/customer/CartBar.jsx', '../components/customer/OrderSuccessModal.jsx']) {
     assert.doesNotMatch(read(f), /ThemeToggle/, f)
   }
