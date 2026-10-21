@@ -52,6 +52,13 @@ const MESSAGES_BY_CODE = {
   IMAGE_UPLOAD_FAILED: () => 'No se pudo subir la imagen. Intenta nuevamente.',
   IMAGE_STORAGE_UNAVAILABLE: () => 'El almacenamiento de imágenes no está disponible por ahora. Inténtalo más tarde.',
   BUSINESS_CONCURRENT_MODIFICATION: () => 'Otro cambio de este negocio estaba en curso, así que no se aplicó nada. Revisa e inténtalo de nuevo.',
+  // Concurrent edits by another administrator (HTTP 409): the backend applied NOTHING. See services/conflicts.js for how the screens
+  // refresh what they show. Plain wording, no technical code.
+  INVALID_ORDER_TRANSITION: () => 'Este pedido ya fue actualizado por otra persona, así que no se aplicó tu cambio. Te mostramos su estado actual.',
+  PRODUCT_CONCURRENT_MODIFICATION: () =>
+    'Este producto cambió mientras lo modificabas (por ejemplo, se movió a otro restaurante), así que no se aplicó el cambio. Actualiza la información e inténtalo de nuevo.',
+  TABLE_CONCURRENT_MODIFICATION: () =>
+    'El código QR de esta mesa cambió mientras lo regenerabas, así que no se aplicó este cambio. Te mostramos el código vigente: revisa si ya es el que necesitas antes de volver a regenerarlo.',
   BUSINESS_NOT_FOUND: () => 'No pudimos cargar el menú. Intenta nuevamente más tarde.',
   PRODUCT_UNAVAILABLE: (error) =>
     error.productName
