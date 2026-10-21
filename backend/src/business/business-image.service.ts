@@ -38,11 +38,16 @@ interface ImageChange {
 //
 // ONE TRANSACTION. The row change and its audit entry commit together or not at all: the audit is written with
 // AuditService.recordInTransaction (NOT best-effort), so if it fails the key change is rolled back and the caller gets an error —
-// success is never announced for a change that has no trace. LOCKS: the transaction takes only the Business row (FOR UPDATE) and the
-// audit insert's own key-share on that same row; it never touches Users, tables or sessions, so it cannot invert the order used by the
-// administrator-management and lifecycle operations (Business -> User/Table -> ... -> audit), and it waits at most 5 s for the lock
-// (lock_timeout). A lock timeout, deadlock or serialization failure answers 409 BUSINESS_CONCURRENT_MODIFICATION: nothing was applied,
-// the caller may repeat. Nothing is retried here.
+// success is never announced for a change that has no trace.
+//
+// LOCKS. The transaction locks the Business row explicitly (SELECT ... FOR UPDATE) and waits at most 5 s for it (SET LOCAL lock_timeout);
+// it never reads or modifies users, tables or sessions. The audit insert, however, also acquires locks of its own through its foreign
+// keys: FOR KEY SHARE on the Business row (already held by this transaction) and on the ACTING USER's row (audit_logs.user_id). The order
+// is always Business -> User, the same as administrator management, the per-business limits, the lifecycle and orders use, so it cannot
+// invert theirs; a FOR KEY SHARE only conflicts with a FOR UPDATE or a delete of that same row. Checked on PostgreSQL 18 with independent
+// connections: no deadlocks (a deliberately inverted user-first order, which no code path uses, does deadlock). A lock timeout (55P03),
+// deadlock (40P01) or serialization failure (40001) answers 409 BUSINESS_CONCURRENT_MODIFICATION: PostgreSQL has already rolled the
+// transaction back, so nothing was applied and the caller may repeat. Nothing is retried here.
 //
 // S3 vs POSTGRESQL (the order is: validate -> process and upload to the bucket -> commit the row + audit):
 //  - Upload FAILS: nothing was written anywhere (ImageStorageService answers 4xx/502/503); the business keeps its current image.
