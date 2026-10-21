@@ -12,6 +12,7 @@ import { createOrder } from '../services/orderApi'
 import { checkTableSessionStatus, joinTableSession } from '../services/tableSessionApi'
 import { translateApiError } from '../services/errorMessages'
 import { cartScopeFor } from '../context/cartStore.js'
+import { createBrandingRefresher, mergeStoredBranding, reduceSessionBranding, safeBranding, withSafeBranding } from '../utils/brandingRefresh.js'
 import { isValidBusinessSlug } from '../utils/businessSlug.js'
 import { clearStoredSession, readStoredSession, writeStoredSession } from '../utils/qrSession'
 import { generateUuid } from '../utils/uuid'
@@ -54,6 +55,12 @@ function CustomerFlow() {
   const [orderError, setOrderError] = useState('')
   const { items, orderNote, clearCart, attachScope } = useCart()
   const initRef = useRef(false)
+  // The session the app is on RIGHT NOW (readable from async code), and the branding refresher (created once, see below).
+  const sessionRef = useRef(session)
+  const refresherRef = useRef(null)
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
 
   // Resolves this device's table session once on load: a `?t=<qrToken>` in
   // the URL always wins and is joined against the backend (the only source
@@ -63,9 +70,42 @@ function CustomerFlow() {
   // (see context/cartStore.js): it is attached here once the session is known,
   // so a different QR, a new session or a missing/invalid restaurant can never
   // show items from another one. Joining always starts from an empty cart.
+  //
+  // A session recovered from storage shows its stored branding at once and then refreshes it ONCE from `join` (see
+  // utils/brandingRefresh.js: read-only, same session and business only, display fields only, cart untouched).
   useEffect(() => {
     if (initRef.current) return
     initRef.current = true
+
+    // Applies a refreshed branding to the live session and to its stored copy, only if they are still that very session.
+    function applyBranding(forSession, branding) {
+      setSession((prev) => reduceSessionBranding(prev, forSession.sessionToken, branding))
+      const merged = mergeStoredBranding(readStoredSession(), forSession.sessionToken, branding)
+      if (merged) writeStoredSession(merged)
+    }
+
+    // Shows the recovered session immediately and asks for its current branding (one request per page load). The stored branding is
+    // made safe first (a session saved by an older build may hold a logo or colour that is no longer acceptable); if that changed
+    // anything the stored copy is corrected too. Identity, table and cart scope are untouched.
+    function resumeStoredSession(storedAsRead) {
+      const stored = withSafeBranding(storedAsRead)
+      if (stored !== storedAsRead) {
+        try {
+          writeStoredSession(stored)
+        } catch {
+          // storage unavailable: the safe copy still lives in state
+        }
+      }
+      attachScope(cartScopeFor(stored))
+      sessionRef.current = { status: 'active', ...stored }
+      setSession({ status: 'active', ...stored })
+      refresherRef.current ??= createBrandingRefresher({
+        join: joinTableSession,
+        isCurrent: (s) => sessionRef.current.status === 'active' && sessionRef.current.sessionToken === s.sessionToken,
+        apply: applyBranding,
+      })
+      refresherRef.current(stored)
+    }
 
     async function init() {
       const params = new URLSearchParams(window.location.search)
@@ -74,8 +114,7 @@ function CustomerFlow() {
 
       if (urlQrToken) {
         if (stored && stored.qrToken === urlQrToken) {
-          attachScope(cartScopeFor(stored))
-          setSession({ status: 'active', ...stored })
+          resumeStoredSession(stored)
           return
         }
         try {
@@ -84,13 +123,10 @@ function CustomerFlow() {
             sessionToken: result.sessionToken,
             tableName: result.tableName,
             businessSlug: result.businessSlug,
-            // Display-only branding, resolved from this table's QR — never
-            // an identifier, never used to scope any request (menu reads
-            // still key off businessSlug above). See TableSessionService.join.
-            businessName: result.businessName,
-            logoUrl: result.logoUrl,
-            primaryColor: result.primaryColor,
-            accentColor: result.accentColor,
+            // Display-only branding, resolved from this table's QR — never an identifier, never used to scope any request
+            // (menu reads still key off businessSlug above). See TableSessionService.join. Each field is validated; an invalid or
+            // null one becomes the neutral default (no logo / cover / colour), never a value from another restaurant.
+            ...safeBranding(result),
             qrToken: urlQrToken,
           }
           // Without a valid restaurant identifier there is no menu to show and nothing to attach a cart to.
@@ -108,8 +144,7 @@ function CustomerFlow() {
       }
 
       if (stored) {
-        attachScope(cartScopeFor(stored))
-        setSession({ status: 'active', ...stored })
+        resumeStoredSession(stored)
         return
       }
 
@@ -123,10 +158,12 @@ function CustomerFlow() {
 
   // Keep watching for the admin closing this table mid-session. Lightweight
   // poll only — no continuous background work once the session is gone.
+  // Depends on the primitives it reads (not on the whole session object), so a branding refresh never restarts the timer.
+  const { status: sessionStatus, sessionToken: activeToken, tableName: activeTable } = session
   useEffect(() => {
-    if (session.status !== 'active') return undefined
-    const sessionToken = session.sessionToken
-    const tableName = session.tableName
+    if (sessionStatus !== 'active') return undefined
+    const sessionToken = activeToken
+    const tableName = activeTable
 
     const checkStatus = async () => {
       try {
@@ -144,7 +181,7 @@ function CustomerFlow() {
     }
     const interval = setInterval(checkStatus, STATUS_POLL_MS)
     return () => clearInterval(interval)
-  }, [session, attachScope])
+  }, [sessionStatus, activeToken, activeTable, attachScope])
 
   async function handleConfirmOrder() {
     if (submittingOrder) return // already in flight — the button is also disabled, this just guards a stray double-call
@@ -235,7 +272,7 @@ function CustomerFlow() {
   // active session). null/unset falls straight through to the app's own
   // default palette, since these custom properties then simply aren't
   // overridden on this subtree.
-  const brandingStyle = brandingStyleVars(session, resolvedTheme)
+  const brandingStyle = brandingStyleVars(safeBranding(session), resolvedTheme)
 
   let content
   if (step === 'home') {
@@ -245,6 +282,7 @@ function CustomerFlow() {
         businessName={session.businessName}
         businessSlug={session.businessSlug}
         logoUrl={session.logoUrl}
+        coverUrl={session.coverUrl}
         onContinue={() => setStep('menu')}
       />
     )

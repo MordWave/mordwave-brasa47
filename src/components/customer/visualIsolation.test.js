@@ -70,7 +70,7 @@ test('the home keeps what already worked: name, welcome text, table, button, log
 test('the exception is transitional, in one place, documented, and the image files are NOT deleted yet', () => {
   const source = read('./homeCover.js')
   assert.match(source, /TRANSITIONAL EXCEPTION/)
-  assert.match(source, /remove when restaurants can configure their own cover/i)
+  assert.match(source, /remove once Brasa 47 has its own cover configured/i)
   // the only non-test source that names the photo or the slug exception
   const offenders = []
   const walk = (dir) => {
