@@ -344,20 +344,53 @@ export class OrderService {
     return order;
   }
 
+  private invalidTransition(id: string, from: OrderStatus, to: OrderStatus): ConflictException {
+    return new ConflictException({
+      message: `Order "${id}" cannot move from ${from} to ${to}`,
+      errorCode: 'INVALID_ORDER_TRANSITION',
+    });
+  }
+
   // Only NEW -> DELIVERED and NEW -> CANCELLED are valid — both terminal,
   // neither status ever transitions again afterward.
+  //
+  // The check "it is still NEW" and the write are ONE statement:
+  //   UPDATE orders SET status = $to WHERE id = $id AND business_id = $biz AND status = 'NEW'
+  // The row read above only decides who may act and gives a precise answer for the common case; it is never trusted as the
+  // state to write over. Two admins who both read NEW and press DELIVERED / CANCELLED at the same time are serialized by
+  // PostgreSQL's row lock: the second UPDATE re-evaluates the WHERE after the first commits, matches no row, and is answered
+  // 409 INVALID_ORDER_TRANSITION (the same answer it would have had if it had arrived a moment later). A repository.save() of
+  // the stale entity would instead overwrite the terminal state of the first admin and report success twice.
+  //
+  // Only `status` (and TypeORM's updated_at) is written, so nothing a concurrent request changed in another column can be
+  // restored to an old value. Nothing is retried; the caller (and the audit entry the controller records only after a
+  // successful return) sees exactly one winner.
   async updateStatus(id: string, dto: UpdateOrderStatusDto, user: SafeUser): Promise<Order> {
     const order = await this.findOne(id);
     resolveBusinessIdForUpdate(user, order.businessId, undefined);
 
     if (order.status !== OrderStatus.NEW) {
-      throw new ConflictException({
-        message: `Order "${id}" cannot move from ${order.status} to ${dto.status}`,
-        errorCode: 'INVALID_ORDER_TRANSITION',
-      });
+      throw this.invalidTransition(id, order.status, dto.status);
     }
 
-    order.status = dto.status;
-    return this.orderRepository.save(order);
+    const result = await this.orderRepository.update(
+      { id, businessId: order.businessId, status: OrderStatus.NEW },
+      { status: dto.status },
+    );
+
+    if (!result.affected) {
+      // Lost the race (or the row vanished): explain from the current state, write nothing.
+      const current = await this.orderRepository.findOne({
+        where: { id, businessId: order.businessId },
+        select: { id: true, status: true },
+      });
+      if (!current) {
+        throw new NotFoundException(`Order with id "${id}" not found`);
+      }
+      throw this.invalidTransition(id, current.status, dto.status);
+    }
+
+    // The fresh row, with its items, exactly the shape the endpoint has always answered.
+    return this.findOne(id);
   }
 }
