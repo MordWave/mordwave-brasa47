@@ -1,15 +1,29 @@
-// TRANSITIONAL EXCEPTION — remove when restaurants can configure their own cover (future phase).
+import { isValidMediaUrl } from '../../utils/mediaUrl.js'
+
+// Which image (if any) the welcome screen shows, in this priority:
+//   1. the restaurant's OWN cover (`coverUrl`, configured by its administrators) when it is a valid image URL;
+//   2. else, ONLY for the slug exactly `brasa-47`, the historical photo below (a TRANSITIONAL EXCEPTION);
+//   3. else no image: the neutral CSS background (`.home__hero--neutral`), with no picture of any restaurant.
+// If the image that was chosen FAILS to load, the screen falls back to the neutral background and never to another picture:
+// a failed custom cover does not bring back the historical photo, and a restaurant never shows another restaurant's image.
 //
-// The welcome screen used to show one fixed photo to every restaurant, and that photo shows the "LA BRASA 47" sign. Until each
-// restaurant can upload its own cover, only the restaurant whose slug is EXACTLY `brasa-47` keeps this photo; every other
-// restaurant gets a neutral background (see `.home__hero--neutral` in styles/index.css), with no image at all.
-//
-// To remove the exception once configurable covers exist: delete this file, drop the `cover` lookup in HomeScreen.jsx
-// (pass the restaurant's own cover URL instead) and delete /public/images/restaurant-hero.webp.
+// TRANSITIONAL EXCEPTION — remove once Brasa 47 has its own cover configured (the future "Brasa 47 transition" step):
+// delete TRANSITIONAL_COVER_* and `homeCoverFor` below, drop priority 2 from `resolveHomeCover`, and delete
+// /public/images/restaurant-hero.webp. Until then, only the restaurant whose slug is EXACTLY `brasa-47` can show it.
 export const TRANSITIONAL_COVER_SLUG = 'brasa-47'
 export const TRANSITIONAL_COVER_SRC = '/images/restaurant-hero.webp'
 
-// The cover image URL for a restaurant, or null (neutral background). Exact, case-sensitive match: no prefixes, no trimming.
+// The historical photo for a restaurant, or null. Exact, case-sensitive match: no prefixes, no trimming.
 export function homeCoverFor(businessSlug) {
   return businessSlug === TRANSITIONAL_COVER_SLUG ? TRANSITIONAL_COVER_SRC : null
+}
+
+const NEUTRAL = { src: null, kind: 'neutral' }
+
+// { src, kind } with kind 'custom' | 'transitional' | 'neutral'. `failedSrc` is the URL that already failed to load (if any).
+export function resolveHomeCover({ coverUrl, businessSlug, failedSrc = null } = {}) {
+  if (isValidMediaUrl(coverUrl)) return coverUrl === failedSrc ? NEUTRAL : { src: coverUrl, kind: 'custom' }
+  const historical = homeCoverFor(businessSlug)
+  if (historical) return historical === failedSrc ? NEUTRAL : { src: historical, kind: 'transitional' }
+  return NEUTRAL
 }

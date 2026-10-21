@@ -1,4 +1,6 @@
-import { homeCoverFor } from './homeCover.js'
+import { useState } from 'react'
+import { resolveHomeCover } from './homeCover.js'
+import { normalizeMediaUrl } from '../../utils/mediaUrl.js'
 
 const FALLBACK_NAME = 'Nuestro restaurante'
 
@@ -13,31 +15,34 @@ function getInitials(name) {
   return (words[0][0] + words[1][0]).toUpperCase()
 }
 
-export default function HomeScreen({ tableName, businessName, businessSlug, logoUrl, onContinue }) {
+// Presentational: everything the welcome screen shows is a function of its props (so it renders as static markup in tests).
+// `failedSrc` is the cover URL that already failed to load: the screen then shows the neutral background.
+export function HomeScreenView({ tableName, businessName, businessSlug, logoUrl, coverUrl, failedSrc = null, onCoverError, onContinue }) {
   const displayName = businessName || FALLBACK_NAME
-  // A photo only for the restaurant that has one (see homeCover.js, a transitional exception); every other restaurant gets
-  // a neutral background drawn with CSS: no image of another restaurant can appear here.
-  const cover = homeCoverFor(businessSlug)
+  // Only a plain http(s) image URL ever reaches an <img src>, whatever the session (even one saved by an older build) holds.
+  const logoSrc = normalizeMediaUrl(logoUrl)
+  // The restaurant's own cover, else (Brasa 47 only, transitional) the historical photo, else a neutral background drawn with
+  // CSS. See homeCover.js: no image of another restaurant can appear here, and a failed image never switches to a different one.
+  const cover = resolveHomeCover({ coverUrl, businessSlug, failedSrc })
 
   return (
     <div className="home">
-      <section className={`home__hero${cover ? '' : ' home__hero--neutral'}`}>
-        {cover && (
+      <section className={`home__hero${cover.src ? '' : ' home__hero--neutral'}`} data-cover={cover.kind}>
+        {cover.src && (
           <img
+            key={cover.src}
             className="home__photo"
-            src={cover}
+            src={cover.src}
             alt=""
             aria-hidden="true"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none'
-            }}
+            onError={() => onCoverError?.(cover.src)}
           />
         )}
         <div className="home__vignette" aria-hidden="true" />
 
         <div className="home__hero-top">
-          {logoUrl ? (
-            <img className="home__logo" src={logoUrl} alt="" />
+          {logoSrc ? (
+            <img className="home__logo" src={logoSrc} alt="" />
           ) : (
             <span className="home__mark">{getInitials(businessName)}</span>
           )}
@@ -64,4 +69,10 @@ export default function HomeScreen({ tableName, businessName, businessSlug, logo
       </section>
     </div>
   )
+}
+
+// Remembers which cover URL failed to load; a new URL (for example after the restaurant changes its cover) is tried afresh.
+export default function HomeScreen(props) {
+  const [failedSrc, setFailedSrc] = useState(null)
+  return <HomeScreenView {...props} failedSrc={failedSrc} onCoverError={setFailedSrc} />
 }
