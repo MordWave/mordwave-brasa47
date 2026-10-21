@@ -7,6 +7,7 @@ import { StorageModule } from '../storage/storage.module.js';
 import { User } from '../user/user.entity.js';
 import { BusinessAdminController } from './business-admin.controller.js';
 import { BusinessAdminService } from './business-admin.service.js';
+import { BusinessImageService } from './business-image.service.js';
 import { Business } from './business.entity.js';
 import { BusinessController } from './business.controller.js';
 import { BusinessPresenter } from './business.presenter.js';
@@ -28,11 +29,11 @@ import { PublicBusinessResolverService } from './public-business-resolver.servic
     // Gives BusinessPresenter the media URL resolution.
     MediaModule,
     // Gives BusinessController access to AuditService for its explicit
-    // updateMe()/uploadLogo() audit calls.
+    // updateMe()/uploadLogo() audit calls, and BusinessImageService the transactional one.
     AuditModule,
   ],
   controllers: [BusinessController, BusinessAdminController],
-  providers: [PublicBusinessResolverService, BusinessService, BusinessLifecycleService, BusinessLimitsService, BusinessPresenter, BusinessAdminService],
+  providers: [PublicBusinessResolverService, BusinessService, BusinessLifecycleService, BusinessLimitsService, BusinessPresenter, BusinessAdminService, BusinessImageService],
   exports: [TypeOrmModule, PublicBusinessResolverService, BusinessLimitsService, BusinessPresenter],
 })
 export class BusinessModule {}
