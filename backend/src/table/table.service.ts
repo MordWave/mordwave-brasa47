@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
 import {
   resolveBusinessIdForCreate,
   resolveBusinessIdForRead,
@@ -167,8 +168,20 @@ export class TableService {
         }
       }
 
-      Object.assign(table, dto);
-      return manager.getRepository(RestaurantTable).save(table);
+      // ONE statement that writes only the columns the request carries (undefined = untouched; the DTO class of the production
+      // build has own `undefined` properties, which Object.assign used to copy onto the entity and which then vanished from the
+      // answer). The row is locked by this transaction, so the check above and this write are one unit; and the answer is the row
+      // re-read AFTER the write, with every column, including those the request did not send.
+      const columns: QueryDeepPartialEntity<RestaurantTable> = {};
+      if (dto.name !== undefined) columns.name = dto.name;
+      if (dto.active !== undefined) columns.active = dto.active;
+      const repository = manager.getRepository(RestaurantTable);
+      if (Object.keys(columns).length > 0) {
+        const result = await repository.update({ id, deletedAt: IsNull() }, columns);
+        // cannot happen while the row is locked and was just read alive; never report a write that did not happen
+        if (!(result.affected ?? 0)) throw new NotFoundException(`Table with id "${id}" not found`);
+      }
+      return repository.findOneByOrFail({ id });
     });
     return toPublicTable(saved);
   }
@@ -182,17 +195,40 @@ export class TableService {
   }
 
   // Mints a fresh qrToken and persists it — the old one stops resolving to
-  // anything the instant this saves, since resolve/join only ever look up
+  // anything the instant this commits, since resolve/join only ever look up
   // a table by its *current* qrToken. Deliberately doesn't touch
   // TableSession at all: no session is opened/closed, and any already-open
   // session's sessionToken is untouched, so devices that already joined
-  // keep working.
+  // keep working. Allowed for active and inactive tables alike (as before).
+  //
+  // ONE statement that writes only qr_token:
+  //   UPDATE restaurant_tables SET qr_token = $new WHERE id = $1 AND business_id = $2 AND deleted_at IS NULL AND qr_token = $observed
+  // It used to save() the table read earlier, which wrote back EVERY column that differed from the row as it is now: a rename, a
+  // deactivation (active = false became true again) or a deletion (deleted_at back to NULL) committed in between was undone.
+  // Now nothing but the token can change.
+  //
+  // The `qr_token = $observed` condition makes two overlapping rotations well defined: exactly one wins; the other matches no row
+  // and is answered 409 TABLE_CONCURRENT_MODIFICATION (nothing applied, safe to repeat) instead of "succeeding" with a token that
+  // the other rotation has already replaced — a QR printed from that answer would never work. A rename or deactivation in the
+  // middle does not conflict (they do not change the token). A table deleted meanwhile is a 404.
   async rotateQr(id: string, user: SafeUser): Promise<TableQrResult> {
     const table = await this.findOne(id);
     resolveBusinessIdForUpdate(user, table.businessId, undefined);
-    table.qrToken = generateOpaqueToken();
-    const saved = await this.tableRepository.save(table);
-    return { qrToken: saved.qrToken };
+
+    const qrToken = generateOpaqueToken();
+    const result = await this.tableRepository.update(
+      { id, businessId: table.businessId, deletedAt: IsNull(), qrToken: table.qrToken },
+      { qrToken },
+    );
+    if ((result.affected ?? 0) === 0) {
+      const current = await this.tableRepository.findOne({ where: { id }, select: { id: true } });
+      if (!current) throw new NotFoundException(`Table with id "${id}" not found`);
+      throw new ConflictException({
+        message: `Table "${id}" has a new QR code that was generated at the same time; nothing was applied, review and retry`,
+        errorCode: 'TABLE_CONCURRENT_MODIFICATION',
+      });
+    }
+    return { qrToken };
   }
 
   // Soft delete — orders/sessions that already reference this table are

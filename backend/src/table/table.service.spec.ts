@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
@@ -19,6 +19,9 @@ function createRepoMock() {
     find: vi.fn(),
     exists: vi.fn(),
     softDelete: vi.fn(),
+    // the column-scoped write of update()/rotateQr(): one row affected unless a test says otherwise
+    update: vi.fn(async () => ({ affected: 1 })),
+    findOneByOrFail: vi.fn(async () => ({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true, qrToken: 'qr' })),
   };
 }
 
@@ -309,18 +312,23 @@ describe('TableService', () => {
   });
 
   describe('update', () => {
-    it('updates name/active for a table the ADMIN owns', async () => {
-      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
+    const live = { id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true };
 
-      await service.update('t1', { name: 'Terraza 1', active: false }, admin);
+    it('updates name/active for a table the ADMIN owns: ONE statement of exactly those columns, never save()', async () => {
+      tableRepo.findOne.mockResolvedValue({ ...live });
+      tableRepo.findOneByOrFail.mockResolvedValue({ ...live, name: 'Terraza 1', active: false, qrToken: 'secret' });
 
-      expect(tableRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Terraza 1', active: false }),
-      );
+      const result = await service.update('t1', { name: 'Terraza 1', active: false }, admin);
+
+      expect(tableRepo.update).toHaveBeenCalledTimes(1);
+      expect(tableRepo.update).toHaveBeenCalledWith({ id: 't1', deletedAt: IsNull() }, { name: 'Terraza 1', active: false });
+      expect(tableRepo.save).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ name: 'Terraza 1', active: false });
+      expect(result).not.toHaveProperty('qrToken');
     });
 
     it('locks the RestaurantTable row (pessimistic_write / FOR UPDATE) before writing', async () => {
-      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', name: 'Mesa 1', active: true });
+      tableRepo.findOne.mockResolvedValue({ ...live });
 
       await service.update('t1', { name: 'Terraza 1' }, admin);
 
@@ -332,13 +340,50 @@ describe('TableService', () => {
       );
     });
 
+    it('a PARTIAL PATCH writes only what was sent: omitted properties — even own `undefined` ones, as the production DTO class has — never reach the statement', async () => {
+      tableRepo.findOne.mockResolvedValue({ ...live });
+
+      await service.update('t1', { name: 'Terraza 1', active: undefined }, admin);
+      await service.update('t1', { name: undefined, active: false }, admin);
+
+      expect(tableRepo.update).toHaveBeenNthCalledWith(1, { id: 't1', deletedAt: IsNull() }, { name: 'Terraza 1' });
+      expect(tableRepo.update).toHaveBeenNthCalledWith(2, { id: 't1', deletedAt: IsNull() }, { active: false });
+    });
+
+    it('the answer is the row re-read AFTER the write, complete: a field the request did not send is in it', async () => {
+      tableRepo.findOne.mockResolvedValue({ ...live });
+      tableRepo.findOneByOrFail.mockResolvedValue({ ...live, name: 'Terraza 1', qrToken: 'qr', createdAt: 'c', updatedAt: 'u', deletedAt: null });
+
+      const result = await service.update('t1', Object.assign({ name: undefined, active: undefined }, { name: 'Terraza 1' }), admin);
+
+      expect(tableRepo.findOneByOrFail).toHaveBeenCalledWith({ id: 't1' });
+      expect(result).toEqual({ id: 't1', businessId: 'biz-1', name: 'Terraza 1', active: true, createdAt: 'c', updatedAt: 'u', deletedAt: null });
+    });
+
+    it('a request with nothing to change writes nothing and answers the current row', async () => {
+      tableRepo.findOne.mockResolvedValue({ ...live });
+      tableRepo.findOneByOrFail.mockResolvedValue({ ...live });
+
+      const result = await service.update('t1', {}, admin);
+
+      expect(tableRepo.update).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ id: 't1', name: 'Mesa 1', active: true });
+    });
+
+    it('a table deleted while the request waited for the lock is a 404 and nothing is written', async () => {
+      tableRepo.findOne.mockResolvedValueOnce({ ...live }).mockResolvedValueOnce(null);
+
+      await expect(service.update('t1', { name: 'x' }, admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(tableRepo.update).not.toHaveBeenCalled();
+    });
+
     it('rejects an ADMIN updating a table belonging to another business', async () => {
       tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'other-biz' });
 
       await expect(service.update('t1', { name: 'x' }, admin)).rejects.toBeInstanceOf(
         ForbiddenException,
       );
-      expect(tableRepo.save).not.toHaveBeenCalled();
+      expect(tableRepo.update).not.toHaveBeenCalled();
     });
 
     it('SUPER_ADMIN can update a table in any business', async () => {
@@ -346,9 +391,7 @@ describe('TableService', () => {
 
       await service.update('t1', { name: 'Mesa renombrada' }, superAdmin);
 
-      expect(tableRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Mesa renombrada' }),
-      );
+      expect(tableRepo.update).toHaveBeenCalledWith({ id: 't1', deletedAt: IsNull() }, { name: 'Mesa renombrada' });
     });
 
     it('blocks deactivating a table that has an open session', async () => {
@@ -364,7 +407,7 @@ describe('TableService', () => {
       expect(tableSessionRepo.exists).toHaveBeenCalledWith(
         expect.objectContaining({ where: { tableId: 't1', status: 'OPEN' } }),
       );
-      expect(tableRepo.save).not.toHaveBeenCalled();
+      expect(tableRepo.update).not.toHaveBeenCalled();
     });
 
     it('allows deactivating a table with no open session', async () => {
@@ -373,7 +416,7 @@ describe('TableService', () => {
 
       await service.update('t1', { active: false }, admin);
 
-      expect(tableRepo.save).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+      expect(tableRepo.update).toHaveBeenCalledWith({ id: 't1', deletedAt: IsNull() }, { active: false });
     });
 
     it('does not check for an open session on an unrelated edit to an already-active table', async () => {
@@ -390,7 +433,7 @@ describe('TableService', () => {
       await service.update('t1', { active: true }, admin);
 
       expect(tableSessionRepo.exists).not.toHaveBeenCalled();
-      expect(tableRepo.save).toHaveBeenCalledWith(expect.objectContaining({ active: true }));
+      expect(tableRepo.update).toHaveBeenCalledWith({ id: 't1', deletedAt: IsNull() }, { active: true });
     });
   });
 
@@ -417,16 +460,24 @@ describe('TableService', () => {
   });
 
   describe('rotateQr', () => {
-    it('replaces the qrToken and persists it', async () => {
-      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', qrToken: 'old-qr' });
+    it('replaces the qrToken with ONE statement that writes only qr_token (scoped to id, business, not-deleted and the token it observed)', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', qrToken: 'old-qr', name: 'Mesa 1', active: true });
 
       const result = await service.rotateQr('t1', admin);
 
       expect(result.qrToken).not.toBe('old-qr');
       expect(typeof result.qrToken).toBe('string');
-      expect(tableRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 't1', qrToken: result.qrToken }),
-      );
+      expect(result.qrToken.length).toBeGreaterThanOrEqual(32);
+      expect(tableRepo.update).toHaveBeenCalledTimes(1);
+      expect(tableRepo.update).toHaveBeenCalledWith({ id: 't1', businessId: 'biz-1', deletedAt: IsNull(), qrToken: 'old-qr' }, { qrToken: result.qrToken });
+      expect(tableRepo.save).not.toHaveBeenCalled(); // a stale entity is never saved back
+    });
+
+    it('works for an inactive table too (as before: rotating does not depend on the table being active)', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-1', qrToken: 'old-qr', active: false });
+
+      await expect(service.rotateQr('t1', admin)).resolves.toHaveProperty('qrToken');
+      expect(tableRepo.update).toHaveBeenCalledTimes(1);
     });
 
     it('never touches TableSession — no session is opened/closed by rotating the QR', async () => {
@@ -436,6 +487,7 @@ describe('TableService', () => {
 
       expect(dataSource.transaction).not.toHaveBeenCalled();
       expect(tableSessionRepo.save).not.toHaveBeenCalled();
+      expect(tableSessionRepo.update).not.toHaveBeenCalled();
       expect(tableSessionRepo.exists).not.toHaveBeenCalled();
     });
 
@@ -443,7 +495,42 @@ describe('TableService', () => {
       tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'other-biz', qrToken: 'old-qr' });
 
       await expect(service.rotateQr('t1', admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tableRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('a SUPER_ADMIN rotates the QR of any business\' table, still scoped to that table\'s own business', async () => {
+      tableRepo.findOne.mockResolvedValue({ id: 't1', businessId: 'biz-9', qrToken: 'old-qr' });
+
+      await service.rotateQr('t1', superAdmin);
+
+      expect(tableRepo.update).toHaveBeenCalledWith(expect.objectContaining({ id: 't1', businessId: 'biz-9' }), expect.any(Object));
+    });
+
+    it('an unknown table is a 404 and nothing is written', async () => {
+      tableRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.rotateQr('t1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(tableRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('a table DELETED between the read and the write is a 404, not revived and not retried', async () => {
+      tableRepo.findOne.mockResolvedValueOnce({ id: 't1', businessId: 'biz-1', qrToken: 'old-qr' }).mockResolvedValueOnce(null);
+      tableRepo.update.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.rotateQr('t1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(tableRepo.update).toHaveBeenCalledTimes(1);
       expect(tableRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('LOST ROTATION RACE: another rotation replaced the token first -> 409 TABLE_CONCURRENT_MODIFICATION, no token is handed out, nothing is retried', async () => {
+      tableRepo.findOne.mockResolvedValueOnce({ id: 't1', businessId: 'biz-1', qrToken: 'old-qr' }).mockResolvedValueOnce({ id: 't1' });
+      tableRepo.update.mockResolvedValueOnce({ affected: 0 });
+
+      const error = await service.rotateQr('t1', admin).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'TABLE_CONCURRENT_MODIFICATION' }));
+      expect(tableRepo.update).toHaveBeenCalledTimes(1);
     });
   });
 
