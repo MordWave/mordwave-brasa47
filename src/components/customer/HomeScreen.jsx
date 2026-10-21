@@ -17,13 +17,13 @@ function getInitials(name) {
 
 // Presentational: everything the welcome screen shows is a function of its props (so it renders as static markup in tests).
 // `failedSrc` is the cover URL that already failed to load: the screen then shows the neutral background.
-export function HomeScreenView({ tableName, businessName, businessSlug, logoUrl, coverUrl, failedSrc = null, onCoverError, onContinue }) {
+export function HomeScreenView({ tableName, businessName, businessSlug, logoUrl, coverUrl, draftCoverSrc = null, failedSrc = null, onCoverError, onContinue }) {
   const displayName = businessName || FALLBACK_NAME
   // Only a plain http(s) image URL ever reaches an <img src>, whatever the session (even one saved by an older build) holds.
   const logoSrc = normalizeMediaUrl(logoUrl)
   // The restaurant's own cover, else (Brasa 47 only, transitional) the historical photo, else a neutral background drawn with
   // CSS. See homeCover.js: no image of another restaurant can appear here, and a failed image never switches to a different one.
-  const cover = resolveHomeCover({ coverUrl, businessSlug, failedSrc })
+  const cover = resolveHomeCover({ coverUrl, businessSlug, failedSrc, draftSrc: draftCoverSrc })
 
   return (
     <div className="home">

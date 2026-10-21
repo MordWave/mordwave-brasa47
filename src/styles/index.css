@@ -222,53 +222,6 @@ p {
     radial-gradient(120% 70% at 50% 0%, rgba(0, 0, 0, 0.35), transparent 60%);
 }
 
-/* Admin cover editor, review step: the real cropped file under the SAME dark gradient and white text the customer welcome screen
-   uses (fixed colours on purpose: it mimics that screen, which does not follow the admin theme). */
-.cover-preview {
-  position: relative;
-  width: min(100%, 220px);
-  aspect-ratio: 4 / 5;
-  margin: 0 auto;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: #141414;
-}
-
-.cover-preview__img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.cover-preview__text {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: center;
-  padding: 18px 12px 24px;
-  color: #fff;
-  text-align: center;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
-}
-
-.cover-preview__brand {
-  font-family: var(--font-display);
-  font-size: 18px;
-  letter-spacing: 0.04em;
-}
-
-.cover-preview__title {
-  font-family: var(--font-display);
-  font-size: 22px;
-}
-
-
 .home__hero-top {
   position: relative;
   z-index: 2;
@@ -5056,4 +5009,178 @@ p {
   border-radius: 6px;
   padding: 8px 10px;
   margin: 0;
+}
+
+/* ============ Restaurant preview (admin "Vista previa") ============
+   The customer screens are drawn inside a window on the admin page. They read the document's theme tokens (the panel's theme) and
+   the restaurant's brand variables set on the window; the window only fixes the viewport-height rules of the customer layout. */
+.business-views,
+.preview-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  align-self: flex-start;
+}
+
+.preview-seg__btn {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.preview-seg__btn--on {
+  background: var(--inverse-surface);
+  color: var(--inverse-text);
+}
+
+.business-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.business-edit[hidden] {
+  display: none;
+}
+
+.restaurant-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.restaurant-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.restaurant-preview__head .btn {
+  width: auto;
+}
+
+.restaurant-preview__title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin: 0;
+}
+
+.restaurant-preview__controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.restaurant-preview__banner,
+.restaurant-preview__hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.restaurant-preview__banner {
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.restaurant-preview__banner--pending {
+  color: var(--text);
+  background: var(--warning-tint);
+  border-color: var(--warning);
+}
+
+.restaurant-preview__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.restaurant-preview__badge {
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+  color: var(--inverse-text);
+  background: var(--inverse-surface);
+  border-radius: 999px;
+  max-width: 100%;
+}
+
+.preview-stage {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  width: 100%;
+}
+
+.preview-frame {
+  position: relative;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+}
+
+.preview-frame--mobile {
+  width: 375px;
+  max-width: 100%;
+  height: 700px;
+}
+
+.preview-frame--desktop {
+  width: 100%;
+  height: min(70vh, 680px);
+}
+
+/* the shrunk window used inside dialogs: the stage has the shrunk size, the window keeps its real 375 x 700 */
+.preview-stage:has(> .preview-scaler) {
+  display: block;
+  width: auto;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+}
+
+.preview-scaler {
+  flex: none;
+  width: 375px;
+  height: 700px;
+  transform-origin: top left;
+}
+
+/* the customer layout sizes its screens to the viewport (100dvh): inside the window they fill the window instead */
+.preview-frame .home {
+  height: 100%;
+}
+
+.preview-frame .menu {
+  padding-bottom: 24px;
+}
+
+.cover-crop__context {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 4px;
 }

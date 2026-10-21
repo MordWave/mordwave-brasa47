@@ -4,11 +4,8 @@ import { fetchPublicCategories, fetchPublicProducts } from '../../services/menuA
 import { adaptPublicProduct } from '../../utils/adaptProduct'
 import { isValidBusinessSlug } from '../../utils/businessSlug.js'
 import ThemeToggle from '../ThemeToggle'
-import CategoryTabs from './CategoryTabs'
-import ProductTile from './ProductTile'
+import MenuScreen from './MenuScreen'
 import ProductModal from './ProductModal'
-
-const FALLBACK_NAME = 'Nuestro restaurante'
 
 export const NO_RESTAURANT_MESSAGE = 'No pudimos identificar el restaurante de esta mesa. Escanea de nuevo el código QR de tu mesa o pide ayuda al personal.'
 
@@ -113,66 +110,29 @@ export default function MenuView({ tableName, businessSlug, businessName }) {
     }, 700)
   }
 
-  const isEmpty = !loading && !error && (categories.length === 0 || products.length === 0)
-
   if (!identified) return <MenuUnidentified tableName={tableName} />
 
   return (
-    <div className="menu">
-      <header className="menu__header">
-        <div className="menu__header-text">
-          <p className="menu__eyebrow">{businessName || FALLBACK_NAME}</p>
-          <h1 className="menu__title">Menú</h1>
-        </div>
-        <div className="menu__header-actions">
+    <MenuScreen
+      businessName={businessName}
+      headerActions={
+        <>
           <ThemeToggle variant="compact" />
           <span className="menu__mesa">{tableName}</span>
-        </div>
-      </header>
-
-      {loading && <p className="empty-state">Cargando el menú…</p>}
-
-      {!loading && error && (
-        <div className="menu__error">
-          <p className="empty-state">{error}</p>
-          <button type="button" className="btn btn--primary btn--small" onClick={loadMenu}>
-            Reintentar
-          </button>
-        </div>
-      )}
-
-      {isEmpty && <p className="empty-state">Todavía no hay productos publicados.</p>}
-
-      {!loading && !error && !isEmpty && (
-        <>
-          <CategoryTabs categories={categories} activeId={activeCategory} onSelect={handleNavSelect} />
-
-          {categories.map((category) => {
-            const items = products.filter((p) => p.categoryId === category.id)
-            if (items.length === 0) return null
-
-            return (
-              <section
-                key={category.id}
-                data-category-id={category.id}
-                ref={(el) => {
-                  sectionRefs.current[category.id] = el
-                }}
-                className="menu-section"
-              >
-                <h2 className="menu-section__name">{category.name}</h2>
-
-                <div className="product-grid">
-                  {items.map((product) => (
-                    <ProductTile key={product.id} product={product} onSelect={setSelectedProduct} />
-                  ))}
-                </div>
-              </section>
-            )
-          })}
         </>
-      )}
-
+      }
+      status={loading ? 'loading' : error ? 'error' : 'ready'}
+      error={error}
+      onRetry={loadMenu}
+      categories={categories}
+      products={products}
+      activeCategory={activeCategory}
+      onSelectCategory={handleNavSelect}
+      onSelectProduct={setSelectedProduct}
+      registerSection={(id, el) => {
+        sectionRefs.current[id] = el
+      }}
+    >
       {selectedProduct && (
         <ProductModal
           product={selectedProduct}
@@ -187,6 +147,6 @@ export default function MenuView({ tableName, businessSlug, businessName }) {
           {toast}
         </div>
       )}
-    </div>
+    </MenuScreen>
   )
 }

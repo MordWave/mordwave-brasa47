@@ -20,8 +20,13 @@ export function homeCoverFor(businessSlug) {
 
 const NEUTRAL = { src: null, kind: 'neutral' }
 
-// { src, kind } with kind 'custom' | 'transitional' | 'neutral'. `failedSrc` is the URL that already failed to load (if any).
-export function resolveHomeCover({ coverUrl, businessSlug, failedSrc = null } = {}) {
+// A local DRAFT cover (admin preview only): the blob: URL of a picture the administrator cropped in this browser and has NOT
+// uploaded. The customer app never passes one; only a blob: URL qualifies (never a remote or script URL).
+export const isDraftCoverSrc = (value) => typeof value === 'string' && value.startsWith('blob:') && value.length <= 2048
+
+// { src, kind } with kind 'draft' | 'custom' | 'transitional' | 'neutral'. `failedSrc` is the URL that already failed to load (if any).
+export function resolveHomeCover({ coverUrl, businessSlug, failedSrc = null, draftSrc = null } = {}) {
+  if (isDraftCoverSrc(draftSrc)) return draftSrc === failedSrc ? NEUTRAL : { src: draftSrc, kind: 'draft' }
   if (isValidMediaUrl(coverUrl)) return coverUrl === failedSrc ? NEUTRAL : { src: coverUrl, kind: 'custom' }
   const historical = homeCoverFor(businessSlug)
   if (historical) return historical === failedSrc ? NEUTRAL : { src: historical, kind: 'transitional' }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useDialogA11y } from '../../../hooks/useDialogA11y'
 import { COVER_ASPECT, isLightCover, isSmallCover } from '../../../branding/coverGeometry.js'
 import { renderCover } from '../../../branding/coverCanvas.js'
+import { WelcomePreview } from './PreviewFrame'
 
 // Lazy like PhotoCropModal: the cropper is only needed once a picture is actually being adjusted.
 const Cropper = lazy(() => import('react-easy-crop'))
@@ -19,8 +20,10 @@ const formatSize = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024))
 //   uploading   the upload is in flight (everything is locked)
 //   uploadError definitive refusal of the last attempt (the crop is kept so it can be tried again)
 //   warnPending an earlier cover operation is still unconfirmed: the person is told it may complete later
+//   previewBranding / businessSlug  how the restaurant looks now (saved + unsaved form values): the cut is shown on the REAL welcome
+//               screen with them, in context, without uploading anything
 //   onUse(blob) -> the explicit confirmation; onCancel()
-export default function CoverCropModal({ imageSrc, sourceSmall = false, uploading = false, uploadError = '', warnPending = false, onUse, onCancel }) {
+export default function CoverCropModal({ imageSrc, sourceSmall = false, uploading = false, uploadError = '', warnPending = false, previewBranding, businessSlug, onUse, onCancel }) {
   const titleId = useId()
   const dialogRef = useRef(null)
   const [step, setStep] = useState('adjust')
@@ -90,14 +93,9 @@ export default function CoverCropModal({ imageSrc, sourceSmall = false, uploadin
 
         {step === 'review' && result && (
           <>
-            <p className="cover-crop__hint">Así se verá detrás del nombre de tu restaurante. Si todo está bien, usa esta portada; si no, vuelve a encuadrar.</p>
-            <div className="cover-preview" data-testid="cover-preview">
-              <img className="cover-preview__img" src={result.url} alt="Vista previa de la portada recortada" />
-              <div className="home__vignette" aria-hidden="true" />
-              <div className="cover-preview__text" aria-hidden="true">
-                <span className="cover-preview__brand">Tu restaurante</span>
-                <span className="cover-preview__title">Bienvenidos</span>
-              </div>
+            <p className="cover-crop__hint">Así se verá en la pantalla de bienvenida de tu restaurante (con tu logo, nombre y colores). Todavía no se subió nada: si todo está bien, usa esta portada; si no, vuelve a encuadrar.</p>
+            <div className="cover-crop__context" data-testid="cover-preview">
+              <WelcomePreview branding={previewBranding} businessSlug={businessSlug} draftCoverSrc={result.url} />
             </div>
             <p className="cover-crop__facts">
               {result.width} × {result.height} px · {formatSize(result.blob.size)}

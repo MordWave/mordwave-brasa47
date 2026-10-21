@@ -159,7 +159,8 @@ test('ThemeToggle in the customer header is compact: icon-only, small, quiet, hi
   assert.match(rule(toggleCss, '.theme-toggle--compact'), /background:\s*transparent/)
   assert.match(toggleCss, /@media print \{[^}]*\.theme-toggle/)
   const menu = read('../components/customer/MenuView.jsx')
-  assert.match(menu, /<div className="menu__header-actions">\s*<ThemeToggle variant="compact" \/>\s*<span className="menu__mesa">/)
+  assert.match(menu, /headerActions=\{\s*<>\s*<ThemeToggle variant="compact" \/>\s*<span className="menu__mesa">/)
+  assert.match(read('../components/customer/MenuScreen.jsx'), /<div className="menu__header-actions">\{headerActions\}<\/div>/)
   assert.match(rule(customerCss, '.menu__header-text'), /min-width:\s*0/) // long restaurant names never push the selector out
 })
 
