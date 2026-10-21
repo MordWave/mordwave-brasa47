@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
@@ -6,7 +6,7 @@ import DevAutofill from '../../devtools/autofill/DevAutofill'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
-import PhotoCropModal from '../../components/admin/menu/PhotoCropModal'
+import BusinessImages from '../../components/admin/business/BusinessImages'
 
 const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/
 const DEFAULT_SWATCH = '#999999'
@@ -72,13 +72,14 @@ export default function AdminBusiness({ onBusinessSaved }) {
   // inline, next to the form. The PATCH's own failure goes to Toast.
   const [saveError, setSaveError] = useState('')
 
-  const [logoUrl, setLogoUrl] = useState(null)
-  const [uploadingLogo, setUploadingLogo] = useState(false)
-  // Same split as saveError: the pre-flight "can this file even be
-  // previewed" check stays inline; the actual upload's failure goes to
-  // Toast (see handleCropConfirm).
-  const [logoError, setLogoError] = useState('')
-  const [cropSrc, setCropSrc] = useState(null)
+  // Late answers (a save or a load that finishes after the panel moved to another business) must not touch the new panel.
+  const aliveRef = useRef(true)
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+    }
+  }, [])
 
   const loadBusiness = useCallback(async () => {
     setLoading(true)
@@ -92,7 +93,6 @@ export default function AdminBusiness({ onBusinessSaved }) {
       setHours(data.hours ?? '')
       setPrimaryColor(data.primaryColor ?? '')
       setAccentColor(data.accentColor ?? '')
-      setLogoUrl(data.logoUrl ?? null)
     } catch (err) {
       setLoadError(translateApiError(err))
     } finally {
@@ -103,14 +103,6 @@ export default function AdminBusiness({ onBusinessSaved }) {
   useEffect(() => {
     loadBusiness()
   }, [loadBusiness])
-
-  // Same idea as ProductFormModal's blob-preview cleanup — covers cancel,
-  // confirm, and an unmount while the cropper is open.
-  useEffect(() => {
-    return () => {
-      if (cropSrc) URL.revokeObjectURL(cropSrc)
-    }
-  }, [cropSrc])
 
   // Drives the Save button's disabled state — no unsaved changes, nothing
   // to submit.
@@ -125,6 +117,33 @@ export default function AdminBusiness({ onBusinessSaved }) {
       diffField(accentColor, business.accentColor) !== undefined
     )
   }, [business, name, address, phone, hours, primaryColor, accentColor])
+
+  // Which fields have unsaved changes (shown next to the Save button, so nothing is saved by surprise).
+  const pendingLabels = useMemo(() => {
+    if (!business) return []
+    const changed = []
+    if (diffField(name, business.name) !== undefined) changed.push('nombre')
+    if (diffField(address, business.address) !== undefined) changed.push('dirección')
+    if (diffField(phone, business.phone) !== undefined) changed.push('teléfono')
+    if (diffField(hours, business.hours) !== undefined) changed.push('horario')
+    if (diffField(primaryColor, business.primaryColor) !== undefined) changed.push('color principal')
+    if (diffField(accentColor, business.accentColor) !== undefined) changed.push('color secundario')
+    return changed
+  }, [business, name, address, phone, hours, primaryColor, accentColor])
+  const resetsColors = business && (business.primaryColor !== null || business.accentColor !== null) && !primaryColor.trim() && !accentColor.trim()
+  const colorsAreDefault = !primaryColor.trim() && !accentColor.trim()
+
+  // Same scope as every other read/write of "my" business: an ADMIN's own, a SUPER_ADMIN's selected one (?businessId=).
+  const imageRequest = useCallback((path, options) => apiFetch(scopePath(path), { token, ...options }), [token, scopePath])
+
+  const handleImagesConfirmed = useCallback(
+    (body) => {
+      // only the pictures change here: the text / colour form state (saved or not) is left completely untouched
+      setBusiness((prev) => (prev && prev.id === body.id ? { ...prev, logoUrl: body.logoUrl ?? null, coverUrl: body.coverUrl ?? null } : prev))
+      onBusinessSaved?.(body)
+    },
+    [onBusinessSaved],
+  )
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -161,6 +180,7 @@ export default function AdminBusiness({ onBusinessSaved }) {
         token,
         body: JSON.stringify(payload),
       })
+      if (!aliveRef.current) return
       setBusiness(updated)
       setName(updated.name ?? '')
       setAddress(updated.address ?? '')
@@ -173,66 +193,9 @@ export default function AdminBusiness({ onBusinessSaved }) {
     } catch (err) {
       // Form state is left exactly as the admin typed it — nothing is
       // reset, so a failed save never loses what they wrote.
-      toast.error(translateApiError(err))
+      if (aliveRef.current) toast.error(translateApiError(err))
     } finally {
-      setSaving(false)
-    }
-  }
-
-  async function handleLogoFileChange(e) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file later
-    if (!file) return
-
-    setLogoError('')
-    const rawUrl = URL.createObjectURL(file)
-
-    // Some formats (e.g. HEIC on certain browsers) can't be decoded for
-    // preview — check before opening the cropper on a broken source.
-    const canPreview = await new Promise((resolve) => {
-      const probe = new Image()
-      probe.onload = () => resolve(true)
-      probe.onerror = () => resolve(false)
-      probe.src = rawUrl
-    })
-
-    if (!canPreview) {
-      URL.revokeObjectURL(rawUrl)
-      setLogoError('No pudimos previsualizar esta imagen. Probá con otro formato (JPG o PNG) o con otra foto.')
-      return
-    }
-
-    setCropSrc(rawUrl)
-  }
-
-  function handleCropCancel() {
-    setCropSrc(null)
-  }
-
-  async function handleCropConfirm(blob) {
-    setCropSrc(null)
-    const croppedFile = new File([blob], 'logo.png', { type: 'image/png' })
-
-    setUploadingLogo(true)
-    setLogoError('')
-    try {
-      const formData = new FormData()
-      formData.append('file', croppedFile)
-      const updated = await apiFetch(scopePath('/businesses/me/logo'), {
-        method: 'POST',
-        token,
-        body: formData,
-      })
-      // Only the logo changes — name/address/phone/hours/colors form state
-      // (saved or not) is left completely untouched.
-      setBusiness((prev) => (prev ? { ...prev, logoUrl: updated.logoUrl } : prev))
-      setLogoUrl(updated.logoUrl)
-      onBusinessSaved?.(updated)
-      toast.success('Logo actualizado.')
-    } catch (err) {
-      toast.error(translateApiError(err))
-    } finally {
-      setUploadingLogo(false)
+      if (aliveRef.current) setSaving(false)
     }
   }
 
@@ -260,6 +223,8 @@ export default function AdminBusiness({ onBusinessSaved }) {
       <div className="admin-menu__section-head">
         <h2>Datos del negocio</h2>
       </div>
+
+      <BusinessImages key={business.id} business={business} request={imageRequest} describeError={translateApiError} onConfirmed={handleImagesConfirmed} />
 
       <form className="admin-menu__form" onSubmit={handleSubmit}>
         {DEV_TOOLS_BUILD_ENABLED && (
@@ -343,41 +308,35 @@ export default function AdminBusiness({ onBusinessSaved }) {
           </div>
         </label>
 
-        <div className="admin-menu__image-field">
-          <span className="admin-menu__image-label">Logo</span>
-          <div className="admin-menu__image-preview">
-            {logoUrl ? (
-              <img src={logoUrl} alt="" className="admin-menu__image-thumb" />
-            ) : (
-              <span className="admin-menu__image-placeholder">Sin logo</span>
-            )}
-          </div>
-          <div className="admin-menu__image-actions">
-            <label className="btn btn--outline btn--small admin-menu__file-btn">
-              {logoUrl ? 'Reemplazar logo' : 'Seleccionar logo'}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleLogoFileChange}
-                disabled={uploadingLogo}
-                hidden
-              />
-            </label>
-          </div>
-          {uploadingLogo && <p className="admin-menu__image-status">Subiendo logo…</p>}
-          {logoError && <p className="admin-menu__form-error">{logoError}</p>}
+        <div className="admin-business__color-reset">
+          <button
+            type="button"
+            className="btn btn--outline btn--small"
+            onClick={() => {
+              setPrimaryColor('')
+              setAccentColor('')
+            }}
+            disabled={colorsAreDefault}
+          >
+            Restablecer colores predeterminados
+          </button>
+          <span className="admin-business__color-note">
+            {resetsColors ? 'Al guardar, se usarán los colores predeterminados de la aplicación.' : colorsAreDefault ? 'Se usan los colores predeterminados de la aplicación.' : ''}
+          </span>
         </div>
 
         {saveError && <p className="admin-menu__form-error">{saveError}</p>}
+
+        {pendingLabels.length > 0 && (
+          <p className="admin-business__pending" role="status">
+            Cambios sin guardar: {pendingLabels.join(', ')}. Se guardan solo al pulsar «Guardar cambios».
+          </p>
+        )}
 
         <button type="submit" className="btn btn--primary btn--small" disabled={saving || !isDirty}>
           {saving ? 'Guardando…' : 'Guardar cambios'}
         </button>
       </form>
-
-      {cropSrc && (
-        <PhotoCropModal imageSrc={cropSrc} onCancel={handleCropCancel} onConfirm={handleCropConfirm} />
-      )}
     </div>
   )
 }

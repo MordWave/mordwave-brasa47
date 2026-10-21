@@ -50,6 +50,8 @@ const MESSAGES_BY_CODE = {
   IMAGE_PROCESSING_FAILED: () =>
     'No se pudo procesar esta imagen. Intenta con otra foto.',
   IMAGE_UPLOAD_FAILED: () => 'No se pudo subir la imagen. Intenta nuevamente.',
+  IMAGE_STORAGE_UNAVAILABLE: () => 'El almacenamiento de imágenes no está disponible por ahora. Inténtalo más tarde.',
+  BUSINESS_CONCURRENT_MODIFICATION: () => 'Otro cambio de este negocio estaba en curso, así que no se aplicó nada. Revisa e inténtalo de nuevo.',
   BUSINESS_NOT_FOUND: () => 'No pudimos cargar el menú. Intenta nuevamente más tarde.',
   PRODUCT_UNAVAILABLE: (error) =>
     error.productName

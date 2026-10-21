@@ -4,7 +4,7 @@ import { isBusinessInactiveResponse } from '../context/suspension.js'
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 export class ApiError extends Error {
-  constructor(status, message, { code, count, productName, limit } = {}) {
+  constructor(status, message, { code, count, productName, limit, envelope = false } = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
@@ -17,6 +17,11 @@ export class ApiError extends Error {
     this.productName = productName
     // Numeric ceiling reported with BUSINESS_*_LIMIT_REACHED errors.
     this.limit = limit
+    // True when the answer carries the application's own JSON envelope ({ statusCode, ... } with the same status as the HTTP
+    // one). The same status number (502, 503, 504...) can also come from a proxy or the platform's edge, in which case the
+    // request may or may not have been processed: callers that must tell a definitive refusal from an uncertain outcome
+    // (see branding/imageOutcome.js) need to know which one they got.
+    this.envelope = envelope
   }
 }
 
@@ -86,6 +91,7 @@ export async function apiFetch(path, { token, headers, ...options } = {}) {
       count: body?.count,
       productName: body?.productName,
       limit: body?.limit,
+      envelope: body !== null && typeof body === 'object' && body.statusCode === res.status,
     })
     if (suspensionScope) error.suspensionScope = suspensionScope
     throw error
