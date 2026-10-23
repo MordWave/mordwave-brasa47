@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, FindOptionsWhere, ILike, In, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere, ILike, In, IsNull, Repository } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
 import {
   resolveBusinessIdForCreate,
   resolveBusinessIdForRead,
@@ -46,8 +47,8 @@ export class ProductService {
     private readonly businessLimits: BusinessLimitsService,
   ) {}
 
-  private async assertBusinessExists(businessId: string): Promise<void> {
-    const business = await this.businessRepository.findOne({
+  private async assertBusinessExists(businessId: string, repo: Repository<Business> = this.businessRepository): Promise<void> {
+    const business = await repo.findOne({
       where: { id: businessId },
     });
     if (!business) {
@@ -57,8 +58,8 @@ export class ProductService {
     }
   }
 
-  private async getCategoryOrThrow(categoryId: string): Promise<Category> {
-    const category = await this.categoryRepository.findOne({
+  private async getCategoryOrThrow(categoryId: string, repo: Repository<Category> = this.categoryRepository): Promise<Category> {
+    const category = await repo.findOne({
       where: { id: categoryId },
     });
     if (!category) {
@@ -311,62 +312,132 @@ export class ProductService {
     return product;
   }
 
+  // The ONLY columns a PATCH /products/:id may write (plus businessId for a SUPER_ADMIN move). Never id, image key, timestamps or
+  // deletedAt, whatever the DTO class may grow.
+  private static readonly PATCH_COLUMNS = [
+    'name',
+    'description',
+    'price',
+    'available',
+    'active',
+    'sortOrder',
+    'tag',
+    'ingredients',
+    'removableIngredients',
+    'addOns',
+    'categoryId',
+  ] as const;
+
+  // WRITES OF A PRODUCT ROW (update, attachImage, removeImage). Rules, all about concurrent writers:
+  //
+  // 1. COLUMN-SCOPED. Each write is ONE `UPDATE products SET <only the columns it changes> WHERE id = $1 AND deleted_at IS NULL ...`.
+  //    It never saves an entity read earlier: TypeORM's save() writes back EVERY column that differs from the row as it is now, so it
+  //    restored an old price / availability / name that another admin had committed meanwhile (the whole S3 upload of an image is that
+  //    window), and, because a soft-deleted row differs in `deleted_at`, it even wrote `deleted_at = NULL` and RESURRECTED a deleted
+  //    product. A column nobody asked to change is not in the statement, so it cannot be reverted. Two writes that change the SAME
+  //    column are last-writer-wins, as for any plain UPDATE (whoever commits last keeps their value; the other columns are never
+  //    touched by either).
+  //
+  // 2. NEVER A DELETED PRODUCT. `deleted_at IS NULL` travels inside every statement. A concurrent soft delete holds the row lock until it
+  //    commits; the UPDATE waits and re-evaluates the condition on the new version of the row, so it matches nothing (0 rows) instead
+  //    of reviving it. 0 rows is explained afterwards, with nothing written: the product is gone -> 404.
+  //
+  // 3. PATCH (update) additionally takes the row lock (SELECT ... FOR UPDATE, which also skips a deleted row) and judges the merged
+  //    state UNDER it: ownership, category rules, the ingredient/add-on invariants are checked against the row as it is at that moment,
+  //    so two PATCHes of ingredients and removableIngredients cannot both pass against the same old state and leave them inconsistent.
+  //    The lock is on this one product only (it never waits on, nor blocks, another product or another tenant).
+  private async writeImageKey(product: Product, storageKey: string | null): Promise<void> {
+    // business_id too: if a SUPER_ADMIN moved the product in the meantime, a key built for the old business is not written
+    const result = await this.productRepository.update(
+      { id: product.id, businessId: product.businessId, deletedAt: IsNull() },
+      { imageStorageKey: storageKey },
+    );
+    if ((result.affected ?? 0) > 0) return;
+
+    const current = await this.productRepository.findOne({ where: { id: product.id }, select: { id: true, businessId: true } });
+    if (!current) throw new NotFoundException(`Product with id "${product.id}" not found`);
+    throw new ConflictException({
+      message: `Product "${product.id}" was moved to another business while its image was being changed; nothing was applied`,
+      errorCode: 'PRODUCT_CONCURRENT_MODIFICATION',
+    });
+  }
+
   async update(id: string, dto: UpdateProductDto, user: SafeUser): Promise<Product> {
-    const product = await this.findOne(id);
+    // Cheap fail-fast (404 / 403) before opening a transaction; never trusted as the state to write over.
+    const initial = await this.findOne(id);
+    const initialBusinessId = resolveBusinessIdForUpdate(user, initial.businessId, dto.businessId);
+    // Only a SUPER_ADMIN can move a product (see resolveBusinessIdForUpdate). That consumes quota in the DESTINATION Business, so it
+    // goes through the same locked count as a create (Business row first, then the product row).
+    const moving = initialBusinessId !== initial.businessId;
 
-    // ADMIN: always their own business (throws if it doesn't match the
-    // product's current one). SUPER_ADMIN: the requested business, or the
-    // product's current one if none was sent.
-    const businessId = resolveBusinessIdForUpdate(user, product.businessId, dto.businessId);
+    return this.dataSource.transaction(async (manager) => {
+      if (moving) await this.businessLimits.assertCanCreate(manager, initialBusinessId, 'product', user);
 
-    if (businessId !== product.businessId) {
-      await this.assertBusinessExists(businessId);
-    }
+      const productRepository = manager.getRepository(Product);
+      const product = await productRepository.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      // deleted while this request was waiting: same 404 as a product that never existed
+      if (!product) throw new NotFoundException(`Product with id "${id}" not found`);
 
-    // Re-validate the category (existence, business, and active status)
-    // whenever it's actually being assigned to the product: the category
-    // changed, the business changed (so the current category needs
-    // re-checking against the destination business), or the product is
-    // being reactivated (active: false -> true) — a product can't come back
-    // to the menu under a category that's no longer on it either. A plain
-    // deactivation, or an edit that leaves an already-active product's
-    // category untouched, doesn't re-run this.
-    const categoryId = dto.categoryId ?? product.categoryId;
-    const categoryTargetChanged = Boolean(dto.categoryId) || businessId !== product.businessId;
-    const reactivating = dto.active === true && !product.active;
+      // ADMIN: always their own business (throws if it doesn't match the product's current one). SUPER_ADMIN: the requested
+      // business, or the product's current one if none was sent. Judged on the LOCKED row.
+      const businessId = resolveBusinessIdForUpdate(user, product.businessId, dto.businessId);
+      if ((businessId !== product.businessId) !== moving) {
+        // the product was moved by someone else after the first read: nothing has been written, safe to repeat
+        throw new ConflictException({
+          message: `Product "${id}" was changed by another request; nothing was applied, review and retry`,
+          errorCode: 'PRODUCT_CONCURRENT_MODIFICATION',
+        });
+      }
 
-    if (categoryTargetChanged || reactivating) {
-      const category = await this.getCategoryOrThrow(categoryId);
-      this.assertCategoryBelongsToBusiness(category, businessId);
-      this.assertCategoryIsActive(category);
-    }
+      if (moving) await this.assertBusinessExists(businessId, manager.getRepository(Business));
 
-    // Validated against the FINAL combined state (whatever this PATCH
-    // changes, merged onto whatever it leaves untouched) — never against
-    // only the fields this particular request happens to include. The
-    // `?? []` fallback only matters for a product row loaded before either
-    // column existed in memory (e.g. a stale cache) — a real row always
-    // has both as real arrays, never null/undefined, thanks to the
-    // column's own DB-level default.
-    const finalIngredients = dto.ingredients ?? product.ingredients ?? [];
-    const finalRemovableIngredients = dto.removableIngredients ?? product.removableIngredients ?? [];
-    const finalAddOns = dto.addOns ?? product.addOns ?? [];
-    this.assertNoDuplicatePersonalizationNames(finalIngredients, finalRemovableIngredients, finalAddOns);
-    this.assertRemovableIngredientsSubset(finalIngredients, finalRemovableIngredients);
+      // Re-validate the category (existence, business, and active status)
+      // whenever it's actually being assigned to the product: the category
+      // changed, the business changed (so the current category needs
+      // re-checking against the destination business), or the product is
+      // being reactivated (active: false -> true) — a product can't come back
+      // to the menu under a category that's no longer on it either. A plain
+      // deactivation, or an edit that leaves an already-active product's
+      // category untouched, doesn't re-run this.
+      const categoryId = dto.categoryId ?? product.categoryId;
+      const categoryTargetChanged = Boolean(dto.categoryId) || moving;
+      const reactivating = dto.active === true && !product.active;
 
-    const movingToAnotherBusiness = businessId !== product.businessId;
-    Object.assign(product, dto, { businessId });
+      if (categoryTargetChanged || reactivating) {
+        const category = await this.getCategoryOrThrow(categoryId, manager.getRepository(Category));
+        this.assertCategoryBelongsToBusiness(category, businessId);
+        this.assertCategoryIsActive(category);
+      }
 
-    // Only a SUPER_ADMIN can move a product (see resolveBusinessIdForUpdate).
-    // That consumes quota in the DESTINATION Business, so it goes through the
-    // same locked count as a create.
-    if (movingToAnotherBusiness) {
-      return this.dataSource.transaction(async (manager) => {
-        await this.businessLimits.assertCanCreate(manager, businessId, 'product', user);
-        return manager.getRepository(Product).save(product);
-      });
-    }
-    return this.productRepository.save(product);
+      // Validated against the FINAL combined state (whatever this PATCH
+      // changes, merged onto whatever it leaves untouched) — never against
+      // only the fields this particular request happens to include. The
+      // `?? []` fallback only matters for a product row loaded before either
+      // column existed in memory (e.g. a stale cache) — a real row always
+      // has both as real arrays, never null/undefined, thanks to the
+      // column's own DB-level default.
+      const finalIngredients = dto.ingredients ?? product.ingredients ?? [];
+      const finalRemovableIngredients = dto.removableIngredients ?? product.removableIngredients ?? [];
+      const finalAddOns = dto.addOns ?? product.addOns ?? [];
+      this.assertNoDuplicatePersonalizationNames(finalIngredients, finalRemovableIngredients, finalAddOns);
+      this.assertRemovableIngredientsSubset(finalIngredients, finalRemovableIngredients);
+
+      // only what the request really carries: undefined = untouched; null = cleared on purpose; anything else = the new value
+      const columns: QueryDeepPartialEntity<Product> = {};
+      for (const field of ProductService.PATCH_COLUMNS) {
+        const value = dto[field];
+        if (value !== undefined) (columns as Record<string, unknown>)[field] = value;
+      }
+      if (moving) columns.businessId = businessId;
+
+      if (Object.keys(columns).length > 0) {
+        const result = await productRepository.update({ id, deletedAt: IsNull() }, columns);
+        // cannot happen while the row is locked and was just read alive; kept so a write is never reported that did not happen
+        if (!(result.affected ?? 0)) throw new NotFoundException(`Product with id "${id}" not found`);
+      }
+      // the row as it is now (the lock is still held): every column, including those this request did not touch
+      return productRepository.findOneByOrFail({ id });
+    });
   }
 
   // Soft delete: sets deletedAt instead of removing the row, so it's
@@ -402,13 +473,15 @@ export class ProductService {
 
     const storageKey = await this.productImageService.upload(product.businessId, product.id, file);
 
-    product.imageStorageKey = storageKey;
+    // ONE statement that writes only image_storage_key (see writeImageKey): the price, availability, name... that other admins
+    // changed during the upload are not touched, and a product deleted meanwhile is not revived.
     try {
-      return await this.productRepository.save(product);
+      await this.writeImageKey(product, storageKey);
     } catch (error) {
       this.logger.error(`Product image uploaded but not saved; orphan candidate key=${storageKey}`);
       throw error;
     }
+    return this.findOne(id); // the row as it is now (a product deleted a moment later is a plain 404)
   }
 
   // Detaches the image by clearing its storage key. No object is deleted from
@@ -417,7 +490,7 @@ export class ProductService {
     const product = await this.findOne(id);
     resolveBusinessIdForUpdate(user, product.businessId, undefined);
 
-    product.imageStorageKey = null;
-    return this.productRepository.save(product);
+    await this.writeImageKey(product, null);
+    return this.findOne(id);
   }
 }

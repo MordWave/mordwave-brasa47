@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, ILike } from 'typeorm';
+import { DataSource, ILike, IsNull } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
@@ -27,6 +27,9 @@ function createRepoMock() {
     findAndCount: vi.fn(),
     createQueryBuilder: vi.fn(),
     softDelete: vi.fn(),
+    // the column-scoped write of update()/attachImage()/removeImage(): one row affected unless a test says otherwise
+    update: vi.fn(async () => ({ affected: 1 })),
+    findOneByOrFail: vi.fn(),
   };
 }
 
@@ -95,6 +98,9 @@ describe('ProductService', () => {
     transactionManager = {
       getRepository: vi.fn((entity: unknown) => {
         if (entity === Product) return productRepo;
+        // update() judges the merged state on the transaction's own connection
+        if (entity === Category) return categoryRepo;
+        if (entity === Business) return businessRepo;
         throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
       }),
     };
@@ -224,7 +230,7 @@ describe('ProductService', () => {
 
     // The category check is never even reached for a plain deactivation.
     expect(categoryRepo.findOne).not.toHaveBeenCalled();
-    expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ active: false }));
+    expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, expect.objectContaining({ active: false }));
   });
 
   it('does not re-check the category on an unrelated edit to an already-active product', async () => {
@@ -238,7 +244,7 @@ describe('ProductService', () => {
     await service.update('p1', { name: 'renamed' }, admin);
 
     expect(categoryRepo.findOne).not.toHaveBeenCalled();
-    expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ name: 'renamed' }));
+    expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, expect.objectContaining({ name: 'renamed' }));
   });
 
   it('SUPER_ADMIN moving a product to another business must also move its category', async () => {
@@ -258,8 +264,7 @@ describe('ProductService', () => {
     await service.update('p1', { name: 'renamed' }, superAdmin);
 
     expect(businessRepo.findOne).not.toHaveBeenCalled();
-    expect(productRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: 'biz-1', name: 'renamed' }),
+    expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { name: 'renamed' },
     );
   });
 
@@ -598,7 +603,7 @@ describe('ProductService', () => {
       await service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin);
 
       expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product', superAdmin);
-      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', businessId: 'biz-2' }));
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { businessId: 'biz-2', categoryId: 'cat-9' });
     });
 
     it('a move into a full Business is rejected and nothing is saved', async () => {
@@ -610,7 +615,7 @@ describe('ProductService', () => {
       await expect(
         service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin),
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(productRepo.save).not.toHaveBeenCalled();
+      expect(productRepo.update).not.toHaveBeenCalled();
     });
 
     it('an ordinary update (same Business) never touches the limit', async () => {
@@ -619,7 +624,7 @@ describe('ProductService', () => {
       await service.update('p1', { name: 'renamed' }, admin);
 
       expect(businessLimits.assertCanCreate).not.toHaveBeenCalled();
-      expect(productRepo.save).toHaveBeenCalled();
+      expect(productRepo.update).toHaveBeenCalled();
     });
 
     it('reactivating (active false -> true) does not consume quota — the row already counts', async () => {
@@ -756,8 +761,7 @@ describe('ProductService', () => {
         admin,
       );
 
-      expect(productRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, expect.objectContaining({
           tag: 'Nuevo',
           addOns: [{ name: 'Tocino', price: 1500 }],
         }),
@@ -782,8 +786,7 @@ describe('ProductService', () => {
         admin,
       );
 
-      expect(productRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, expect.objectContaining({
           ingredients: ['Carne', 'Pan', 'Queso'],
           removableIngredients: ['Queso'],
         }),
@@ -897,8 +900,7 @@ describe('ProductService', () => {
         admin,
       );
 
-      expect(productRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ ingredients: ['Carne', 'Pan'], removableIngredients: [] }),
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, expect.objectContaining({ ingredients: ['Carne', 'Pan'], removableIngredients: [] }),
       );
     });
 
@@ -914,7 +916,7 @@ describe('ProductService', () => {
 
       await service.update('p1', { name: 'renamed' }, admin);
 
-      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ name: 'renamed' }));
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, expect.objectContaining({ name: 'renamed' }));
     });
   });
 
@@ -1111,7 +1113,7 @@ describe('ProductService', () => {
 
       await service.update('p1', { name: 'renamed' }, admin);
 
-      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ name: 'renamed' }));
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, expect.objectContaining({ name: 'renamed' }));
     });
   });
 
@@ -1155,6 +1157,83 @@ describe('ProductService', () => {
     );
   });
 
+  describe('column-scoped writes (9E.21: no stale save(), never a deleted product)', () => {
+    const live = { id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: true, available: true, price: 1000, name: 'Burger' };
+
+    it('update() locks the product row (FOR UPDATE) and writes ONLY the columns the request carries, never save()', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live });
+
+      await service.update('p1', { description: 'Con queso' }, admin);
+
+      expect(productRepo.findOne).toHaveBeenCalledWith({ where: { id: 'p1' }, lock: { mode: 'pessimistic_write' } });
+      expect(productRepo.update).toHaveBeenCalledTimes(1);
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { description: 'Con queso' });
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('update(): an omitted field is untouched, an explicit null clears it, and a falsy value (0, false, "") is written', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live });
+
+      await service.update('p1', { description: null as unknown as string, price: 0, available: false, tag: '' }, admin);
+
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { description: null, price: 0, available: false, tag: '' });
+    });
+
+    it('update(): fields that are not editable columns (id, image key, timestamps, deletedAt) can never reach the statement', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live });
+
+      await service.update('p1', { name: 'x', id: 'other', imageStorageKey: 'k', deletedAt: null, createdAt: 'now' } as never, admin);
+
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { name: 'x' });
+    });
+
+    it('update(): a product deleted while the request waited for the lock is a 404 and nothing is written', async () => {
+      productRepo.findOne.mockResolvedValueOnce({ ...live }).mockResolvedValueOnce(null);
+
+      await expect(service.update('p1', { name: 'x' }, admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(productRepo.update).not.toHaveBeenCalled();
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('update(): the ownership check is repeated on the LOCKED row (a product moved to another business meanwhile is refused)', async () => {
+      productRepo.findOne.mockResolvedValueOnce({ ...live }).mockResolvedValueOnce({ ...live, businessId: 'other-biz' });
+
+      await expect(service.update('p1', { name: 'x' }, admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(productRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('update(): a SUPER_ADMIN move that another request already performed is a 409 PRODUCT_CONCURRENT_MODIFICATION, nothing written', async () => {
+      productRepo.findOne.mockResolvedValueOnce({ ...live }).mockResolvedValueOnce({ ...live, businessId: 'biz-2' });
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-2' });
+
+      const error = await service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({ errorCode: 'PRODUCT_CONCURRENT_MODIFICATION' });
+      expect(productRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('update(): a request with nothing to change writes nothing and answers the current row', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live });
+      productRepo.findOneByOrFail.mockResolvedValue({ ...live });
+
+      const result = await service.update('p1', {}, admin);
+
+      expect(productRepo.update).not.toHaveBeenCalled();
+      expect(result.id).toBe('p1');
+    });
+
+    it('update(): the answer is the row re-read after the write (every column, including those the request did not send)', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live });
+      productRepo.findOneByOrFail.mockResolvedValue({ ...live, description: 'Con queso' });
+
+      const result = await service.update('p1', { description: 'Con queso' }, admin);
+
+      expect(productRepo.findOneByOrFail).toHaveBeenCalledWith({ id: 'p1' });
+      expect(result).toMatchObject({ name: 'Burger', price: 1000, description: 'Con queso' });
+    });
+  });
+
   describe('attachImage', () => {
     const file = { buffer: Buffer.from('bytes'), size: 100 };
     const NEW_KEY = 'businesses/aaaaaaaa-1111-4abc-8def-111111111abc/products/bbbbbbbb-2222-4abc-8def-222222222abc/cccccccc-3333-4abc-8def-333333333abc.webp';
@@ -1169,34 +1248,30 @@ describe('ProductService', () => {
       expect(productImageService.upload).not.toHaveBeenCalled();
     });
 
-    it("uploads for the product's own business and saves the new storageKey only after the upload succeeds", async () => {
-      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: null });
+    it("uploads for the product's own business, then writes ONLY image_storage_key (one statement scoped to id, business and not-deleted)", async () => {
+      productRepo.findOne.mockResolvedValueOnce({ id: 'p1', businessId: 'biz-1', imageStorageKey: null, price: 1000 }).mockResolvedValueOnce({ id: 'p1', businessId: 'biz-1', imageStorageKey: NEW_KEY, price: 1500 });
       productImageService.upload.mockResolvedValue(NEW_KEY);
 
       const result = await service.attachImage('p1', admin, file);
 
       expect(productImageService.upload).toHaveBeenCalledWith('biz-1', 'p1', file);
-      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ imageStorageKey: NEW_KEY }));
-      expect(result.imageStorageKey).toBe(NEW_KEY);
-    });
-
-    it('writes only the storage key: no legacy URL field is ever set', async () => {
-      productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: null });
-      productImageService.upload.mockResolvedValue(NEW_KEY);
-
-      await service.attachImage('p1', admin, file);
-
-      expect(productRepo.save.mock.calls[0][0]).not.toHaveProperty('imageUrl');
+      expect(productRepo.update).toHaveBeenCalledTimes(1);
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', businessId: 'biz-1', deletedAt: IsNull() }, { imageStorageKey: NEW_KEY });
+      expect(productRepo.save).not.toHaveBeenCalled(); // a stale entity is never saved back
+      // the answer is the row as it is now: the price another admin set during the upload is in it
+      expect(result).toMatchObject({ imageStorageKey: NEW_KEY, price: 1500 });
+      // the DB is written strictly after the upload
+      expect(productImageService.upload.mock.invocationCallOrder[0]).toBeLessThan(productRepo.update.mock.invocationCallOrder[0]);
     });
 
     it('replacing again stores a different key and never deletes anything', async () => {
       productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: NEW_KEY });
       productImageService.upload.mockResolvedValue(NEWER_KEY);
 
-      const result = await service.attachImage('p1', admin, file);
+      await service.attachImage('p1', admin, file);
 
-      expect(result.imageStorageKey).toBe(NEWER_KEY);
-      expect(result.imageStorageKey).not.toBe(NEW_KEY);
+      expect(productRepo.update).toHaveBeenCalledWith(expect.anything(), { imageStorageKey: NEWER_KEY });
+      expect(NEWER_KEY).not.toBe(NEW_KEY);
       expect(productImageService).not.toHaveProperty('remove');
     });
 
@@ -1206,19 +1281,47 @@ describe('ProductService', () => {
 
       await expect(service.attachImage('p1', admin, file)).rejects.toThrow('storage down');
 
-      expect(productRepo.save).not.toHaveBeenCalled();
+      expect(productRepo.update).not.toHaveBeenCalled();
     });
 
-    it('a DB failure after a successful upload is reported, leaves no dangling reference, and deletes nothing', async () => {
+    it('a product DELETED during the upload is not revived: 404, the object is only a logged orphan candidate, nothing is retried or deleted', async () => {
+      // read alive -> upload -> the UPDATE matches no row (deleted_at IS NULL no longer holds) -> the product is gone
+      productRepo.findOne.mockResolvedValueOnce({ id: 'p1', businessId: 'biz-1', imageStorageKey: null }).mockResolvedValueOnce(null);
+      productImageService.upload.mockResolvedValue(NEW_KEY);
+      productRepo.update.mockResolvedValueOnce({ affected: 0 });
+      const logged = vi.spyOn((service as unknown as { logger: { error: (m: string) => void } }).logger, 'error').mockImplementation(() => undefined);
+
+      await expect(service.attachImage('p1', admin, file)).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(productRepo.update).toHaveBeenCalledTimes(1); // no retry
+      expect(productRepo.save).not.toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining(`orphan candidate key=${NEW_KEY}`));
+      expect(productImageService).not.toHaveProperty('remove');
+    });
+
+    it('a product moved to another business during the upload is a 409 and the key is not written (orphan candidate logged)', async () => {
+      productRepo.findOne.mockResolvedValueOnce({ id: 'p1', businessId: 'biz-1', imageStorageKey: null }).mockResolvedValueOnce({ id: 'p1', businessId: 'biz-2' });
+      productImageService.upload.mockResolvedValue(NEW_KEY);
+      productRepo.update.mockResolvedValueOnce({ affected: 0 });
+      const logged = vi.spyOn((service as unknown as { logger: { error: (m: string) => void } }).logger, 'error').mockImplementation(() => undefined);
+
+      const error = await service.attachImage('p1', admin, file).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({ errorCode: 'PRODUCT_CONCURRENT_MODIFICATION' });
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining('orphan candidate'));
+    });
+
+    it('a DB failure after a successful upload is reported, writes nothing else, is not retried, and deletes nothing', async () => {
       productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'biz-1', imageStorageKey: null });
       productImageService.upload.mockResolvedValue(NEW_KEY);
-      productRepo.save.mockRejectedValueOnce(new Error('db down'));
+      productRepo.update.mockRejectedValueOnce(new Error('db down'));
+      const logged = vi.spyOn((service as unknown as { logger: { error: (m: string) => void } }).logger, 'error').mockImplementation(() => undefined);
 
       await expect(service.attachImage('p1', admin, file)).rejects.toThrow('db down');
 
-      // The only place the new key was ever written is the failed save: no
-      // other write path exists, so no row references the orphaned object.
-      expect(productRepo.save).toHaveBeenCalledTimes(1);
+      expect(productRepo.update).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining('orphan candidate'));
       expect(productImageService).not.toHaveProperty('remove');
     });
   });
@@ -1228,23 +1331,31 @@ describe('ProductService', () => {
       productRepo.findOne.mockResolvedValue({ id: 'p1', businessId: 'other-biz' });
 
       await expect(service.removeImage('p1', admin)).rejects.toBeInstanceOf(ForbiddenException);
-      expect(productRepo.save).not.toHaveBeenCalled();
+      expect(productRepo.update).not.toHaveBeenCalled();
     });
 
-    it('clears imageStorageKey (the only image reference), never touches a legacy column, and deletes no object', async () => {
-      productRepo.findOne.mockResolvedValue({
-        id: 'p1',
-        businessId: 'biz-1',
-        imageStorageKey: 'businesses/aaaaaaaa-1111-4abc-8def-111111111abc/products/bbbbbbbb-2222-4abc-8def-222222222abc/cccccccc-3333-4abc-8def-333333333abc.webp',
-      });
+    it('clears ONLY image_storage_key (one statement scoped to id, business and not-deleted), uploads and deletes nothing', async () => {
+      productRepo.findOne
+        .mockResolvedValueOnce({ id: 'p1', businessId: 'biz-1', imageStorageKey: 'k', price: 1000 })
+        .mockResolvedValueOnce({ id: 'p1', businessId: 'biz-1', imageStorageKey: null, price: 1500 });
 
       const result = await service.removeImage('p1', admin);
 
-      expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ imageStorageKey: null }));
-      expect(productRepo.save.mock.calls[0][0]).not.toHaveProperty('imageUrl');
-      expect(result.imageStorageKey).toBeNull();
+      expect(productRepo.update).toHaveBeenCalledTimes(1);
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', businessId: 'biz-1', deletedAt: IsNull() }, { imageStorageKey: null });
+      expect(productRepo.save).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ imageStorageKey: null, price: 1500 });
       expect(productImageService.upload).not.toHaveBeenCalled();
       expect(productImageService).not.toHaveProperty('remove');
+    });
+
+    it('a product DELETED meanwhile is not restored: 404 and nothing is retried', async () => {
+      productRepo.findOne.mockResolvedValueOnce({ id: 'p1', businessId: 'biz-1', imageStorageKey: 'k' }).mockResolvedValueOnce(null);
+      productRepo.update.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.removeImage('p1', admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(productRepo.update).toHaveBeenCalledTimes(1);
+      expect(productRepo.save).not.toHaveBeenCalled();
     });
   });
 
