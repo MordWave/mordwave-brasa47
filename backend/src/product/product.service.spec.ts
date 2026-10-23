@@ -1157,6 +1157,86 @@ describe('ProductService', () => {
     );
   });
 
+  describe('category lock protocol (9E.23): the category rules are judged under a FOR SHARE lock', () => {
+    const live = { id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: false, price: 1000 };
+    const SHARE = { mode: 'pessimistic_read' };
+
+    it('create() re-checks the category under FOR SHARE, inside the transaction, after the Business lock and before the INSERT', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+      await service.create({ name: 'Nuevo', price: 900, categoryId: 'cat-1' } as never, admin);
+
+      // 1st: the unlocked fail-fast read; 2nd: the authoritative locked read
+      expect(categoryRepo.findOne).toHaveBeenCalledTimes(2);
+      expect(categoryRepo.findOne).toHaveBeenNthCalledWith(2, { where: { id: 'cat-1' }, lock: SHARE });
+      expect(businessLimits.assertCanCreate.mock.invocationCallOrder[0]).toBeLessThan(categoryRepo.findOne.mock.invocationCallOrder[1]);
+      expect(categoryRepo.findOne.mock.invocationCallOrder[1]).toBeLessThan(productRepo.save.mock.invocationCallOrder[0]);
+    });
+
+    it('create(): a category deactivated / deleted / moved between the unlocked read and the lock refuses the product (409 / 404 / 400) and nothing is saved', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+      const ok = { id: 'cat-1', businessId: 'biz-1', active: true };
+
+      categoryRepo.findOne.mockResolvedValueOnce(ok).mockResolvedValueOnce({ ...ok, active: false });
+      await expect(service.create({ name: 'N', price: 1, categoryId: 'cat-1' } as never, admin)).rejects.toBeInstanceOf(ConflictException);
+
+      categoryRepo.findOne.mockResolvedValueOnce(ok).mockResolvedValueOnce(null);
+      await expect(service.create({ name: 'N', price: 1, categoryId: 'cat-1' } as never, admin)).rejects.toBeInstanceOf(NotFoundException);
+
+      categoryRepo.findOne.mockResolvedValueOnce(ok).mockResolvedValueOnce({ ...ok, businessId: 'other-biz' });
+      await expect(service.create({ name: 'N', price: 1, categoryId: 'cat-1' } as never, admin)).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(productRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('update(): reactivating a product, changing its category or moving it takes the category FOR SHARE lock AFTER the product row lock', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+      await service.update('p1', { active: true }, admin);
+
+      expect(categoryRepo.findOne).toHaveBeenCalledWith({ where: { id: 'cat-1' }, lock: SHARE });
+      // 2nd product findOne is the FOR UPDATE one; the category lock comes after it
+      expect(productRepo.findOne).toHaveBeenNthCalledWith(2, { where: { id: 'p1' }, lock: { mode: 'pessimistic_write' } });
+      expect(productRepo.findOne.mock.invocationCallOrder[1]).toBeLessThan(categoryRepo.findOne.mock.invocationCallOrder[0]);
+      expect(categoryRepo.findOne.mock.invocationCallOrder[0]).toBeLessThan(productRepo.update.mock.invocationCallOrder[0]);
+    });
+
+    it('update(): the category deactivated or deleted while the request waited refuses the reactivation / move, and nothing is written', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live });
+      categoryRepo.findOne.mockResolvedValueOnce({ id: 'cat-1', businessId: 'biz-1', active: false });
+      await expect(service.update('p1', { active: true }, admin)).rejects.toBeInstanceOf(ConflictException);
+
+      categoryRepo.findOne.mockResolvedValueOnce(null);
+      await expect(service.update('p1', { categoryId: 'cat-2' }, admin)).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(productRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('update(): an edit that needs no category (deactivation, rename) takes NO category lock', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live, active: true });
+
+      await service.update('p1', { active: false, name: 'x' }, admin);
+
+      expect(categoryRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('a SUPER_ADMIN move takes the lock order Business -> Product -> Category', async () => {
+      productRepo.findOne.mockResolvedValue({ ...live, active: true });
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-2' });
+      categoryRepo.findOne.mockResolvedValue({ id: 'cat-9', businessId: 'biz-2', active: true });
+
+      await service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin);
+
+      const business = businessLimits.assertCanCreate.mock.invocationCallOrder[0]!;
+      const product = productRepo.findOne.mock.invocationCallOrder[1]!;
+      const category = categoryRepo.findOne.mock.invocationCallOrder[0]!;
+      expect(business).toBeLessThan(product);
+      expect(product).toBeLessThan(category);
+    });
+  });
+
   describe('column-scoped writes (9E.21: no stale save(), never a deleted product)', () => {
     const live = { id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: true, available: true, price: 1000, name: 'Burger' };
 
