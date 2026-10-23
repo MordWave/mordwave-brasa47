@@ -19,6 +19,7 @@ function createRepoMock() {
     findOne: vi.fn(),
     find: vi.fn(),
     save: vi.fn(async (entity: unknown) => entity),
+    update: vi.fn(async () => ({ affected: 1 })),
   };
 }
 
@@ -823,47 +824,93 @@ describe('OrderService', () => {
   });
 
   describe('updateStatus', () => {
-    it('allows NEW -> DELIVERED', async () => {
-      orderRepo.findOne.mockResolvedValue({ id: 'o1', businessId: 'biz-1', status: OrderStatus.NEW });
+    // The row as read before the write, and as re-read after a successful conditional UPDATE.
+    const newOrder = { id: 'o1', businessId: 'biz-1', status: OrderStatus.NEW };
 
-      await service.updateStatus('o1', { status: OrderStatus.DELIVERED }, admin);
+    it.each([OrderStatus.DELIVERED, OrderStatus.CANCELLED])(
+      'NEW -> %s is ONE conditional UPDATE (id + business + status NEW) that writes only status; save() is never used',
+      async (target) => {
+        orderRepo.findOne.mockResolvedValueOnce({ ...newOrder }).mockResolvedValueOnce({ ...newOrder, status: target, items: [] });
 
-      expect(orderRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: OrderStatus.DELIVERED }),
-      );
+        const result = await service.updateStatus('o1', { status: target }, admin);
+
+        expect(orderRepo.update).toHaveBeenCalledTimes(1);
+        expect(orderRepo.update).toHaveBeenCalledWith({ id: 'o1', businessId: 'biz-1', status: OrderStatus.NEW }, { status: target });
+        expect(orderRepo.save).not.toHaveBeenCalled();
+        // the fresh row (with its items) is what the endpoint answers
+        expect(result.status).toBe(target);
+        expect(orderRepo.findOne).toHaveBeenLastCalledWith({ where: { id: 'o1' }, relations: { items: true } });
+      },
+    );
+
+    it.each([
+      [OrderStatus.DELIVERED, OrderStatus.CANCELLED],
+      [OrderStatus.CANCELLED, OrderStatus.DELIVERED],
+      [OrderStatus.DELIVERED, OrderStatus.DELIVERED],
+    ])('a terminal order (%s) refuses %s with 409 INVALID_ORDER_TRANSITION and writes nothing', async (from, to) => {
+      orderRepo.findOne.mockResolvedValue({ ...newOrder, status: from });
+
+      const error = await service.updateStatus('o1', { status: to as OrderStatus.DELIVERED | OrderStatus.CANCELLED }, admin).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(getErrorBody(error)).toEqual(expect.objectContaining({ errorCode: 'INVALID_ORDER_TRANSITION' }));
+      expect(orderRepo.update).not.toHaveBeenCalled();
+      expect(orderRepo.save).not.toHaveBeenCalled();
     });
 
-    it('allows NEW -> CANCELLED', async () => {
-      orderRepo.findOne.mockResolvedValue({ id: 'o1', businessId: 'biz-1', status: OrderStatus.NEW });
+    it('LOST RACE: the order was NEW when read but another request moved it first -> the UPDATE matches no row -> 409 naming the CURRENT status, no success, no second write', async () => {
+      orderRepo.findOne
+        .mockResolvedValueOnce({ ...newOrder }) // the read that said NEW
+        .mockResolvedValueOnce({ id: 'o1', status: OrderStatus.DELIVERED }); // the re-read after the UPDATE affected nothing
+      orderRepo.update.mockResolvedValueOnce({ affected: 0 });
 
-      await service.updateStatus('o1', { status: OrderStatus.CANCELLED }, admin);
-
-      expect(orderRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: OrderStatus.CANCELLED }),
-      );
-    });
-
-    it('rejects a transition out of a terminal status (DELIVERED -> CANCELLED)', async () => {
-      orderRepo.findOne.mockResolvedValue({ id: 'o1', businessId: 'biz-1', status: OrderStatus.DELIVERED });
-
-      const error = await service
-        .updateStatus('o1', { status: OrderStatus.CANCELLED }, admin)
-        .catch((err: unknown) => err);
+      const error = await service.updateStatus('o1', { status: OrderStatus.CANCELLED }, admin).catch((err: unknown) => err);
 
       expect(error).toBeInstanceOf(ConflictException);
       expect(getErrorBody(error)).toEqual(
-        expect.objectContaining({ errorCode: 'INVALID_ORDER_TRANSITION' }),
+        expect.objectContaining({ errorCode: 'INVALID_ORDER_TRANSITION', message: 'Order "o1" cannot move from DELIVERED to CANCELLED' }),
       );
+      expect(orderRepo.update).toHaveBeenCalledTimes(1);
+      expect(orderRepo.save).not.toHaveBeenCalled();
+      // the re-read is scoped to the same business and selects nothing but what it needs
+      expect(orderRepo.findOne).toHaveBeenLastCalledWith({ where: { id: 'o1', businessId: 'biz-1' }, select: { id: true, status: true } });
+    });
+
+    it('LOST RACE with the same target (two DELIVERED at once): the loser is a 409, never a second success', async () => {
+      orderRepo.findOne.mockResolvedValueOnce({ ...newOrder }).mockResolvedValueOnce({ id: 'o1', status: OrderStatus.DELIVERED });
+      orderRepo.update.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.updateStatus('o1', { status: OrderStatus.DELIVERED }, admin)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('the order disappeared between the read and the UPDATE -> 404, not a conflict', async () => {
+      orderRepo.findOne.mockResolvedValueOnce({ ...newOrder }).mockResolvedValueOnce(null);
+      orderRepo.update.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.updateStatus('o1', { status: OrderStatus.DELIVERED }, admin)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('an unknown order is a 404 and nothing is written', async () => {
+      orderRepo.findOne.mockResolvedValue(null);
+
+      await expect(service.updateStatus('o1', { status: OrderStatus.DELIVERED }, admin)).rejects.toBeInstanceOf(NotFoundException);
+      expect(orderRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an ADMIN updating an order belonging to another business (403) before any write', async () => {
+      orderRepo.findOne.mockResolvedValue({ id: 'o1', businessId: 'other-biz', status: OrderStatus.NEW });
+
+      await expect(service.updateStatus('o1', { status: OrderStatus.DELIVERED }, admin)).rejects.toThrow();
+      expect(orderRepo.update).not.toHaveBeenCalled();
       expect(orderRepo.save).not.toHaveBeenCalled();
     });
 
-    it('rejects an ADMIN updating an order belonging to another business', async () => {
-      orderRepo.findOne.mockResolvedValue({ id: 'o1', businessId: 'other-biz', status: OrderStatus.NEW });
+    it('a SUPER_ADMIN acts on any business, and the UPDATE is still scoped to that order\'s own business', async () => {
+      orderRepo.findOne.mockResolvedValueOnce({ id: 'o1', businessId: 'biz-9', status: OrderStatus.NEW }).mockResolvedValueOnce({ id: 'o1', businessId: 'biz-9', status: OrderStatus.CANCELLED });
 
-      await expect(
-        service.updateStatus('o1', { status: OrderStatus.DELIVERED }, admin),
-      ).rejects.toThrow();
-      expect(orderRepo.save).not.toHaveBeenCalled();
+      await service.updateStatus('o1', { status: OrderStatus.CANCELLED }, superAdmin);
+
+      expect(orderRepo.update).toHaveBeenCalledWith({ id: 'o1', businessId: 'biz-9', status: OrderStatus.NEW }, { status: OrderStatus.CANCELLED });
     });
   });
 });
