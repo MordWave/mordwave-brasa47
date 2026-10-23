@@ -304,3 +304,72 @@ test('badgeEdgeColor is one general rule: none when the fill stands out, else th
   // picks the candidate whose worst contrast is highest
   assert.equal(badgeEdgeColor('#808080', '#808080', ['#777777', '#000000']), '#000000')
 })
+
+// ---- the admin's phone-sized preview must draw the 375 px menu, whatever the browser's width ----------------------------------------
+// The preview window is a 375 px <div> inside the admin page, so the menu's @media (min-width / max-width) rules would measure the
+// admin's browser and draw 3 or 4 columns in it. `.preview-frame--mobile` therefore restores the base (phone) values.
+const strippedCss = stripComments(css)
+const declarations = (body) =>
+  Object.fromEntries(
+    body
+      .split(';')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .map((d) => [d.slice(0, d.indexOf(':')).trim(), d.slice(d.indexOf(':') + 1).trim()]),
+  )
+const topLevelRule = (selector) => {
+  const start = strippedCss.indexOf(`\n${selector} {`)
+  assert.ok(start >= 0, `top-level rule ${selector} not found`)
+  const body = strippedCss.slice(strippedCss.indexOf('{', start) + 1, strippedCss.indexOf('}', start))
+  return declarations(body)
+}
+// every declaration that a viewport-width @media block applies to `selector` (property -> the @media conditions that set it)
+const viewportDeclarations = (selector) => {
+  const found = new Map()
+  for (const m of strippedCss.matchAll(/@media\s*([^{]*(?:min|max)-width[^{]*)\{/g)) {
+    let depth = 1
+    let end = m.index + m[0].length
+    while (depth > 0 && end < strippedCss.length) depth += (strippedCss[end] === '{') - (strippedCss[end++] === '}')
+    const block = strippedCss.slice(m.index + m[0].length, end - 1)
+    for (const [, sel, body] of block.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!sel.split(',').some((s) => s.trim() === selector)) continue
+      for (const prop of Object.keys(declarations(body))) found.set(prop, [...(found.get(prop) ?? []), m[1].trim()])
+    }
+  }
+  return found
+}
+
+test('the mobile preview restores the phone values of the menu grid and tiles, equal to the public base rules', () => {
+  const grid = topLevelRule('.product-grid')
+  const tileBody = topLevelRule('.product-tile__body')
+  const previewGrid = topLevelRule('.preview-frame--mobile .product-grid')
+  const previewTileBody = topLevelRule('.preview-frame--mobile .product-tile__body')
+  assert.equal(previewGrid['grid-template-columns'], grid['grid-template-columns'])
+  assert.equal(previewGrid['grid-template-columns'], 'repeat(2, 1fr)', 'a 375 px phone shows two columns')
+  assert.equal(previewGrid.gap, grid.gap)
+  assert.equal(previewTileBody.padding, tileBody.padding)
+})
+
+test('every property that a viewport @media rule changes on the product grid / tile body is also restored in the mobile preview', () => {
+  for (const selector of ['.product-grid', '.product-tile__body']) {
+    const overridden = topLevelRule(`.preview-frame--mobile ${selector}`)
+    const viewportDriven = viewportDeclarations(selector)
+    assert.ok(viewportDriven.size > 0, `${selector}: the scan found its @media rules (guard against a scan that covers nothing)`)
+    for (const [prop, conditions] of viewportDriven) {
+      assert.ok(prop in overridden, `${selector} { ${prop} } changes at ${conditions.join(' | ')}: add it to .preview-frame--mobile ${selector}`)
+    }
+  }
+})
+
+test('the mobile preview overrides are scoped to the preview window and sit outside any @media (they win at every browser width)', () => {
+  for (const selector of ['.preview-frame--mobile .product-grid', '.preview-frame--mobile .product-tile__body']) {
+    const at = strippedCss.indexOf(`\n${selector} {`)
+    assert.ok(at >= 0, `${selector} is a top-level rule`)
+    const before = strippedCss.slice(0, at)
+    const open = (before.match(/\{/g) ?? []).length
+    const close = (before.match(/\}/g) ?? []).length
+    assert.equal(open, close, `${selector} is not nested inside an @media block`)
+  }
+  // the public rules were not touched to make room for the preview: no public selector mentions the preview
+  assert.equal(/\.product-grid[^{}]*\.preview-frame|\.product-tile__body[^{}]*\.preview-frame/.test(strippedCss), false)
+})
