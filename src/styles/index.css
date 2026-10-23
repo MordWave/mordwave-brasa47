@@ -5179,6 +5179,19 @@ p {
   padding-bottom: 24px;
 }
 
+/* The window is only 375 px wide, but the @media (min-width / max-width) rules of the customer menu measure the admin's BROWSER, so a
+   wide browser would draw 3 or 4 columns in here. Inside the phone window the menu is the 375 px one whatever the browser is: these
+   restore the base values of .product-grid and .product-tile__body (the specificity beats those @media rules in every width). A test
+   (theme/customerStyles.test.js) keeps them equal to the public ones. */
+.preview-frame--mobile .product-grid {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.preview-frame--mobile .product-tile__body {
+  padding: 11px 12px 12px;
+}
+
 .cover-crop__context {
   display: flex;
   justify-content: center;
