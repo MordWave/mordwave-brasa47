@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import { useConfirm } from '../../../context/ConfirmContext'
 import { useToast } from '../../../context/ToastContext'
 import { apiFetch } from '../../../services/api'
 import { translateApiError } from '../../../services/errorMessages'
+import { TABLE_CONFLICT, isConflict, singleFlight } from '../../../services/conflicts'
 
 // `||`, not `??` — an empty VITE_PUBLIC_URL (e.g. left blank in .env, or an
 // env var a deploy platform sets to "" instead of leaving unset) is falsy
@@ -90,17 +91,46 @@ export default function TableQrModal({ table, token, onClose, onPrint }) {
     }
   }, [qrToken])
 
+  // ONE rotation at a time: a quick second click (or Enter) while the request is in flight sends nothing and shares the first outcome.
+  // (The confirm dialog already blocks a second confirmation while pending; this keeps the guarantee in the logic itself.)
+  const rotateQr = useMemo(
+    () =>
+      singleFlight(async () => {
+        try {
+          const result = await apiFetch(`/tables/${table.id}/qr/rotate`, { method: 'POST', token })
+          setDataUrl(null)
+          setQrToken(result.qrToken)
+        } catch (err) {
+          if (isConflict(err, TABLE_CONFLICT)) {
+            // Another administrator regenerated the code first and nothing was applied: the code on screen is no longer the valid
+            // one, so it is taken down and the CURRENT one is read (a GET). Nothing is regenerated here; doing it again is the
+            // person's decision.
+            setDataUrl(null)
+            setQrToken(null)
+            setLoading(true)
+            try {
+              const current = await apiFetch(`/tables/${table.id}/qr`, { token })
+              if (current?.qrToken) setQrToken(current.qrToken)
+              else setError('No pudimos consultar el código vigente de esta mesa. Cierra y vuelve a abrir esta ventana.')
+            } catch (readError) {
+              setError(translateApiError(readError))
+            } finally {
+              setLoading(false)
+            }
+          }
+          throw err
+        }
+      }),
+    [table.id, token],
+  )
+
   async function handleRotateQr() {
     const ok = await confirm({
       title: `¿Regenerar el QR de "${table.name}"?`,
       message: 'El QR anterior dejará de funcionar y tendrás que volver a imprimirlo.',
       variant: 'destructive',
       confirmLabel: 'Regenerar',
-      onConfirm: async () => {
-        const result = await apiFetch(`/tables/${table.id}/qr/rotate`, { method: 'POST', token })
-        setDataUrl(null)
-        setQrToken(result.qrToken)
-      },
+      onConfirm: rotateQr,
     })
     if (ok) toast.success('QR regenerado.')
   }

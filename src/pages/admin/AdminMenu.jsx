@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext'
 import { apiFetch } from '../../services/api'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
+import { PRODUCT_CONFLICT, refreshOnConflict } from '../../services/conflicts'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import Pager from '../../components/admin/Pager'
 import CategoryFilterBar from '../../components/admin/menu/CategoryFilterBar'
@@ -246,11 +247,17 @@ export default function AdminMenu() {
 
   async function handleSaveProduct(payload, editingId, pendingImageFile) {
     const body = editingId ? payload : scopeBody(payload)
-    const result = await apiFetch(editingId ? `/products/${editingId}` : '/products', {
-      method: editingId ? 'PATCH' : 'POST',
-      token,
-      body: JSON.stringify(body),
-    })
+    // a 409 (the product changed meanwhile, e.g. was moved to another restaurant) applied nothing: the list is re-read and the form stays
+    // open with its pending edits and the explanation; the save is never sent again by itself
+    const result = await refreshOnConflict(
+      () =>
+        apiFetch(editingId ? `/products/${editingId}` : '/products', {
+          method: editingId ? 'PATCH' : 'POST',
+          token,
+          body: JSON.stringify(body),
+        }),
+      { code: PRODUCT_CONFLICT, refresh: refreshProducts },
+    )
 
     // New product + a photo was picked before it existed: upload it now,
     // automatically — no second manual save. If the product was created but
@@ -280,20 +287,30 @@ export default function AdminMenu() {
   async function handleUploadProductImage(productId, file) {
     const formData = new FormData()
     formData.append('file', file)
-    const updated = await apiFetch(`/products/${productId}/image`, {
-      method: 'POST',
-      token,
-      body: formData,
-    })
+    // if the product changed meanwhile (409: e.g. moved to another restaurant) nothing was applied: the list is re-read (a GET, scoped to
+    // the active restaurant) and the form shows the explanation; the upload is never sent again by itself
+    const updated = await refreshOnConflict(
+      () =>
+        apiFetch(`/products/${productId}/image`, {
+          method: 'POST',
+          token,
+          body: formData,
+        }),
+      { code: PRODUCT_CONFLICT, refresh: refreshProducts },
+    )
     await loadProducts()
     return updated
   }
 
   async function handleRemoveProductImage(productId) {
-    const updated = await apiFetch(`/products/${productId}/image`, {
-      method: 'DELETE',
-      token,
-    })
+    const updated = await refreshOnConflict(
+      () =>
+        apiFetch(`/products/${productId}/image`, {
+          method: 'DELETE',
+          token,
+        }),
+      { code: PRODUCT_CONFLICT, refresh: refreshProducts },
+    )
     await loadProducts()
     return updated
   }

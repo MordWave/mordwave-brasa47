@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext'
 import { useActiveBusiness } from '../tenant/useActiveBusiness'
 import { apiFetch } from '../services/api'
 import { translateApiError } from '../services/errorMessages'
+import { ORDER_CONFLICT, refreshOnConflict } from '../services/conflicts'
 import OrderCard from '../components/admin/OrderCard'
 import OrderHistoryModal from '../components/admin/OrderHistoryModal'
 import PrintTicket from '../components/admin/PrintTicket'
@@ -60,6 +61,18 @@ export default function AdminApp({ businessName }) {
     }
   }, [token, scopePath])
 
+  const loadCancelled = useCallback(async () => {
+    const data = await apiFetch(scopePath(`/orders/admin?status=CANCELLED&limit=${CANCELLED_RECENT_LIMIT}`), { token })
+    setCancelledOrders(data)
+  }, [token, scopePath])
+
+  // Read-only: brings the board back to what is stored. Used when another administrator changed an order first (HTTP 409): the card
+  // the person just acted on then shows its real state. It never sends a write.
+  const refreshBoard = useCallback(
+    () => Promise.all([loadNew(), loadDelivered(), cancelledOpen ? loadCancelled() : null]),
+    [loadNew, loadDelivered, loadCancelled, cancelledOpen],
+  )
+
   // Nuevos: cola activa, se refresca seguido. Entregados: se carga al
   // montar y se refresca cada bastante más — ya no se borran, así que solo
   // crece, y no hace falta verlo cambiar en tiempo real.
@@ -79,11 +92,16 @@ export default function AdminApp({ businessName }) {
     if (deliveringIds.has(order.id)) return // already in flight for this order — ignore the extra click
     setDeliveringIds((prev) => new Set(prev).add(order.id))
     try {
-      const updated = await apiFetch(`/orders/${order.id}/status`, {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({ status: 'DELIVERED' }),
-      })
+      // if another administrator already changed this order (409) the board is re-read, never the write repeated
+      const updated = await refreshOnConflict(
+        () =>
+          apiFetch(`/orders/${order.id}/status`, {
+            method: 'PATCH',
+            token,
+            body: JSON.stringify({ status: 'DELIVERED' }),
+          }),
+        { code: ORDER_CONFLICT, refresh: refreshBoard },
+      )
       setNewOrders((prev) => prev.filter((o) => o.id !== order.id))
       setDeliveredOrders((prev) => {
         // Defensive: never let the same order occupy two of the recent
@@ -111,11 +129,16 @@ export default function AdminApp({ businessName }) {
       confirmLabel: 'Cancelar pedido',
       cancelLabel: 'Volver',
       onConfirm: async () => {
-        const updated = await apiFetch(`/orders/${order.id}/status`, {
-          method: 'PATCH',
-          token,
-          body: JSON.stringify({ status: 'CANCELLED' }),
-        })
+        // on a 409 the board is re-read and the dialog keeps the explanation; the cancellation is never sent again by itself
+        const updated = await refreshOnConflict(
+          () =>
+            apiFetch(`/orders/${order.id}/status`, {
+              method: 'PATCH',
+              token,
+              body: JSON.stringify({ status: 'CANCELLED' }),
+            }),
+          { code: ORDER_CONFLICT, refresh: refreshBoard },
+        )
         setNewOrders((prev) => prev.filter((o) => o.id !== order.id))
         setCancelledOrders((prev) => [updated, ...prev].slice(0, CANCELLED_RECENT_LIMIT))
       },
@@ -128,8 +151,7 @@ export default function AdminApp({ businessName }) {
     setCancelledOpen(opening)
     if (!opening) return
     try {
-      const data = await apiFetch(scopePath(`/orders/admin?status=CANCELLED&limit=${CANCELLED_RECENT_LIMIT}`), { token })
-      setCancelledOrders(data)
+      await loadCancelled()
     } catch (err) {
       toast.error(translateApiError(err))
     }
