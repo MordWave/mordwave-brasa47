@@ -1,4 +1,17 @@
 {
+  "redirects": [
+    {
+      "source": "/:path(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "^(?:mordwave-brasa47(?:-[a-z0-9-]+)?-waltermarcelo01-9975s-projects|mordwave-brasa47)\\.vercel\\.app$"
+        }
+      ],
+      "destination": "https://mordwave-brasa47-web-production.up.railway.app/:path",
+      "statusCode": 302
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
