@@ -87,7 +87,8 @@ jobs:
           secret="$(openssl rand -hex 32)"
           echo "::add-mask::$secret"
           echo "JWT_SECRET=$secret" >> "$GITHUB_ENV"
-      # `pretest:e2e` builds the app first. The JSON report is written even when tests fail.
+      # `pretest:e2e` builds the app first. The JSON report is written even when tests fail. The runner has 2 vCPUs, so the
+      # 4 workers set in vitest.config.e2e.ts can starve each other and push slow tests past the 5 s test timeout.
       - name: Run the standard e2e suite (PGlite)
         run: |
           npm run test:e2e -- \
@@ -95,6 +96,7 @@ jobs:
             --exclude '**/order-status-concurrency.e2e-spec.ts' \
             --exclude '**/product-concurrency.e2e-spec.ts' \
             --exclude '**/table-concurrency.e2e-spec.ts' \
+            --maxWorkers=2 \
             --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/e2e-report.json"
       # A green exit code is not enough: fail on a missing or invalid report, on any skipped, failed or todo test, when a
       # file that should have run is missing from the report (or an excluded one is in it), and when fewer tests ran than
