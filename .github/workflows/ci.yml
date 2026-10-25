@@ -59,11 +59,118 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  # Standard e2e suite: every test file runs against its own in-memory PGlite, so no database or credential is needed.
+  # The four suites that need a real PostgreSQL (REAL_PG_ADMIN_URL) are excluded here and are NOT covered by this job:
+  # without that variable they would only be reported as skipped.
+  backend-e2e:
+    name: backend-e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # backend/package.json engines: node >=24.11.0 <25.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: node --version && npm --version
+      - run: npm ci
+      # The app refuses to boot without a JWT secret. This one is random, lives only in this job and protects nothing.
+      - name: Create a throwaway JWT secret for the test app
+        run: |
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$secret"
+          echo "JWT_SECRET=$secret" >> "$GITHUB_ENV"
+      # `pretest:e2e` builds the app first. The JSON report is written even when tests fail.
+      - name: Run the standard e2e suite (PGlite)
+        run: |
+          npm run test:e2e -- \
+            --exclude '**/category-concurrency.e2e-spec.ts' \
+            --exclude '**/order-status-concurrency.e2e-spec.ts' \
+            --exclude '**/product-concurrency.e2e-spec.ts' \
+            --exclude '**/table-concurrency.e2e-spec.ts' \
+            --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/e2e-report.json"
+      # A green exit code is not enough: fail on a missing or invalid report, on any skipped, failed or todo test, when a
+      # file that should have run is missing from the report (or an excluded one is in it), and when fewer tests ran than
+      # the 742 measured on main (raise MIN_TESTS when tests are added).
+      - name: Check the e2e report
+        if: ${{ !cancelled() }}
+        run: |
+          node --input-type=module - <<'NODE'
+          import { existsSync, readFileSync, readdirSync, appendFileSync } from 'node:fs';
+          import { basename } from 'node:path';
+
+          const MIN_TESTS = 742;
+          const EXCLUDED = [
+            'category-concurrency.e2e-spec.ts',
+            'order-status-concurrency.e2e-spec.ts',
+            'product-concurrency.e2e-spec.ts',
+            'table-concurrency.e2e-spec.ts',
+          ];
+          const problems = [];
+          const fail = (message) => problems.push(message);
+
+          const reportPath = `${process.env.RUNNER_TEMP}/e2e-report.json`;
+          let report;
+          if (!existsSync(reportPath)) {
+            fail('the JSON report was not written');
+          } else {
+            try {
+              report = JSON.parse(readFileSync(reportPath, 'utf8'));
+            } catch {
+              fail('the JSON report is not valid JSON');
+            }
+          }
+
+          let summary = 'no report';
+          if (report) {
+            const counts = ['numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests'];
+            if (!counts.every((key) => Number.isInteger(report[key])) || !Array.isArray(report.testResults)) {
+              fail('the JSON report does not have the expected shape');
+            } else {
+              const { numTotalTests: total, numPassedTests: passed, numFailedTests: failed, numPendingTests: skipped, numTodoTests: todo } = report;
+              summary = `${passed} passed, ${failed} failed, ${skipped} skipped, ${todo} todo, ${total} total in ${report.testResults.length} files`;
+              if (failed !== 0) fail(`${failed} failed test(s)`);
+              if (skipped !== 0) fail(`${skipped} skipped test(s)`);
+              if (todo !== 0) fail(`${todo} todo test(s)`);
+              if (passed !== total) fail(`only ${passed} of ${total} tests passed`);
+              if (passed < MIN_TESTS) fail(`${passed} tests passed, fewer than the ${MIN_TESTS} expected`);
+              if (report.success !== true) fail('the report says success is not true');
+
+              const reported = report.testResults.map((file) => basename(file.name));
+              const expected = readdirSync('test').filter((name) => name.endsWith('.e2e-spec.ts') && !EXCLUDED.includes(name));
+              for (const name of expected) if (!reported.includes(name)) fail(`${name} did not run`);
+              for (const name of reported) if (!expected.includes(name)) fail(`${name} ran but was not expected`);
+              if (new Set(reported).size !== reported.length) fail('a file appears more than once in the report');
+              for (const file of report.testResults) {
+                const states = file.assertionResults.map((test) => test.status);
+                if (file.status !== 'passed' || states.length === 0 || states.some((state) => state !== 'passed')) {
+                  fail(`${basename(file.name)} did not fully pass`);
+                }
+              }
+              console.log(`expected files: ${expected.length}, reported files: ${reported.length}`);
+            }
+          }
+
+          console.log(`e2e report: ${summary}`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### backend-e2e\n\n${summary}\n\n${problems.map((p) => `- ${p}`).join('\n')}\n`);
+          if (problems.length > 0) {
+            for (const problem of problems) console.error(`::error::${problem}`);
+            process.exit(1);
+          }
+          NODE
+
   # The single check to look at before merging: green only when every required job succeeded. `always()` makes it run
   # (and fail) when a needed job failed, was cancelled or was skipped.
   ci-ok:
     name: ci-ok
-    needs: [frontend, backend]
+    needs: [frontend, backend, backend-e2e]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -73,10 +180,12 @@ jobs:
         env:
           FRONTEND: ${{ needs.frontend.result }}
           BACKEND: ${{ needs.backend.result }}
+          BACKEND_E2E: ${{ needs.backend-e2e.result }}
         run: |
           echo "frontend: $FRONTEND"
           echo "backend: $BACKEND"
-          if [ "$FRONTEND" != "success" ] || [ "$BACKEND" != "success" ]; then
+          echo "backend-e2e: $BACKEND_E2E"
+          if [ "$FRONTEND" != "success" ] || [ "$BACKEND" != "success" ] || [ "$BACKEND_E2E" != "success" ]; then
             echo "A required job did not succeed."
             exit 1
           fi
