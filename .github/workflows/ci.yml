@@ -168,6 +168,163 @@ jobs:
           }
           NODE
 
+  # The four concurrency suites need a REAL PostgreSQL with independent connections (PGlite has one), so this job runs
+  # them against a throwaway postgres:18 service container: no volume, reachable only on the runner's own loopback, and
+  # with a user and password that exist nowhere else. Each suite creates its own `e2e_*` database and drops it afterwards.
+  # NOT required by `ci-ok` yet: it is being measured first, and a failure here shows up as a red job on its own.
+  backend-realpg:
+    name: backend-realpg
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci_realpg
+          POSTGRES_PASSWORD: ci-realpg-throwaway
+          POSTGRES_DB: postgres
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U ci_realpg -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # backend/package.json engines: node >=24.11.0 <25.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: node --version && npm --version
+      - run: npm ci
+      # The suites import code that reads a JWT secret. This one is random, lives only in this job and protects nothing.
+      - name: Create a throwaway JWT secret for the test app
+        run: |
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$secret"
+          echo "JWT_SECRET=$secret" >> "$GITHUB_ENV"
+      - name: Show the PostgreSQL service facts
+        env:
+          PG_URL: postgresql://ci_realpg:ci-realpg-throwaway@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres
+        run: |
+          node --input-type=module - <<'NODE'
+          import pg from 'pg';
+
+          const client = new pg.Client({ connectionString: process.env.PG_URL });
+          await client.connect();
+          const one = async (sql) => (await client.query(sql)).rows[0];
+          const server = await one(`SELECT current_setting('server_version') AS version, current_setting('max_connections') AS max_connections, current_setting('is_superuser') AS superuser`);
+          const ext = await one(`SELECT e.default_version, v.trusted, (SELECT extversion FROM pg_extension WHERE extname = 'uuid-ossp') AS installed FROM pg_available_extensions e JOIN pg_available_extension_versions v ON v.name = e.name AND v.version = e.default_version WHERE e.name = 'uuid-ossp'`);
+          await client.end();
+          console.log(`PostgreSQL ${server.version} | max_connections ${server.max_connections} | superuser ${server.superuser}`);
+          console.log(ext ? `uuid-ossp available: ${ext.default_version}, trusted ${ext.trusted}, installed before the tests: ${ext.installed ?? 'no'}` : 'uuid-ossp is NOT available');
+          if (!ext || server.superuser !== 'on' || Number(server.version.split('.')[0]) < 18) process.exit(1);
+          NODE
+      # The URL points only at the service container above (the suites also refuse anything that is not loopback, and
+      # isolate-e2e-env.ts blocks every non-loopback connection). Selecting the files by name, not by pattern.
+      - name: Run the concurrency suites against PostgreSQL 18
+        env:
+          REAL_PG_ADMIN_URL: postgresql://ci_realpg:ci-realpg-throwaway@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres
+        run: |
+          npm run test:e2e -- \
+            category-concurrency order-status-concurrency product-concurrency table-concurrency \
+            --no-file-parallelism \
+            --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/realpg-report.json"
+      # Without REAL_PG_ADMIN_URL these suites are skipped silently and the run still exits 0, so the report decides:
+      # exactly these four files, every test passed, none skipped or todo, and at least the 72 measured on main.
+      - name: Check the concurrency report
+        if: ${{ !cancelled() }}
+        run: |
+          node --input-type=module - <<'NODE'
+          import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+          import { basename } from 'node:path';
+
+          // Minimum number of tests per file (22 + 11 + 20 + 19 = 72 measured on main); raise when tests are added.
+          const EXPECTED = {
+            'category-concurrency.e2e-spec.ts': 22,
+            'order-status-concurrency.e2e-spec.ts': 11,
+            'product-concurrency.e2e-spec.ts': 20,
+            'table-concurrency.e2e-spec.ts': 19,
+          };
+          const MIN_TESTS = Object.values(EXPECTED).reduce((a, b) => a + b, 0);
+          const problems = [];
+          const fail = (message) => problems.push(message);
+
+          const reportPath = `${process.env.RUNNER_TEMP}/realpg-report.json`;
+          let report;
+          if (!existsSync(reportPath)) {
+            fail('the JSON report was not written');
+          } else {
+            try {
+              report = JSON.parse(readFileSync(reportPath, 'utf8'));
+            } catch {
+              fail('the JSON report is not valid JSON');
+            }
+          }
+
+          let summary = 'no report';
+          if (report) {
+            const counts = ['numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests'];
+            if (!counts.every((key) => Number.isInteger(report[key])) || !Array.isArray(report.testResults)) {
+              fail('the JSON report does not have the expected shape');
+            } else {
+              const { numTotalTests: total, numPassedTests: passed, numFailedTests: failed, numPendingTests: skipped, numTodoTests: todo } = report;
+              summary = `${passed} passed, ${failed} failed, ${skipped} skipped, ${todo} todo, ${total} total in ${report.testResults.length} files`;
+              if (failed !== 0) fail(`${failed} failed test(s)`);
+              if (skipped !== 0) fail(`${skipped} skipped test(s)`);
+              if (todo !== 0) fail(`${todo} todo test(s)`);
+              if (passed !== total) fail(`only ${passed} of ${total} tests passed`);
+              if (passed < MIN_TESTS) fail(`${passed} tests passed, fewer than the ${MIN_TESTS} expected`);
+              if (report.success !== true) fail('the report says success is not true');
+
+              const reported = report.testResults.map((file) => basename(file.name));
+              for (const name of Object.keys(EXPECTED)) if (!reported.includes(name)) fail(`${name} did not run`);
+              for (const name of reported) if (!(name in EXPECTED)) fail(`${name} ran but was not expected`);
+              if (new Set(reported).size !== reported.length) fail('a file appears more than once in the report');
+              for (const file of report.testResults) {
+                const name = basename(file.name);
+                const states = file.assertionResults.map((test) => test.status);
+                if (file.status !== 'passed' || states.length === 0 || states.some((state) => state !== 'passed')) {
+                  fail(`${name} did not fully pass`);
+                }
+                if (name in EXPECTED && states.length < EXPECTED[name]) fail(`${name} ran ${states.length} tests, fewer than the ${EXPECTED[name]} expected`);
+                console.log(`${name}: ${states.length} tests, ${file.status}`);
+              }
+            }
+          }
+
+          console.log(`concurrency report: ${summary}`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### backend-realpg\n\n${summary}\n\n${problems.map((p) => `- ${p}`).join('\n')}\n`);
+          if (problems.length > 0) {
+            for (const problem of problems) console.error(`::error::${problem}`);
+            process.exit(1);
+          }
+          NODE
+      # The suites drop their own database in afterAll; a leftover means that cleanup failed.
+      - name: Report leftover E2E databases
+        if: ${{ !cancelled() }}
+        env:
+          PG_URL: postgresql://ci_realpg:ci-realpg-throwaway@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres
+        run: |
+          node --input-type=module - <<'NODE'
+          import pg from 'pg';
+
+          const client = new pg.Client({ connectionString: process.env.PG_URL });
+          await client.connect();
+          const { rows } = await client.query(`SELECT datname FROM pg_database WHERE datname LIKE 'e2e\\_%'`);
+          await client.end();
+          console.log(`leftover e2e databases: ${rows.length}`);
+          if (rows.length > 0) console.log(`::warning::${rows.length} e2e database(s) were not dropped: ${rows.map((row) => row.datname).join(', ')}`);
+          NODE
+
   # The single check to look at before merging: green only when every required job succeeded. `always()` makes it run
   # (and fail) when a needed job failed, was cancelled or was skipped.
   ci-ok:
