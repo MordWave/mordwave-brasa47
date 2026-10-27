@@ -448,9 +448,18 @@ describe.skipIf(!ADMIN_URL)('ProductService under real concurrency (e2e, real lo
     it('L. errors are a plain NotFound / Forbidden / Conflict, never a 500', async () => {
       const p = await newProduct();
       await softDelete(p.id);
-      for (const call of [service().update(p.id, { price: 1 }, adminA), service().removeImage(p.id, adminA), service().attachImage(p.id, adminA, { buffer: Buffer.alloc(8), size: 8 })]) {
-        await expect(call).rejects.toBeInstanceOf(NotFoundException);
-      }
+      // The three calls run at the same time and every one gets a rejection handler the moment it exists (allSettled). Awaiting them
+      // one by one left the later ones rejecting with no handler yet, which Vitest reports as an unhandled error (exit code 1) even
+      // though every test passed.
+      const calls = ['update', 'removeImage', 'attachImage'];
+      const results = await Promise.allSettled([
+        service().update(p.id, { price: 1 }, adminA),
+        service().removeImage(p.id, adminA),
+        service().attachImage(p.id, adminA, { buffer: Buffer.alloc(8), size: 8 }),
+      ]);
+      expect(results.map((result, i) => ({ call: calls[i], status: result.status, notFound: result.status === 'rejected' && result.reason instanceof NotFoundException }))).toEqual(
+        calls.map((call) => ({ call, status: 'rejected', notFound: true })),
+      );
       expect(ForbiddenException).toBeDefined();
       expect(ConflictException).toBeDefined();
     });
