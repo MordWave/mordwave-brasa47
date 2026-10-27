@@ -171,7 +171,7 @@ jobs:
   # The four concurrency suites need a REAL PostgreSQL with independent connections (PGlite has one), so this job runs
   # them against a throwaway postgres:18 service container: no volume, reachable only on the runner's own loopback, and
   # with a user and password that exist nowhere else. Each suite creates its own `e2e_*` database and drops it afterwards.
-  # NOT required by `ci-ok` yet: it is being measured first, and a failure here shows up as a red job on its own.
+  # Required by `ci-ok`: if this job fails, is cancelled or is skipped, `ci-ok` fails too.
   backend-realpg:
     name: backend-realpg
     runs-on: ubuntu-24.04
