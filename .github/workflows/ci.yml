@@ -326,10 +326,10 @@ jobs:
           NODE
 
   # The single check to look at before merging: green only when every required job succeeded. `always()` makes it run
-  # (and fail) when a needed job failed, was cancelled or was skipped.
+  # (and fail) when a needed job failed, was cancelled or was skipped. Required: frontend, backend, backend-e2e and backend-realpg.
   ci-ok:
     name: ci-ok
-    needs: [frontend, backend, backend-e2e]
+    needs: [frontend, backend, backend-e2e, backend-realpg]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -340,11 +340,13 @@ jobs:
           FRONTEND: ${{ needs.frontend.result }}
           BACKEND: ${{ needs.backend.result }}
           BACKEND_E2E: ${{ needs.backend-e2e.result }}
+          BACKEND_REALPG: ${{ needs.backend-realpg.result }}
         run: |
           echo "frontend: $FRONTEND"
           echo "backend: $BACKEND"
           echo "backend-e2e: $BACKEND_E2E"
-          if [ "$FRONTEND" != "success" ] || [ "$BACKEND" != "success" ] || [ "$BACKEND_E2E" != "success" ]; then
+          echo "backend-realpg: $BACKEND_REALPG"
+          if [ "$FRONTEND" != "success" ] || [ "$BACKEND" != "success" ] || [ "$BACKEND_E2E" != "success" ] || [ "$BACKEND_REALPG" != "success" ]; then
             echo "A required job did not succeed."
             exit 1
           fi
