@@ -74,6 +74,25 @@ function gatedRepo<T extends object>(repository: T, g: Gate): T {
   });
 }
 
+// Records the qr_token a request OBSERVED: the one its first findOne returned, which is the token its UPDATE is conditioned on.
+function observingRepo<T extends object>(repository: T): { repo: T; seen: { token?: string } } {
+  const seen: { token?: string } = {};
+  const repo = new Proxy(repository, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop) as unknown;
+      if (prop === 'findOne') {
+        return async (...args: unknown[]) => {
+          const row = await (value as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+          if (seen.token === undefined && row) seen.token = (row as { qrToken?: string }).qrToken;
+          return row;
+        };
+      }
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  return { repo, seen };
+}
+
 type Outcome<T = unknown> = { ok: true; value: T } | { ok: false; status: number; code?: string };
 const settle = <T,>(p: Promise<T>): Promise<Outcome<T>> =>
   p.then(
@@ -232,17 +251,58 @@ describe.skipIf(!ADMIN_URL)('TableService under real concurrency (e2e, real loca
       expect((await row(t.id)).qr).toBe((first as { value: { qrToken: string } }).value.qrToken);
     });
 
-    it('4b. natural concurrency, 40 rounds of two simultaneous rotations: always exactly one winner and the stored token is the winner\'s', async () => {
-      let bad = 0;
+    // The contract is about rotations that OBSERVED the same token (the UPDATE is conditioned on `qr_token = observed`): of those, exactly one
+    // wins and the other is a 409. Two calls whose read-then-write windows do not overlap are just two rotations one after the other: BOTH
+    // succeed, the second one having observed the first one's new token. Which of the two happens depends on scheduling (and on how warm the
+    // connection pool is), so a round is judged by what each request actually observed, never by the order of the answers.
+    type Rotation = Outcome<{ qrToken: string }>;
+    const judgeRotationRound = (initial: string, a: Rotation, b: Rotation, seenA: string | undefined, seenB: string | undefined, stored: string): { kind: 'conflict' | 'sequential' | 'invalid'; problems: string[] } => {
+      const isConflict = (o: Rotation) => !o.ok && o.status === 409 && o.code === 'TABLE_CONCURRENT_MODIFICATION';
+      const answers: Array<[string, Rotation]> = [['a', a], ['b', b]];
+      const unexpected = answers.flatMap(([who, o]) => (o.ok || isConflict(o) ? [] : [`${who} answered ${o.status}${o.code ? ` ${o.code}` : ''}: neither a rotation nor the 409 conflict`]));
+      if (unexpected.length > 0) return { kind: 'invalid', problems: unexpected };
+      if (seenA === undefined || seenB === undefined) return { kind: 'invalid', problems: ['a request did not read the table'] };
+      if (!a.ok && !b.ok) return { kind: 'invalid', problems: ['both requests were answered 409: nobody rotated'] };
+      if (stored === initial) return { kind: 'invalid', problems: ['the stored token is still the initial one'] };
+
+      if (a.ok !== b.ok) {
+        const winner = a.ok ? a : (b as { ok: true; value: { qrToken: string } });
+        const winnerSeen = a.ok ? seenA : seenB;
+        const loserSeen = a.ok ? seenB : seenA;
+        const problems: string[] = [];
+        if (winnerSeen !== initial) problems.push('the winner did not observe the initial token');
+        if (loserSeen !== initial) problems.push('the 409 loser did not observe the initial token, so it had no reason to lose');
+        if (winner.value.qrToken === initial || winner.value.qrToken !== stored) problems.push('the stored token is not the winner\'s new token');
+        return { kind: 'conflict', problems };
+      }
+
+      // Both succeeded: that is only valid as a chain initial -> first's token -> second's token, the second having observed the first's.
+      const tokenA = a.ok ? a.value.qrToken : '';
+      const tokenB = b.ok ? b.value.qrToken : '';
+      const aFirst = seenA === initial && seenB === tokenA;
+      const bFirst = seenB === initial && seenA === tokenB;
+      const problems: string[] = [];
+      if (tokenA === tokenB || tokenA === initial || tokenB === initial) problems.push('the rotations did not produce two new, different tokens');
+      if (!aFirst && !bFirst) problems.push('both succeeded but not as a chain: a lost update (each request should have observed either the initial token or the other one\'s new token, exactly one of each)');
+      else if (stored !== (aFirst ? tokenB : tokenA)) problems.push('the stored token is not the one of the LAST rotation in the chain');
+      return { kind: 'sequential', problems };
+    };
+
+    it('4b. natural concurrency, 40 rounds of two simultaneous rotations: overlapping ones give exactly one winner and a 409, sequential ones chain, and the stored token is always the last winner\'s', async () => {
+      const failures: string[] = [];
+      const counts = { conflict: 0, sequential: 0 };
       for (let i = 0; i < 40; i++) {
         const t = await newTable();
-        const [a, b] = await Promise.all([settle(service().rotateQr(t.id, adminA)), settle(service().rotateQr(t.id, adminA))]);
-        const winners = [a, b].filter((x) => x.ok) as Array<{ ok: true; value: { qrToken: string } }>;
-        const losers = [a, b].filter((x) => !x.ok);
+        const ra = observingRepo(tRepo());
+        const rb = observingRepo(tRepo());
+        const [a, b] = await Promise.all([settle(service(ra.repo).rotateQr(t.id, adminA)), settle(service(rb.repo).rotateQr(t.id, adminA))]);
         const stored = (await row(t.id)).qr;
-        if (winners.length !== 1 || losers.length !== 1 || winners[0]!.value.qrToken !== stored || (losers[0] as { status: number }).status !== 409) bad += 1;
+        const verdict = judgeRotationRound(t.qrToken, a, b, ra.seen.token, rb.seen.token, stored);
+        if (verdict.kind !== 'invalid') counts[verdict.kind] += 1;
+        for (const problem of verdict.problems) failures.push(`round ${i + 1} (${verdict.kind}): ${problem}`);
       }
-      expect(bad).toBe(0);
+      console.info(`4b: ${counts.conflict} rounds overlapped (one winner + 409), ${counts.sequential} ran one after the other (chained), 40 in total`);
+      expect(failures).toEqual([]);
     });
 
     it('4c. a rotation NEXT to a rename (no token conflict) never conflicts: both apply, in any order', async () => {
