@@ -3,7 +3,7 @@
 // same for QueryFailedError (TypeORM wraps the pg error in `driverError`),
 // raw pg-pool errors and body-parser's http-errors.
 
-export type InfrastructureErrorKind = 'timeout' | 'unavailable' | 'payload-too-large';
+export type InfrastructureErrorKind = 'timeout' | 'unavailable' | 'payload-too-large' | 'unsupported-content-encoding';
 
 // SQLSTATE
 const TIMEOUT_SQLSTATES = new Set([
@@ -61,6 +61,12 @@ export function classifyInfrastructureError(error: unknown): InfrastructureError
   // body-parser (http-errors): { type: 'entity.too.large', status: 413 }
   if (head && typeof head === 'object' && (head.type === 'entity.too.large' || (head.statusCode === 413 && head.status === 413))) {
     return 'payload-too-large';
+  }
+  // body-parser (http-errors) with `inflate: false`, for a body that carries a Content-Encoding:
+  // { type: 'encoding.unsupported', status: 415 }. Looked up along `cause` too, so it still matches if a newer
+  // @nestjs/platform-express wraps http-errors in an HttpException.
+  if (chain(error).some((item) => item.type === 'encoding.unsupported')) {
+    return 'unsupported-content-encoding';
   }
 
   for (const item of chain(error)) {

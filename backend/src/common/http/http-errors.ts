@@ -17,6 +17,21 @@ export class PayloadTooLargeError extends HttpException {
   }
 }
 
+// 415: the request body carries a Content-Encoding (gzip, deflate, br, zstd). The body parsers are registered with
+// `inflate: false` (see app.setup.ts), so they refuse it before any decompression stream exists.
+export class UnsupportedContentEncodingError extends HttpException {
+  constructor() {
+    super(
+      {
+        statusCode: HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+        errorCode: ERROR_CODES.UNSUPPORTED_CONTENT_ENCODING,
+        message: 'Content encoding not supported',
+      },
+      HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+    );
+  }
+}
+
 // 504: the server gave up waiting (logical request deadline, or a database
 // statement/query that ran too long).
 export class RequestTimeoutError extends HttpException {

@@ -4,6 +4,7 @@ import {
   PayloadTooLargeError,
   RequestTimeoutError,
   TemporarilyUnavailableError,
+  UnsupportedContentEncodingError,
 } from './http-errors.js';
 import { classifyInfrastructureError } from './infrastructure-error.util.js';
 
@@ -23,7 +24,9 @@ export class InfrastructureExceptionFilter extends BaseExceptionFilter {
       return;
     }
 
-    if (kind !== 'payload-too-large') {
+    // A client mistake answered with a controlled 4xx (too large, compressed body): not logged, so unauthenticated
+    // requests cannot fill the logs with stack traces.
+    if (kind !== 'payload-too-large' && kind !== 'unsupported-content-encoding') {
       const error = exception as { name?: string; code?: string; message?: string };
       this.logger.error(
         `infrastructure_error kind=${kind} type=${error?.name ?? 'unknown'} code=${error?.code ?? '-'} message=${error?.message ?? '-'}`,
@@ -35,7 +38,9 @@ export class InfrastructureExceptionFilter extends BaseExceptionFilter {
         ? new RequestTimeoutError()
         : kind === 'unavailable'
           ? new TemporarilyUnavailableError()
-          : new PayloadTooLargeError();
+          : kind === 'unsupported-content-encoding'
+            ? new UnsupportedContentEncodingError()
+            : new PayloadTooLargeError();
     super.catch(mapped, host);
   }
 }

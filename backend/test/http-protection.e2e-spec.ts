@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   Inject,
+  Logger,
   Module,
   Post,
   Query,
@@ -19,7 +20,7 @@ import { Test } from '@nestjs/testing';
 import { memoryStorage } from 'multer';
 import request from 'supertest';
 import { DataSource, QueryFailedError } from 'typeorm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { configureHttpApp } from '../src/app.setup.js';
 import { HttpProtectionModule } from '../src/common/http/http-protection.module.js';
@@ -44,6 +45,12 @@ const PAYLOAD_TOO_LARGE = {
   statusCode: 413,
   errorCode: 'PAYLOAD_TOO_LARGE',
   message: 'Payload too large',
+};
+
+const UNSUPPORTED_CONTENT_ENCODING = {
+  statusCode: 415,
+  errorCode: 'UNSUPPORTED_CONTENT_ENCODING',
+  message: 'Content encoding not supported',
 };
 
 // ---------------------------------------------------------------------------
@@ -212,7 +219,7 @@ describe('HTTP protection — minimal app (e2e, no database)', () => {
     };
     const rejected415 = (res: { status: number; body: unknown }) => {
       expect(res.status).toBe(415);
-      expect(res.body).toMatchObject({ statusCode: 415 });
+      expect(res.body).toEqual(UNSUPPORTED_CONTENT_ENCODING);
       expect(JSON.stringify(res.body)).not.toMatch(/stack|node_modules|body-parser|zlib/i);
     };
 
@@ -223,6 +230,17 @@ describe('HTTP protection — minimal app (e2e, no database)', () => {
 
     it.each(COMPRESSORS)('un JSON comprimido con %s recibe 415', async (encoding, compress) => {
       rejected415(await send('/t/json', JSON_TYPE, compress(Buffer.from(JSON.stringify({ a: 1 }))), encoding));
+    });
+
+    it('un cuerpo comprimido rechazado no se registra como ERROR: no deja stack traces en los logs', async () => {
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        rejected415(await send('/t/json', JSON_TYPE, gzipSync(Buffer.from('{"a":1}')), 'gzip'));
+        rejected415(await send('/t/form', FORM_TYPE, zstdCompressSync(Buffer.from('a=1')), 'zstd'));
+        expect(logged).not.toHaveBeenCalled();
+      } finally {
+        logged.mockRestore();
+      }
     });
 
     it('un JSON comprimido que descomprimiría a más de 200 KB también recibe 415: no se llega a descomprimir', async () => {
@@ -433,7 +451,7 @@ describe('HTTP/DB protection — real app on local Postgres (e2e, never Supabase
       .set('Content-Encoding', 'gzip')
       .send(gzipSync(Buffer.from(payload)))
       .expect(415);
-    expect(res.body).toMatchObject({ statusCode: 415 });
+    expect(res.body).toEqual(UNSUPPORTED_CONTENT_ENCODING);
     await login(nextIp()).expect(401); // the same body without compression is handled by the login (wrong credentials)
   });
 
