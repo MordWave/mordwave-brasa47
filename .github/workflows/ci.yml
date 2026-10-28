@@ -68,7 +68,8 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           node check.cjs
           npm run build
-          test -s dist/index.html && ls dist/assets/*.js >/dev/null
+          test -s dist/index.html
+          ls dist/assets/*.js >/dev/null
           # npm 12 blocks unreviewed scripts instead of running them with a notice. Installed only in a temporary directory.
           npm12="$RUNNER_TEMP/npm12"
           rm -rf "$npm12"; mkdir -p "$npm12"
@@ -79,7 +80,8 @@ jobs:
           node "$npm12_cli" ci --strict-allow-scripts --no-audit --no-fund
           node check.cjs
           node "$npm12_cli" run build
-          test -s dist/index.html && ls dist/assets/*.js >/dev/null
+          test -s dist/index.html
+          ls dist/assets/*.js >/dev/null
           neg="$work/without-policy"
           mkdir -p "$neg"; cp package.json package-lock.json "$neg"/
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('$neg/package.json','utf8'));delete p.allowScripts;fs.writeFileSync('$neg/package.json',JSON.stringify(p,null,2))"
