@@ -35,6 +35,7 @@ import { ProductService } from './product.service.js';
   ],
   controllers: [ProductController],
   providers: [ProductService, ProductImageService, ProductPresenter],
-  exports: [TypeOrmModule],
+  // ProductService: reused by the shareable public menu (PublicMenuModule).
+  exports: [TypeOrmModule, ProductService],
 })
 export class ProductModule {}

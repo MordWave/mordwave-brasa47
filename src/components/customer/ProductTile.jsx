@@ -1,17 +1,20 @@
+import { useState } from 'react'
 import { formatPrice } from '../../utils/format'
 
-export default function ProductTile({ product, onSelect }) {
+// readOnly: the shareable menu only shows the product — no button, no "+" (nothing can be added to a cart from there).
+export default function ProductTile({ product, onSelect, readOnly = false }) {
   const unavailable = product.available === false
+  // An image that fails to load falls back to the same placeholder as a product without a photo.
+  const [imageFailed, setImageFailed] = useState(false)
+  const className = `product-tile${unavailable ? ' product-tile--unavailable' : ''}${readOnly ? ' product-tile--readonly' : ''}`
+  const Wrapper = readOnly ? 'article' : 'button'
+  const wrapperProps = readOnly ? {} : { onClick: () => onSelect(product), type: 'button' }
 
   return (
-    <button
-      className={`product-tile${unavailable ? ' product-tile--unavailable' : ''}`}
-      onClick={() => onSelect(product)}
-      type="button"
-    >
+    <Wrapper className={className} {...wrapperProps}>
       <div className="product-tile__media">
-        {product.image ? (
-          <img src={product.image} alt="" loading="lazy" />
+        {product.image && !imageFailed ? (
+          <img src={product.image} alt="" loading="lazy" onError={() => setImageFailed(true)} />
         ) : (
           <div className="product-tile__media-placeholder" aria-hidden="true">
             Sin foto
@@ -29,14 +32,16 @@ export default function ProductTile({ product, onSelect }) {
         <p className="product-tile__desc">{product.description}</p>
         <div className="product-tile__footer">
           <span className="product-tile__price">{formatPrice(product.price)}</span>
-          <span
-            className={`product-tile__add${unavailable ? ' product-tile__add--disabled' : ''}`}
-            aria-hidden="true"
-          >
-            {unavailable ? '—' : '+'}
-          </span>
+          {!readOnly && (
+            <span
+              className={`product-tile__add${unavailable ? ' product-tile__add--disabled' : ''}`}
+              aria-hidden="true"
+            >
+              {unavailable ? '—' : '+'}
+            </span>
+          )}
         </div>
       </div>
-    </button>
+    </Wrapper>
   )
 }
