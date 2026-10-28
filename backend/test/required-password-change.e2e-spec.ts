@@ -130,6 +130,7 @@ describe('Required password change (e2e, real local Postgres)', () => {
     'OrderController.create',
     'ProductController.findAll',
     'ProductController.findOne',
+    'ShareMetaController.getShareMeta', // GET /public/share-meta — <head> fragment for link previews of /menu/:slug (public data only)
     'PublicMenuController.getMenu', // GET /public/menu/:slug — the shareable read-only menu (public data of one restaurant)
     'TableSessionController.join',
     'TableSessionController.status',

@@ -19,6 +19,55 @@
 		file_server
 	}
 
+	# Link previews. WhatsApp & co. read the meta tags of the initial HTML and never run React, so /menu/<slug> is
+	# built from menu-shell.html (index.html whose <title> is a template, see src/seo/menuShell.js): the template asks
+	# /__share-meta, which forwards to GET /public/share-meta on the API, for the <head> tags of that restaurant. The API
+	# is the one the app already uses (VITE_API_URL, also present at runtime) and the public origin is VITE_PUBLIC_URL;
+	# neither is a new variable. If anything fails (no variable, API down or slow, shell missing) handle_errors serves the
+	# plain index.html, so the menu page itself never depends on this.
+	handle /__share-meta {
+		rewrite * /public/share-meta
+		reverse_proxy {$VITE_API_URL:http://127.0.0.1:9} {
+			header_up Host {upstream_hostport}
+			header_up -Cookie
+			header_up -Authorization
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 3s
+			}
+		}
+	}
+
+	# The template source is for the server only.
+	handle /menu-shell.html {
+		respond 404
+	}
+
+	handle /menu/* {
+		rewrite * /menu-shell.html
+		header Cache-Control no-cache
+		templates {
+			between "[#[" "]#]"
+		}
+		file_server
+	}
+
+	handle_errors {
+		# No tags to offer: an empty fragment keeps the template's default <title>.
+		@share path /__share-meta
+		handle @share {
+			respond 200
+		}
+
+		@menu path /menu/*
+		handle @menu {
+			rewrite * /index.html
+			file_server {
+				status 200
+			}
+		}
+	}
+
 	# Everything else is the SPA: existing root files (favicon, ...) are served
 	# as-is, any other route (/admin, /admin/login, /?t=...) falls back to index.html.
 	handle {

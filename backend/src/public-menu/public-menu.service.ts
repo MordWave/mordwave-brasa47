@@ -1,11 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { BUSINESS_SLUG_MAX_LENGTH, BUSINESS_SLUG_MIN_LENGTH, BUSINESS_SLUG_PATTERN } from '../business/dto/create-business.dto.js';
 import { Business } from '../business/business.entity.js';
 import { CategoryService } from '../category/category.service.js';
 import { MediaUrlService } from '../media/media-url.service.js';
 import { ProductService } from '../product/product.service.js';
+import { isBusinessSlug } from './business-slug.util.js';
 
 // What a visitor of the shareable menu may see. An explicit whitelist, field by field: no ids of the business, no
 // storage keys, no users, no timestamps, no ingredients/add-ons (those belong to the ordering flow, not to a read-only menu).
@@ -57,14 +57,7 @@ export class PublicMenuService {
 
   async getMenu(slug: string): Promise<PublicMenu> {
     // A value that cannot be a slug never reaches the database.
-    if (
-      typeof slug !== 'string' ||
-      slug.length < BUSINESS_SLUG_MIN_LENGTH ||
-      slug.length > BUSINESS_SLUG_MAX_LENGTH ||
-      !BUSINESS_SLUG_PATTERN.test(slug)
-    ) {
-      throw new NotFoundException(NOT_FOUND);
-    }
+    if (!isBusinessSlug(slug)) throw new NotFoundException(NOT_FOUND);
     const business = await this.businesses.findOne({
       select: { id: true, name: true, slug: true, logoStorageKey: true, coverStorageKey: true, primaryColor: true, accentColor: true },
       where: { slug, active: true },

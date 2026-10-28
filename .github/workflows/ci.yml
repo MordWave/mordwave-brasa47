@@ -37,6 +37,18 @@ jobs:
         env:
           npm_config_strict_allow_scripts: 'true'
       - run: npm run lint
+      # The Caddyfile integration tests (src/seo/menuShell.caddy.test.js) need the Caddy that Railway builds the web service
+      # with (2.11.7). Pinned release, SHA-512 verified, kept in the runner's temp directory.
+      - name: Install Caddy (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP:?}"
+          curl -fsSL -o caddy.tgz https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz
+          echo "a7a433a1b133efc3c8d10eb0b99d52a24b5ef5c322dc77f5282182b1c0402139ab83f3a99f0c52409df77d20123fb0b523edad8a66d8f5e49136197bf61ef0e7  caddy.tgz" | sha512sum -c -
+          mkdir -p caddy-bin
+          tar -xzf caddy.tgz -C caddy-bin caddy
+          "$RUNNER_TEMP/caddy-bin/caddy" version
+          echo "CADDY_BIN=$RUNNER_TEMP/caddy-bin/caddy" >> "$GITHUB_ENV"
       - run: npm test
       - run: npm run build
       # Install-script canary (Linux, ubuntu-24.04), same idea as in the backend job: the committed tree is installed with
