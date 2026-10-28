@@ -58,13 +58,18 @@ function chain(error: unknown): ErrorLike[] {
 
 export function classifyInfrastructureError(error: unknown): InfrastructureErrorKind | null {
   const head = error as ErrorLike | null | undefined;
-  // body-parser (http-errors): { type: 'entity.too.large', status: 413 }
-  if (head && typeof head === 'object' && (head.type === 'entity.too.large' || (head.statusCode === 413 && head.status === 413))) {
+  // body-parser (http-errors): { type: 'entity.too.large', status: 413 }. Looked up along `cause` too, because
+  // @nestjs/platform-express >= 12.3 wraps the http-errors in an HttpException that keeps the original as its `cause`.
+  // Only the body-parser `type` is matched down the chain: a bare 413 from anywhere else (a Multer file-size rejection,
+  // say) keeps its own response.
+  if (head && typeof head === 'object' && head.statusCode === 413 && head.status === 413) {
+    return 'payload-too-large';
+  }
+  if (chain(error).some((item) => item.type === 'entity.too.large')) {
     return 'payload-too-large';
   }
   // body-parser (http-errors) with `inflate: false`, for a body that carries a Content-Encoding:
-  // { type: 'encoding.unsupported', status: 415 }. Looked up along `cause` too, so it still matches if a newer
-  // @nestjs/platform-express wraps http-errors in an HttpException.
+  // { type: 'encoding.unsupported', status: 415 }, found the same way.
   if (chain(error).some((item) => item.type === 'encoding.unsupported')) {
     return 'unsupported-content-encoding';
   }

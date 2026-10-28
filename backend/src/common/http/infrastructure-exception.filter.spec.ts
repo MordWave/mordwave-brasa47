@@ -1,4 +1,4 @@
-import { BadRequestException, Logger, type ArgumentsHost } from '@nestjs/common';
+import { BadRequestException, HttpException, Logger, PayloadTooLargeException, type ArgumentsHost } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InfrastructureExceptionFilter } from './infrastructure-exception.filter.js';
@@ -111,6 +111,31 @@ describe('InfrastructureExceptionFilter', () => {
         host,
       );
       expect(logged).not.toHaveBeenCalled();
+    });
+
+    it('the same errors wrapped in an HttpException (platform-express >= 12.3) keep their contract and stay unlogged', () => {
+      const tooLarge = Object.assign(new Error('request entity too large'), { type: 'entity.too.large', status: 413, statusCode: 413 });
+      filter.catch(new HttpException('request entity too large', 413, { cause: tooLarge }), host);
+      filter.catch(new HttpException('content encoding unsupported', 415, { cause: encodingUnsupported() }), host);
+      expect(reply).toHaveBeenNthCalledWith(
+        1,
+        {},
+        { statusCode: 413, errorCode: 'PAYLOAD_TOO_LARGE', message: 'Payload too large' },
+        413,
+      );
+      expect(reply).toHaveBeenNthCalledWith(
+        2,
+        {},
+        { statusCode: 415, errorCode: 'UNSUPPORTED_CONTENT_ENCODING', message: 'Content encoding not supported' },
+        415,
+      );
+      expect(logged).not.toHaveBeenCalled();
+    });
+
+    it('other 413s keep their own body: a Multer file-size rejection is not rewritten', () => {
+      filter.catch(new PayloadTooLargeException('File too large'), host);
+      expect(reply.mock.calls[0][1]).toEqual({ statusCode: 413, message: 'File too large', error: 'Payload Too Large' });
+      expect(reply.mock.calls[0][2]).toBe(413);
     });
 
     it('infrastructure failures ARE still logged, with class, code and message only', () => {
