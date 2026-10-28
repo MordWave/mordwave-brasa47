@@ -15,6 +15,7 @@ import securityConfig from './config/security.config.js';
 import { MediaModule } from './media/media.module.js';
 import { OrderModule } from './order/order.module.js';
 import { ProductModule } from './product/product.module.js';
+import { PublicMenuModule } from './public-menu/public-menu.module.js';
 import { RateLimitModule } from './rate-limit/rate-limit.module.js';
 import { TableModule } from './table/table.module.js';
 import { UserModule } from './user/user.module.js';
@@ -36,6 +37,7 @@ import { UserModule } from './user/user.module.js';
     MediaModule,
     CategoryModule,
     ProductModule,
+    PublicMenuModule,
     OrderModule,
     TableModule,
     UserModule,

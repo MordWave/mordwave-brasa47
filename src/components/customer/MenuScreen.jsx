@@ -9,6 +9,7 @@ export const MENU_FALLBACK_NAME = 'Nuestro restaurante'
 //   status        'loading' | 'error' | 'ready'
 //   headerActions node rendered at the right of the header (the real menu puts the theme toggle and the table name there)
 //   registerSection(categoryId, element)  lets the owner observe the sections (scroll tracking); optional
+//   readOnly      the shareable menu: products are shown without the add-to-cart affordance
 //   children      rendered at the end (the real menu puts its product sheet and toast there)
 export default function MenuScreen({
   businessName,
@@ -22,6 +23,7 @@ export default function MenuScreen({
   onSelectCategory,
   onSelectProduct,
   registerSection,
+  readOnly = false,
   children,
 }) {
   const loading = status === 'loading'
@@ -72,7 +74,7 @@ export default function MenuScreen({
 
                 <div className="product-grid">
                   {items.map((product) => (
-                    <ProductTile key={product.id} product={product} onSelect={onSelectProduct} />
+                    <ProductTile key={product.id} product={product} onSelect={onSelectProduct} readOnly={readOnly} />
                   ))}
                 </div>
               </section>

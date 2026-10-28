@@ -6,6 +6,8 @@ import { BusinessContextProvider } from './tenant/BusinessContextProvider'
 import { suspensionEndsSession } from './tenant/tenantCore.js'
 import AdminPanel from './pages/admin/AdminPanel'
 import CustomerApp from './pages/CustomerApp'
+import PublicMenuPage from './pages/PublicMenuPage'
+import { isPublicMenuPath } from './utils/publicMenuRoute.js'
 
 export default function App() {
   const isAdmin = window.location.pathname.replace(/\/+$/, '') === '/admin'
@@ -16,6 +18,8 @@ export default function App() {
     document.documentElement.setAttribute('data-app', isAdmin ? 'admin' : 'customer')
   }, [isAdmin])
 
+  // The shareable, read-only menu (/menu/<slug>): public, no session, no table token, no cart.
+  if (!isAdmin && isPublicMenuPath(window.location.pathname)) return <PublicMenuPage />
   if (!isAdmin) return <CustomerApp />
   return (
     <AuthProvider endsSessionOnSuspension={suspensionEndsSession}>

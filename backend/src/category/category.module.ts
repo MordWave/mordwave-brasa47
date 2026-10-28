@@ -25,6 +25,7 @@ import { CategoryService } from './category.service.js';
   ],
   controllers: [CategoryController],
   providers: [CategoryService],
-  exports: [TypeOrmModule],
+  // CategoryService: reused by the shareable public menu (PublicMenuModule).
+  exports: [TypeOrmModule, CategoryService],
 })
 export class CategoryModule {}
