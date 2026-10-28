@@ -1,6 +1,6 @@
-import { BadRequestException, type ArgumentsHost } from '@nestjs/common';
+import { BadRequestException, Logger, type ArgumentsHost } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InfrastructureExceptionFilter } from './infrastructure-exception.filter.js';
 
 describe('InfrastructureExceptionFilter', () => {
@@ -76,6 +76,48 @@ describe('InfrastructureExceptionFilter', () => {
       { statusCode: 413, errorCode: 'PAYLOAD_TOO_LARGE', message: 'Payload too large' },
       413,
     );
+  });
+
+  describe('body that carries a Content-Encoding (body-parser inflate: false)', () => {
+    const encodingUnsupported = () =>
+      Object.assign(new Error('content encoding unsupported'), {
+        type: 'encoding.unsupported',
+        status: 415,
+        statusCode: 415,
+        expose: true,
+      });
+    let logged: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    });
+    afterEach(() => {
+      logged.mockRestore();
+    });
+
+    it('-> 415 UNSUPPORTED_CONTENT_ENCODING with the standard body', () => {
+      filter.catch(encodingUnsupported(), host);
+      expect(reply).toHaveBeenCalledWith(
+        {},
+        { statusCode: 415, errorCode: 'UNSUPPORTED_CONTENT_ENCODING', message: 'Content encoding not supported' },
+        415,
+      );
+    });
+
+    it('is not logged as an error, so no stack trace reaches the logs (like the 413)', () => {
+      filter.catch(encodingUnsupported(), host);
+      filter.catch(
+        Object.assign(new Error('request entity too large'), { type: 'entity.too.large', status: 413, statusCode: 413 }),
+        host,
+      );
+      expect(logged).not.toHaveBeenCalled();
+    });
+
+    it('infrastructure failures ARE still logged, with class, code and message only', () => {
+      filter.catch(driver('connect ECONNREFUSED db.internal.example:5432', 'ECONNREFUSED'), host);
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(String(logged.mock.calls[0][0])).toMatch(/infrastructure_error kind=unavailable/);
+    });
   });
 
   it('leaves ordinary HttpExceptions untouched', () => {

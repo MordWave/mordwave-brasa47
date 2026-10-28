@@ -17,10 +17,12 @@ describe('applyHttpServerTimeouts', () => {
 });
 
 describe('configureHttpApp', () => {
-  it('replaces only the JSON body parser, with a 200kb limit', () => {
+  it('registers only the JSON parser (200kb limit) and the urlencoded parser (extended), both with inflate: false', () => {
     const useBodyParser = vi.fn();
     configureHttpApp({ useBodyParser } as never);
-    expect(useBodyParser).toHaveBeenCalledTimes(1);
-    expect(useBodyParser).toHaveBeenCalledWith('json', { limit: '200kb' });
+    expect(useBodyParser.mock.calls).toEqual([
+      ['json', { limit: '200kb', inflate: false }],
+      ['urlencoded', { extended: true, inflate: false }],
+    ]);
   });
 });

@@ -1,9 +1,11 @@
 import type { AddressInfo } from 'node:net';
+import { brotliCompressSync, deflateSync, gzipSync, zstdCompressSync } from 'node:zlib';
 import {
   Body,
   Controller,
   Get,
   Inject,
+  Logger,
   Module,
   Post,
   Query,
@@ -18,7 +20,7 @@ import { Test } from '@nestjs/testing';
 import { memoryStorage } from 'multer';
 import request from 'supertest';
 import { DataSource, QueryFailedError } from 'typeorm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { configureHttpApp } from '../src/app.setup.js';
 import { HttpProtectionModule } from '../src/common/http/http-protection.module.js';
@@ -45,6 +47,12 @@ const PAYLOAD_TOO_LARGE = {
   message: 'Payload too large',
 };
 
+const UNSUPPORTED_CONTENT_ENCODING = {
+  statusCode: 415,
+  errorCode: 'UNSUPPORTED_CONTENT_ENCODING',
+  message: 'Content encoding not supported',
+};
+
 // ---------------------------------------------------------------------------
 // Part A — a minimal app (no database) wiring exactly the production
 // building blocks: configureHttpApp (200kb JSON), HttpProtectionModule
@@ -68,6 +76,12 @@ class ProbeController {
   @Post('json')
   json(@Body() body: Record<string, unknown>) {
     return { keys: Object.keys(body).length, size: JSON.stringify(body).length };
+  }
+
+  // Reads an application/x-www-form-urlencoded body (the other parser that Nest registers).
+  @Post('form')
+  form(@Body() body: Record<string, unknown>) {
+    return { keys: Object.keys(body).length, body };
   }
 
   // Same Multer setup as the real image routes.
@@ -185,6 +199,85 @@ describe('HTTP protection — minimal app (e2e, no database)', () => {
         .post('/t/json')
         .send({ data: blob(300 * 1024) })
         .expect(413);
+    });
+  });
+
+  // `configureHttpApp` registers both body parsers with `inflate: false`: a request body that carries a Content-Encoding is
+  // refused with 415 before any decompression stream exists. Nothing in MordWave sends compressed request bodies.
+  describe('cuerpos de petición comprimidos (inflate: false)', () => {
+    const COMPRESSORS: Array<[string, (data: Buffer) => Buffer]> = [
+      ['gzip', gzipSync],
+      ['deflate', deflateSync],
+      ['br', brotliCompressSync],
+      ['zstd', zstdCompressSync],
+    ];
+    const JSON_TYPE = 'application/json';
+    const FORM_TYPE = 'application/x-www-form-urlencoded';
+    const send = (path: string, contentType: string, body: Buffer | string, encoding?: string) => {
+      const req = request(base).post(path).set('Content-Type', contentType);
+      return (encoding ? req.set('Content-Encoding', encoding) : req).send(body);
+    };
+    const rejected415 = (res: { status: number; body: unknown }) => {
+      expect(res.status).toBe(415);
+      expect(res.body).toEqual(UNSUPPORTED_CONTENT_ENCODING);
+      expect(JSON.stringify(res.body)).not.toMatch(/stack|node_modules|body-parser|zlib/i);
+    };
+
+    it('un JSON normal, sin comprimir, sigue funcionando', async () => {
+      const res = await send('/t/json', JSON_TYPE, JSON.stringify({ a: 1, b: 'two' })).expect(201);
+      expect(res.body).toEqual({ keys: 2, size: JSON.stringify({ a: 1, b: 'two' }).length });
+    });
+
+    it.each(COMPRESSORS)('un JSON comprimido con %s recibe 415', async (encoding, compress) => {
+      rejected415(await send('/t/json', JSON_TYPE, compress(Buffer.from(JSON.stringify({ a: 1 }))), encoding));
+    });
+
+    it('un cuerpo comprimido rechazado no se registra como ERROR: no deja stack traces en los logs', async () => {
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        rejected415(await send('/t/json', JSON_TYPE, gzipSync(Buffer.from('{"a":1}')), 'gzip'));
+        rejected415(await send('/t/form', FORM_TYPE, zstdCompressSync(Buffer.from('a=1')), 'zstd'));
+        expect(logged).not.toHaveBeenCalled();
+      } finally {
+        logged.mockRestore();
+      }
+    });
+
+    it('un JSON comprimido que descomprimiría a más de 200 KB también recibe 415: no se llega a descomprimir', async () => {
+      const bomb = gzipSync(Buffer.from(JSON.stringify({ data: blob(250 * 1024) })));
+      expect(bomb.length).toBeLessThan(2_000);
+      rejected415(await send('/t/json', JSON_TYPE, bomb, 'gzip'));
+    });
+
+    it('un urlencoded normal sigue funcionando y conserva `extended` (a[b]=1 es un objeto anidado)', async () => {
+      const res = await send('/t/form', FORM_TYPE, 'a=1&b=two&c[d]=3').expect(201);
+      expect(res.body).toEqual({ keys: 3, body: { a: '1', b: 'two', c: { d: '3' } } });
+    });
+
+    it.each(COMPRESSORS)('un urlencoded comprimido con %s recibe 415', async (encoding, compress) => {
+      rejected415(await send('/t/form', FORM_TYPE, compress(Buffer.from('a=1&b=two')), encoding));
+    });
+
+    it('un urlencoded sin comprimir mantiene su límite por defecto (100 KB): 413 PAYLOAD_TOO_LARGE', async () => {
+      const res = await send('/t/form', FORM_TYPE, `data=${blob(150 * 1024)}`).expect(413);
+      expect(res.body).toEqual(PAYLOAD_TOO_LARGE);
+    });
+
+    it('un JSON inválido sigue devolviendo 400', async () => {
+      await send('/t/json', JSON_TYPE, '{no es json').expect(400);
+    });
+
+    it('hay exactamente un parser JSON y uno urlencoded registrados: ningún otro con `inflate` activo los precede', () => {
+      const stack = (app.getHttpAdapter().getInstance() as { router: { stack: Array<{ name: string }> } }).router.stack;
+      const parsers = stack.map((layer) => layer.name).filter((name) => name.endsWith('Parser'));
+      expect(parsers.sort()).toEqual(['jsonParser', 'urlencodedParser']);
+    });
+
+    it('el servidor sigue funcionando tras los rechazos, y un multipart pequeño sigue llegando a Multer', async () => {
+      expect((app.getHttpServer() as { listening: boolean }).listening).toBe(true);
+      await request(base).get('/t/fast').expect(200);
+      const res = await request(base).post('/t/upload').attach('file', Buffer.alloc(2_048, 1), 'photo.bin').expect(201);
+      expect(res.body).toEqual({ received: 2_048 });
     });
   });
 
@@ -347,6 +440,19 @@ describe('HTTP/DB protection — real app on local Postgres (e2e, never Supabase
     await login(nextIp()).expect(401); // normal path: wrong credentials, not a body problem
     const res = await login(nextIp(), { email: 'a@b.test', password: blob(250 * 1024) }).expect(413);
     expect(res.body).toEqual(PAYLOAD_TOO_LARGE);
+  });
+
+  it('un JSON comprimido recibe 415 en una ruta real, antes de llegar al login, y el mismo cuerpo sin comprimir sí llega', async () => {
+    const payload = JSON.stringify({ email: 'nobody@http-e2e.test', password: 'whatever1' });
+    const res = await request(base)
+      .post('/auth/login')
+      .set('X-Real-IP', nextIp())
+      .set('Content-Type', 'application/json')
+      .set('Content-Encoding', 'gzip')
+      .send(gzipSync(Buffer.from(payload)))
+      .expect(415);
+    expect(res.body).toEqual(UNSUPPORTED_CONTENT_ENCODING);
+    await login(nextIp()).expect(401); // the same body without compression is handled by the login (wrong credentials)
   });
 
   it('las opciones DB_* llegan al pool de pg', () => {

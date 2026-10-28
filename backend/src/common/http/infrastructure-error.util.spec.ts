@@ -56,8 +56,19 @@ describe('classifyInfrastructureError', () => {
     expect(classifyInfrastructureError(error)).toBe('payload-too-large');
   });
 
+  it('body-parser encoding.unsupported (inflate: false) -> unsupported-content-encoding, also through error.cause', () => {
+    const error = Object.assign(new Error('content encoding unsupported'), {
+      type: 'encoding.unsupported',
+      status: 415,
+      statusCode: 415,
+    });
+    expect(classifyInfrastructureError(error)).toBe('unsupported-content-encoding');
+    expect(classifyInfrastructureError(new Error('wrapper', { cause: error }))).toBe('unsupported-content-encoding');
+  });
+
   it.each([
     ['an ordinary error', new Error('something else')],
+    ['another body-parser 415 (charset.unsupported)', Object.assign(new Error('x'), { type: 'charset.unsupported', status: 415, statusCode: 415 })],
     ['a unique violation', queryFailed(withCode('duplicate key', '23505'))],
     ['a serialization failure', queryFailed(withCode('could not serialize', '40001'))],
     ['a validation-style 400', Object.assign(new Error('bad'), { status: 400, statusCode: 400 })],
