@@ -30,6 +30,7 @@ export interface RateLimitPolicy {
 
 export type RateLimitPolicyName =
   | 'publicMenu'
+  | 'shareMeta'
   | 'login'
   | 'changePassword'
   | 'adminProvisioning'
@@ -59,6 +60,9 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
     // GET /products, GET /products/:id, GET /categories — each route has its
     // own counter.
     publicMenu: { ip: perMinute(120) },
+    // GET /public/share-meta — asked by the web server once per page view of /menu/<slug> for the link-preview tags, so every
+    // visitor arrives from the web server's IP: one bucket for all of them, higher than the global ceiling (like /media).
+    shareMeta: { ip: perMinute(1200), skipGlobalIp: true },
     // POST /auth/login
     login: { ip: perMinute(5) },
     // POST /auth/change-password — it verifies the CURRENT password, so with a stolen session it is a guessing

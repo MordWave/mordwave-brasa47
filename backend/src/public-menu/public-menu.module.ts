@@ -6,6 +6,8 @@ import { MediaModule } from '../media/media.module.js';
 import { ProductModule } from '../product/product.module.js';
 import { PublicMenuController } from './public-menu.controller.js';
 import { PublicMenuService } from './public-menu.service.js';
+import { ShareMetaController } from './share-meta.controller.js';
+import { ShareMetaService } from './share-meta.service.js';
 
 @Module({
   imports: [
@@ -16,7 +18,7 @@ import { PublicMenuService } from './public-menu.service.js';
     // MediaUrlService: logo, cover and product images as stable /media URLs.
     MediaModule,
   ],
-  controllers: [PublicMenuController],
-  providers: [PublicMenuService],
+  controllers: [PublicMenuController, ShareMetaController],
+  providers: [PublicMenuService, ShareMetaService],
 })
 export class PublicMenuModule {}

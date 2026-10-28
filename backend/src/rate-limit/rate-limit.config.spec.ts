@@ -9,6 +9,7 @@ describe('DEFAULT_RATE_LIMITS', () => {
     expect(DEFAULT_RATE_LIMITS.authenticatedUser).toEqual({ limit: 300, ttlMs: minute });
     expect(DEFAULT_RATE_LIMITS.policies).toEqual({
       publicMenu: { ip: { limit: 120, ttlMs: minute } },
+      shareMeta: { ip: { limit: 1200, ttlMs: minute }, skipGlobalIp: true },
       login: { ip: { limit: 5, ttlMs: minute } },
       changePassword: { ip: { limit: 10, ttlMs: minute }, user: { limit: 5, ttlMs: minute } },
       adminProvisioning: { ip: { limit: 20, ttlMs: minute }, user: { limit: 10, ttlMs: minute } },
