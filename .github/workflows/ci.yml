@@ -31,10 +31,65 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: node --version && npm --version
+      # `strict-allow-scripts` turns npm's install-script policy into an error: a dependency with an install script that
+      # `allowScripts` (package.json) neither approves nor denies fails the install. Local to the install steps.
       - run: npm ci
+        env:
+          npm_config_strict_allow_scripts: 'true'
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # Install-script canary (Linux, ubuntu-24.04), same idea as in the backend job: the committed tree is installed with
+      # --ignore-scripts (esbuild's postinstall only swaps a JS shim for the native binary), esbuild is loaded and Vite
+      # builds the app; then the policy is enforced under npm 12 and strict mode is shown to reject a project without it.
+      - name: Canary - frontend builds with dependency install scripts disabled
+        run: |
+          set -euo pipefail
+          work="${RUNNER_TEMP:?}/canary-frontend"
+          rm -rf "$work"; mkdir -p "$work"
+          git archive HEAD | tar -x -C "$work"
+          rm -rf "${work:?}/backend"
+          cd "$work"
+          cat > check.cjs <<'NODE'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          assert.equal(process.platform, 'linux');
+          assert.equal(process.arch, 'x64');
+          const esbuild = require('esbuild');
+          const shim = fs.statSync('node_modules/esbuild/bin/esbuild').size;
+          // With the postinstall skipped, bin/esbuild stays the small JS shim (the native binary is ~10 MB).
+          assert.ok(shim < 100_000, `esbuild postinstall seems to have run (bin/esbuild is ${shim} bytes)`);
+          esbuild.transform('const answer: number = 42', { loader: 'ts' }).then((result) => {
+            assert.match(result.code, /const answer = 42/);
+            console.log(`esbuild ${esbuild.version} ok (shim ${shim} bytes)`);
+          }).catch((error) => { console.error('CANARY FAILED:', error); process.exit(1); });
+          NODE
+          echo "== npm ci --ignore-scripts with $(node --version) / npm $(npm --version)"
+          npm ci --ignore-scripts --no-audit --no-fund
+          node check.cjs
+          npm run build
+          test -s dist/index.html && ls dist/assets/*.js >/dev/null
+          # npm 12 blocks unreviewed scripts instead of running them with a notice. Installed only in a temporary directory.
+          npm12="$RUNNER_TEMP/npm12"
+          rm -rf "$npm12"; mkdir -p "$npm12"
+          (cd "$npm12" && npm init -y >/dev/null && npm install npm@12.2.1 --ignore-scripts --no-audit --no-fund --silent)
+          npm12_cli="$npm12/node_modules/npm/bin/npm-cli.js"
+          echo "== npm ci with the allowScripts policy under npm $(node "$npm12_cli" --version) (strict)"
+          rm -rf node_modules dist
+          node "$npm12_cli" ci --strict-allow-scripts --no-audit --no-fund
+          node check.cjs
+          node "$npm12_cli" run build
+          test -s dist/index.html && ls dist/assets/*.js >/dev/null
+          neg="$work/without-policy"
+          mkdir -p "$neg"; cp package.json package-lock.json "$neg"/
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('$neg/package.json','utf8'));delete p.allowScripts;fs.writeFileSync('$neg/package.json',JSON.stringify(p,null,2))"
+          for cli in "npm" "node $npm12_cli"; do
+            if out="$(cd "$neg" && npm_config_strict_allow_scripts=true $cli ci --no-audit --no-fund 2>&1)"; then
+              echo "strict mode did not reject a project without allowScripts ($cli)"; echo "$out"; exit 1
+            fi
+            echo "$out" | grep -q ESTRICTALLOWSCRIPTS || { echo "unexpected failure ($cli):"; echo "$out"; exit 1; }
+            echo "strict mode rejects a project without the policy: npm $($cli --version)"
+          done
 
   backend:
     name: backend
@@ -54,10 +109,75 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: node --version && npm --version
+      # `strict-allow-scripts` turns npm's install-script policy into an error: a dependency with an install script that
+      # `allowScripts` (package.json) neither approves nor denies fails the install. Local to the install steps.
       - run: npm ci
+        env:
+          npm_config_strict_allow_scripts: 'true'
       - run: npm run lint
       - run: npm run build
       - run: npm test
+      # Install-script canary (Linux, ubuntu-24.04). `allowScripts` only blocks dependency scripts, so the project must work
+      # without any of them: a clean copy of the committed tree is installed with --ignore-scripts, bcrypt (native) and
+      # sharp are exercised, and NestJS is compiled. Then the same tree is installed under npm 12 (which blocks unreviewed
+      # scripts) with the policy enforced, and the strict mode is shown to reject a project without the policy. No secrets.
+      - name: Canary - backend works with dependency install scripts disabled
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          work="${RUNNER_TEMP:?}/canary-backend"
+          rm -rf "$work"; mkdir -p "$work"
+          git archive HEAD backend | tar -x -C "$work"
+          cd "$work/backend"
+          cat > check.cjs <<'NODE'
+          const assert = require('node:assert/strict');
+          const path = require('node:path');
+          assert.equal(process.platform, 'linux');
+          assert.equal(process.arch, 'x64');
+          const bcryptDir = path.dirname(require.resolve('bcrypt/package.json'));
+          const binding = require(require.resolve('node-gyp-build', { paths: [bcryptDir] })).path(bcryptDir);
+          assert.match(binding, /prebuilds\/linux-x64\/bcrypt\.glibc\.node$/, `unexpected bcrypt binding: ${binding}`);
+          const bcrypt = require('bcrypt');
+          (async () => {
+            const password = 'clave-ficticia-No-Real-123';
+            const hash = await bcrypt.hash(password, 4);
+            assert.match(hash, /^\$2[aby]\$04\$/);
+            assert.equal(await bcrypt.compare(password, hash), true);
+            assert.equal(await bcrypt.compare('otra-clave-ficticia', hash), false);
+            assert.equal(bcrypt.compareSync(password, bcrypt.hashSync(password, 4)), true);
+            const sharp = require('sharp');
+            const webp = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#cc3333' } }).webp().toBuffer();
+            const meta = await sharp(webp).metadata();
+            assert.deepEqual([meta.format, meta.width, meta.height], ['webp', 16, 16]);
+            console.log(`bcrypt ok (${path.relative(process.cwd(), binding)}); sharp ${sharp.versions.sharp} ok (webp ${meta.width}x${meta.height})`);
+          })().catch((error) => { console.error('CANARY FAILED:', error); process.exit(1); });
+          NODE
+          echo "== npm ci --ignore-scripts with $(node --version) / npm $(npm --version)"
+          npm ci --ignore-scripts --no-audit --no-fund
+          test ! -e node_modules/bcrypt/build || { echo "bcrypt was compiled from source"; exit 1; }
+          node check.cjs
+          npm run build
+          test -s dist/main.js
+          # npm 12 blocks unreviewed scripts instead of running them with a notice. Installed only in a temporary directory.
+          npm12="$RUNNER_TEMP/npm12"
+          rm -rf "$npm12"; mkdir -p "$npm12"
+          (cd "$npm12" && npm init -y >/dev/null && npm install npm@12.2.1 --ignore-scripts --no-audit --no-fund --silent)
+          npm12_cli="$npm12/node_modules/npm/bin/npm-cli.js"
+          echo "== npm ci with the allowScripts policy under npm $(node "$npm12_cli" --version) (strict)"
+          rm -rf node_modules dist
+          node "$npm12_cli" ci --strict-allow-scripts --no-audit --no-fund
+          node check.cjs
+          # Strict mode must reject a project without the policy (this also proves the CI npm enforces it).
+          neg="$work/without-policy"
+          mkdir -p "$neg"; cp package.json package-lock.json "$neg"/
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('$neg/package.json','utf8'));delete p.allowScripts;fs.writeFileSync('$neg/package.json',JSON.stringify(p,null,2))"
+          for cli in "npm" "node $npm12_cli"; do
+            if out="$(cd "$neg" && npm_config_strict_allow_scripts=true $cli ci --no-audit --no-fund 2>&1)"; then
+              echo "strict mode did not reject a project without allowScripts ($cli)"; echo "$out"; exit 1
+            fi
+            echo "$out" | grep -q ESTRICTALLOWSCRIPTS || { echo "unexpected failure ($cli):"; echo "$out"; exit 1; }
+            echo "strict mode rejects a project without the policy: npm $($cli --version)"
+          done
 
   # Standard e2e suite: every test file runs against its own in-memory PGlite, so no database or credential is needed.
   # The four suites that need a real PostgreSQL (REAL_PG_ADMIN_URL) are excluded here and are NOT covered by this job:
@@ -81,6 +201,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: node --version && npm --version
       - run: npm ci
+        env:
+          npm_config_strict_allow_scripts: 'true'
       # The app refuses to boot without a JWT secret. This one is random, lives only in this job and protects nothing.
       - name: Create a throwaway JWT secret for the test app
         run: |
@@ -205,6 +327,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: node --version && npm --version
       - run: npm ci
+        env:
+          npm_config_strict_allow_scripts: 'true'
       # The suites import code that reads a JWT secret. This one is random, lives only in this job and protects nothing.
       - name: Create a throwaway JWT secret for the test app
         run: |
