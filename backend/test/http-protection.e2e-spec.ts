@@ -331,6 +331,21 @@ describe('HTTP protection — minimal app (e2e, no database)', () => {
       expect(calls).toEqual([]);
     });
 
+    // Before @nestjs/platform-express 12.3 (Multer's error was not mapped) this answered 500 and logged a stack trace.
+    it('un campo de archivo inesperado en multipart devuelve 400', async () => {
+      const res = await request(base).post('/t/upload').attach('otro', Buffer.alloc(16, 1), 'photo.bin');
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ statusCode: 400 });
+    });
+
+    // Before @nestjs/platform-express 12.3 this answered 500 and logged a stack trace.
+    it('un multipart que no es multipart/form-data no se confunde con un 413/415 de body-parser', async () => {
+      const res = await request(base).post('/t/upload').set('Content-Type', 'multipart/mixed; boundary=x').send('--x--');
+      expect([400, 415]).toContain(res.status);
+      expect(res.body).not.toEqual(PAYLOAD_TOO_LARGE);
+      expect(res.body).not.toEqual(UNSUPPORTED_CONTENT_ENCODING);
+    });
+
     it('el límite de tamaño de archivo de Multer sigue dando su propio 413, distinto del PAYLOAD_TOO_LARGE del body parser', async () => {
       const calls = await withErrorLog(async () => {
         const res = await request(base).post('/t/upload-limited').attach('file', Buffer.alloc(4 * 1024, 1), 'photo.bin');
