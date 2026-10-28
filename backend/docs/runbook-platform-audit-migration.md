@@ -42,8 +42,8 @@ registro** (error explícito, sin cambios) y solo elimina una tabla **vacía**. 
 fuera imprescindible: exportar antes los registros y eliminar la tabla a mano, como un paso separado y autorizado explícitamente.
 
 ## Procedimiento _(requiere autorización explícita)_
-Conexión: túnel SSH privado de Railway (ver `runbook-backups.md`, "Abrir y cerrar el túnel"), sin TCP Proxy público. No imprimir cadenas de conexión.
-1. **Respaldo reciente verificado** (ver `runbook-backups.md`). Sin respaldo adecuado, no continuar.
+Conexión: túnel SSH privado de Railway (ver [`docs/operations/runbook-backups.md`](../../docs/operations/runbook-backups.md), "Abrir y cerrar el túnel"), sin TCP Proxy público. No imprimir cadenas de conexión.
+1. **Respaldo reciente verificado** (ver [`docs/operations/runbook-backups.md`](../../docs/operations/runbook-backups.md)). Sin respaldo adecuado, no continuar.
 2. **Versión y migraciones pendientes** (solo lectura): `npm run typeorm -- migration:show` debe mostrar únicamente `AddPlatformAuditLogs1790500000000` pendiente.
 3. **Esquema previo** (solo lectura): `to_regclass('public.platform_audit_logs')` es `NULL`.
 4. **Transacciones largas / locks** (solo lectura): `pg_stat_activity` sin transacciones abiertas de más de unos segundos.
