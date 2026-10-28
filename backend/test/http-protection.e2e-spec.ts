@@ -92,6 +92,14 @@ class ProbeController {
     return { received: file?.size ?? 0 };
   }
 
+  // Multer's own file-size limit, as the real image routes use (their limit is IMAGE_MULTER_HARD_LIMIT_BYTES).
+  @Post('upload-limited')
+  @UploadTimeout()
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 1_024 } }))
+  uploadLimited(@UploadedFile() file: Express.Multer.File) {
+    return { received: file?.size ?? 0 };
+  }
+
   @Post('upload-slow')
   @UploadTimeout()
   async uploadSlow() {
@@ -278,6 +286,89 @@ describe('HTTP protection — minimal app (e2e, no database)', () => {
       await request(base).get('/t/fast').expect(200);
       const res = await request(base).post('/t/upload').attach('file', Buffer.alloc(2_048, 1), 'photo.bin').expect(201);
       expect(res.body).toEqual({ received: 2_048 });
+    });
+  });
+
+  // The 4xx contracts that must not change when the HTTP platform package is updated: body-parser's rejections keep their
+  // controlled body (413 / 415), the other 4xx stay what they were, and none of them is logged as an error. Real
+  // infrastructure failures still are.
+  describe('contrato 4xx del cuerpo de la petición y logs', () => {
+    const FORM_TYPE = 'application/x-www-form-urlencoded';
+    const withErrorLog = async (run: () => Promise<void>) => {
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        await run();
+        return logged.mock.calls.map((call) => String(call[0]));
+      } finally {
+        logged.mockRestore();
+      }
+    };
+
+    it('413 (JSON y urlencoded) y 415 conservan su cuerpo y no se registran como ERROR', async () => {
+      const calls = await withErrorLog(async () => {
+        const json = await request(base).post('/t/json').send({ data: blob(250 * 1024) });
+        expect([json.status, json.body]).toEqual([413, PAYLOAD_TOO_LARGE]);
+        const form = await request(base).post('/t/form').set('Content-Type', FORM_TYPE).send(`data=${blob(150 * 1024)}`);
+        expect([form.status, form.body]).toEqual([413, PAYLOAD_TOO_LARGE]);
+        const gz = await request(base)
+          .post('/t/json')
+          .set('Content-Type', 'application/json')
+          .set('Content-Encoding', 'gzip')
+          .send(gzipSync(Buffer.from('{"a":1}')));
+        expect([gz.status, gz.body]).toEqual([415, UNSUPPORTED_CONTENT_ENCODING]);
+      });
+      expect(calls).toEqual([]);
+    });
+
+    it('un JSON inválido devuelve 400 sin errorCode de infraestructura y sin registrarse como ERROR', async () => {
+      const calls = await withErrorLog(async () => {
+        const res = await request(base).post('/t/json').set('Content-Type', 'application/json').send('{no es json');
+        expect(res.status).toBe(400);
+        expect(res.body).toMatchObject({ statusCode: 400 });
+        expect(res.body).not.toHaveProperty('errorCode');
+        expect(JSON.stringify(res.body)).not.toMatch(/stack|node_modules|body-parser/i);
+      });
+      expect(calls).toEqual([]);
+    });
+
+    // Before @nestjs/platform-express 12.3 (Multer's error was not mapped) this answered 500 and logged a stack trace.
+    it('un campo de archivo inesperado en multipart devuelve 400', async () => {
+      const res = await request(base).post('/t/upload').attach('otro', Buffer.alloc(16, 1), 'photo.bin');
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ statusCode: 400 });
+    });
+
+    // Before @nestjs/platform-express 12.3 this answered 500 and logged a stack trace.
+    it('un multipart que no es multipart/form-data no se confunde con un 413/415 de body-parser', async () => {
+      const res = await request(base).post('/t/upload').set('Content-Type', 'multipart/mixed; boundary=x').send('--x--');
+      expect([400, 415]).toContain(res.status);
+      expect(res.body).not.toEqual(PAYLOAD_TOO_LARGE);
+      expect(res.body).not.toEqual(UNSUPPORTED_CONTENT_ENCODING);
+    });
+
+    it('el límite de tamaño de archivo de Multer sigue dando su propio 413, distinto del PAYLOAD_TOO_LARGE del body parser', async () => {
+      const calls = await withErrorLog(async () => {
+        const res = await request(base).post('/t/upload-limited').attach('file', Buffer.alloc(4 * 1024, 1), 'photo.bin');
+        expect(res.status).toBe(413);
+        expect(res.body).not.toEqual(PAYLOAD_TOO_LARGE);
+        expect(res.body).toMatchObject({ statusCode: 413, message: 'File too large' });
+      });
+      expect(calls).toEqual([]);
+      const ok = await request(base).post('/t/upload-limited').attach('file', Buffer.alloc(512, 1), 'photo.bin');
+      expect([ok.status, ok.body]).toEqual([201, { received: 512 }]);
+    });
+
+    it('los fallos reales de infraestructura SÍ se registran como ERROR (una línea, sin SQL ni parámetros)', async () => {
+      const calls = await withErrorLog(async () => {
+        const res = await request(base).get('/t/db-refused');
+        expect(res.status).toBe(503);
+        const q = await request(base).get('/t/db-statement-timeout');
+        expect(q.status).toBe(504);
+      });
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toMatch(/infrastructure_error kind=unavailable/);
+      expect(calls[1]).toMatch(/infrastructure_error kind=timeout/);
+      expect(calls.join('\n')).not.toMatch(/SELECT|s3cr3t|secret_table/);
     });
   });
 
