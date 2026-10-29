@@ -89,9 +89,10 @@ export default function ProductFormModal({
   )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  // The optional QR-ordering fields (tag, ingredients, extras) and the technical "Orden" live in collapsible sections. They start open only when
+  // The optional QR-ordering fields (ingredients, extras) and the technical "Orden" live in collapsible sections. They start open only when
   // there is something in them (editing a product that already has data), and are forced open if the validation message is about them.
-  const [qrOpen, setQrOpen] = useState(Boolean(product?.tag) || (product?.ingredients?.length ?? 0) > 0 || (product?.addOns?.length ?? 0) > 0)
+  // The tag is NOT one of them: it is shown on the product's card in the public digital menu too.
+  const [qrOpen, setQrOpen] = useState((product?.ingredients?.length ?? 0) > 0 || (product?.addOns?.length ?? 0) > 0)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const errorRef = useRef(null)
 
@@ -241,7 +242,7 @@ export default function ProductFormModal({
       addOns: cleanedAddOns,
     })
     if (validationError) {
-      setQrOpen(true)
+      if (trimmedTag.length <= MAX_TAG_LENGTH) setQrOpen(true) // the problem is in the ingredients or the extras
       setError(validationError)
       return
     }
@@ -377,6 +378,19 @@ export default function ProductFormModal({
             {imageError && <p className="admin-menu__form-error">{imageError}</p>}
           </div>
 
+          <label>
+            <span>Etiqueta (opcional)</span>
+            <input
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              maxLength={MAX_TAG_LENGTH}
+              placeholder="Ejemplo: Recomendado"
+            />
+            <small className="admin-menu__hint">
+              Aparece como una insignia sobre el producto, en la carta digital y en el pedido por QR, por ejemplo «Nuevo» o «Recomendado».
+            </small>
+          </label>
+
           <div className="admin-menu__availability">
             <label className="admin-menu__checkbox">
               <input
@@ -395,20 +409,9 @@ export default function ProductFormModal({
           <details className="admin-menu__section" open={qrOpen} onToggle={(e) => setQrOpen(e.currentTarget.open)}>
             <summary>
               <span className="admin-menu__section-title">Opciones para el pedido por QR</span>
-              <span className="admin-menu__section-note">Opcional · etiqueta, ingredientes y extras</span>
+              <span className="admin-menu__section-note">Opcional · ingredientes y extras</span>
             </summary>
             <div className="admin-menu__section-body">
-              <label>
-                <span>Etiqueta (opcional)</span>
-                <input
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
-                  maxLength={MAX_TAG_LENGTH}
-                  placeholder="Ejemplo: Más pedido"
-                />
-                <small className="admin-menu__hint">Aparece como una insignia sobre el producto, por ejemplo «Nuevo» o «Más pedido».</small>
-              </label>
-
               <label>
                 <span>Ingredientes (uno por línea)</span>
                 <textarea
