@@ -777,21 +777,80 @@ describe.skipIf(!ADMIN_URL)('Categories and the products under them under real c
       expect(await listIds(origin.id)).toEqual([]);
     });
 
-    it('a reorder of the ORIGIN category racing a change of category out of it: one wins cleanly, the other is a 409 or waits; no lost product, no duplicated position', async () => {
+    // The reorder of an ORIGIN category racing a change of category OUT of it has exactly two valid outcomes, one per order of the two requests (both take
+    // the Business lock first, so one fully precedes the other). The two tests below force each order; the free race after them accepts either.
+    const rowsOf = async (ids: string[]) => (await ds.query(`SELECT id, sort_order AS "sortOrder", category_id AS cat, updated_at AS upd FROM products WHERE id = ANY($1::uuid[]) ORDER BY id`, [ids])) as Array<{ id: string; sortOrder: number; cat: string; upd: Date }>;
+
+    it('ORDER 1 — the reorder of the origin goes first: it is saved (1..n), then the product leaves and takes the last place of the destination; the origin keeps the positions the reorder wrote', async () => {
       const { biz, admin } = await freshBusiness();
       const [origin, dest] = [await newCategory({}, biz.id), await newCategory({}, biz.id)];
       const [a, b, c] = [await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0)];
-      const outcomes = await Promise.all([
-        settle(ask(admin, origin.id, [c.id, b.id, a.id], [a.id, b.id, c.id])),
-        settle(products().update(b.id, { categoryId: dest.id }, admin)),
-      ]);
-      expect(outcomes.every((o) => o.ok || o.status === 409)).toBe(true);
-      expect(outcomes.some((o) => o.ok)).toBe(true);
-      const total = (await listIds(origin.id)).length + (await listIds(dest.id)).length;
-      expect(total).toBe(3);
+      const g = gate();
+      // paused right after the products of the origin were read under the lock: the Business row and the three product rows stay locked
+      const reordering = settle(ask(admin, origin.id, [c.id, b.id, a.id], [a.id, b.id, c.id], products([{ entity: Product, method: 'find', gate: g }])));
+      await g.reached;
+      const moving = settle(products().update(b.id, { categoryId: dest.id }, admin));
+      expect(await state(moving)).toBe('pending'); // waiting on the Business lock, nothing moved yet
+      g.release();
+      expect(await reordering).toMatchObject({ ok: true });
+      expect(await moving).toMatchObject({ ok: true });
+      expect(await listIds(origin.id)).toEqual([c.id, a.id]); // the reorder's order, without the product that left
+      expect(await positions(origin.id)).toEqual([1, 3]); // what the reorder wrote; leaving does not renumber the others
       expect(await listIds(dest.id)).toEqual([b.id]);
-      const left = await positions(origin.id);
-      expect(new Set(left).size).toBe(left.length);
+      expect(await positions(dest.id)).toEqual([1]);
+    });
+
+    it('ORDER 2 — the change of category goes first: the reorder made from the old list is a 409 that writes NOTHING; the origin keeps its ORIGINAL values (repeated ones included)', async () => {
+      const { biz, admin } = await freshBusiness();
+      const [origin, dest] = [await newCategory({}, biz.id), await newCategory({}, biz.id)];
+      const [a, b, c] = [await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0)];
+      const g = gate();
+      const moving = settle(products([{ entity: Product, method: 'update', gate: g }]).update(b.id, { categoryId: dest.id }, admin));
+      await g.reached; // written, not committed: Business row and the product row locked
+      const before = await rowsOf([a.id, c.id]);
+      const reordering = settle(ask(admin, origin.id, [c.id, b.id, a.id], [a.id, b.id, c.id]));
+      expect(await state(reordering)).toBe('pending');
+      g.release();
+      expect(await moving).toMatchObject({ ok: true });
+      expect(await reordering).toMatchObject({ ok: false, status: 409, code: 'PRODUCT_ORDER_CONFLICT' });
+      // no partial write and no unwanted normalisation: the two that stayed are exactly as they were, both still at 0 (valid: repeated values are
+      // the old data, they only become 1..n when a reorder is accepted), not even touched (same updated_at)
+      expect(await rowsOf([a.id, c.id])).toEqual(before);
+      expect(await positions(origin.id)).toEqual([0, 0]);
+      expect(await listIds(origin.id)).toEqual([a.id, c.id]);
+      expect(await listIds(dest.id)).toEqual([b.id]);
+      expect(await positions(dest.id)).toEqual([1]);
+      // re-reading and repeating works: now the origin does become 1..n
+      await ask(admin, origin.id, [c.id, a.id], [a.id, c.id]);
+      expect(await listIds(origin.id)).toEqual([c.id, a.id]);
+      expect(await positions(origin.id)).toEqual([1, 2]);
+    });
+
+    it('the same two requests RACING freely: whichever order happens, the result is one of the two valid ones, and no product is lost, duplicated or left in a wrong category', async () => {
+      for (let round = 0; round < 3; round++) {
+        const { biz, admin } = await freshBusiness();
+        const [origin, dest] = [await newCategory({}, biz.id), await newCategory({}, biz.id)];
+        const [a, b, c] = [await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0)];
+        const [reorderOutcome, moveOutcome] = await Promise.all([
+          settle(ask(admin, origin.id, [c.id, b.id, a.id], [a.id, b.id, c.id])),
+          settle(products().update(b.id, { categoryId: dest.id }, admin)),
+        ]);
+        // the change of category always succeeds; the reorder either was first (ok) or saw a list that no longer exists (409) and wrote nothing
+        expect(moveOutcome.ok).toBe(true);
+        expect(reorderOutcome.ok || (reorderOutcome.status === 409 && reorderOutcome.code === 'PRODUCT_ORDER_CONFLICT')).toBe(true);
+        // nothing lost, duplicated or in the wrong category
+        expect(await listIds(dest.id)).toEqual([b.id]);
+        expect([...(await listIds(origin.id))].sort()).toEqual([a.id, c.id].sort());
+        const all = (await ds.query(`SELECT id FROM products WHERE business_id = $1 AND deleted_at IS NULL`, [biz.id])) as Array<{ id: string }>;
+        expect(all.map((r) => r.id).sort()).toEqual([a.id, b.id, c.id].sort());
+        if (reorderOutcome.ok) {
+          expect(await listIds(origin.id)).toEqual([c.id, a.id]);
+          expect(await positions(origin.id)).toEqual([1, 3]);
+        } else {
+          expect(await listIds(origin.id)).toEqual([a.id, c.id]);
+          expect(await positions(origin.id)).toEqual([0, 0]); // untouched: repeated original values are valid
+        }
+      }
     });
 
     it('a PATCH holding one product row (an edit in flight) makes a reorder wait for it; after it commits the reorder goes through and the edit is not lost', async () => {
