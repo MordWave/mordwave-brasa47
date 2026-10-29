@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UploadedFile,
@@ -35,6 +36,7 @@ import { CreateProductDto } from './dto/create-product.dto.js';
 import { ProductAdminQueryDto } from './dto/product-admin-query.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
 import { ProductSummaryQueryDto } from './dto/product-summary-query.dto.js';
+import { ReorderProductsDto } from './dto/reorder-products.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { ProductPresenter, type ProductResponse } from './product.presenter.js';
 import { UploadTimeout } from '../common/http/request-timeout.decorator.js';
@@ -101,6 +103,33 @@ export class ProductController {
   // deactivation (dto.active === false) — which action name applies can
   // only be known from the request body at runtime, so it's logged
   // explicitly here instead of via the generic decorator/interceptor.
+  // PUT /products/order — the complete order of the products of ONE category, saved in one transaction (see ProductService.reorder).
+  // 409 PRODUCT_ORDER_CONFLICT when the list the caller saw is no longer the real one; 400 PRODUCT_ORDER_INVALID when the ids are not exactly
+  // the category's; 404 for a category that does not exist or belongs to another restaurant (for an ADMIN).
+  @Put('order')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async reorder(
+    @Body() dto: ReorderProductsDto,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<ProductResponse[]> {
+    const { businessId, categoryId, products, changed } = await this.productService.reorder(dto, user);
+    if (changed) {
+      void this.auditService.record({
+        businessId,
+        userId: user.id,
+        userEmail: user.email,
+        action: AUDIT_ACTIONS.PRODUCT_REORDERED,
+        entityType: AUDIT_ENTITY_TYPES.CATEGORY,
+        entityId: categoryId,
+        metadata: { orderedIds: dto.orderedIds },
+        ...extractClientInfo(req),
+      });
+    }
+    return this.presenter.presentMany(products);
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)

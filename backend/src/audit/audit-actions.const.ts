@@ -15,6 +15,7 @@ export const AUDIT_ACTIONS = {
   CATEGORY_DELETED: 'CATEGORY_DELETED',
   // PUT /categories/order: the order of ALL the categories of a restaurant saved at once. entity_id = the restaurant (there is no single category).
   CATEGORY_REORDERED: 'CATEGORY_REORDERED',
+  PRODUCT_REORDERED: 'PRODUCT_REORDERED',
 
   TABLE_CREATED: 'TABLE_CREATED',
   TABLE_UPDATED: 'TABLE_UPDATED',

@@ -80,7 +80,6 @@ export default function ProductFormModal({
   const [price, setPrice] = useState(product?.price ?? '')
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? categories[0]?.id ?? '')
   const [available, setAvailable] = useState(product?.available ?? true)
-  const [sortOrder, setSortOrder] = useState(product?.sortOrder ?? 0)
   const [tag, setTag] = useState(product?.tag ?? '')
   const [ingredientsText, setIngredientsText] = useState((product?.ingredients ?? []).join('\n'))
   const [removableIngredients, setRemovableIngredients] = useState(product?.removableIngredients ?? [])
@@ -89,11 +88,11 @@ export default function ProductFormModal({
   )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  // The optional QR-ordering fields (ingredients, extras) and the technical "Orden" live in collapsible sections. They start open only when
-  // there is something in them (editing a product that already has data), and are forced open if the validation message is about them.
+  // The optional QR-ordering fields (ingredients, extras) live in a collapsible section. It starts open only when there is something in it
+  // (editing a product that already has data), and is forced open if the validation message is about them. The position of the product in
+  // its category is not typed by anyone: the server puts a new product last and the admin moves it from the list (9L.6).
   // The tag is NOT one of them: it is shown on the product's card in the public digital menu too.
   const [qrOpen, setQrOpen] = useState((product?.ingredients?.length ?? 0) > 0 || (product?.addOns?.length ?? 0) > 0)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const errorRef = useRef(null)
 
   // The error sits at the end of a long scrolling form: bring it into view so it is never missed on a phone.
@@ -256,7 +255,6 @@ export default function ProductFormModal({
           price: Number(price),
           categoryId,
           available,
-          sortOrder: Number(sortOrder),
           tag: trimmedTag || undefined,
           ingredients: ingredientsList,
           removableIngredients: cleanedRemovable,
@@ -487,24 +485,6 @@ export default function ProductFormModal({
                   + Agregar extra
                 </button>
               </div>
-            </div>
-          </details>
-
-          <details className="admin-menu__section" open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
-            <summary>
-              <span className="admin-menu__section-title">Avanzado</span>
-              <span className="admin-menu__section-note">Opcional · posición en la lista</span>
-            </summary>
-            <div className="admin-menu__section-body">
-              <label>
-                <span>Orden</span>
-                <input
-                  type="number"
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value)}
-                />
-                <small className="admin-menu__hint">Define la posición del producto dentro de su categoría: los números menores van primero. Déjalo como está si no necesitas cambiarlo.</small>
-              </label>
             </div>
           </details>
           {error && (

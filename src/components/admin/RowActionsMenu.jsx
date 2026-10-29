@@ -8,7 +8,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 // right-aligned by default, but flips upward / left-aligned when that would
 // run past the viewport edge.
 //
-// items: [{ key, label, onSelect, destructive?, separatorBefore? }]
+// items: [{ key, label, onSelect, destructive?, separatorBefore?, disabled? }]   (a disabled item is shown, dimmed, and skipped by the keyboard)
 const VIEWPORT_MARGIN = 8
 const MENU_GAP = 6
 
@@ -41,7 +41,7 @@ export default function RowActionsMenu({ label, items }) {
 
   useEffect(() => {
     if (!open) return undefined
-    menuRef.current?.querySelector('[role="menuitem"]')?.focus()
+    menuRef.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus()
 
     function handlePointerDown(e) {
       if (!rootRef.current?.contains(e.target)) setOpen(false)
@@ -51,7 +51,7 @@ export default function RowActionsMenu({ label, items }) {
   }, [open])
 
   function handleMenuKeyDown(e) {
-    const entries = Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]') ?? [])
+    const entries = Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') ?? [])
     const index = entries.indexOf(document.activeElement)
 
     if (e.key === 'Escape') {
@@ -110,6 +110,7 @@ export default function RowActionsMenu({ label, items }) {
                 type="button"
                 role="menuitem"
                 className={`row-menu__item${item.destructive ? ' row-menu__item--destructive' : ''}`}
+                disabled={item.disabled}
                 onClick={() => handleSelect(item)}
               >
                 {item.label}

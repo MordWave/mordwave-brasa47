@@ -5818,6 +5818,76 @@ p {
   }
 }
 
+/* ============ Product order controls of the admin (Menú > Productos, with a category chosen) ============ */
+.product-row__move-group {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.product-row__actions .btn.product-row__move {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.product-row__move[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.product-row__move:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.admin-card__toolbar .admin-menu__order-status,
+.admin-card__toolbar .admin-menu__order-conflict {
+  margin: 0;
+}
+
+.admin-menu__order-hint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.row-menu__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.row-menu__item:disabled:hover {
+  background: none;
+}
+
+@media (max-width: 639.98px) {
+  .product-row__actions .btn.product-row__move {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* The row of a product that can be moved has its arrows next to "Editar" and "⋯": on a phone the actions take their own line below the price
+   (the 44px arrows would not fit beside it and would cover the price). */
+@media (max-width: 719.98px) {
+  .product-row--reorder {
+    grid-template-areas:
+      'thumb main main'
+      'thumb price price'
+      'actions actions actions';
+  }
+
+  .product-row--reorder .product-row__actions {
+    justify-self: stretch;
+    justify-content: flex-end;
+  }
+}
+
 /* ============ Category dropdown of the shareable menu, phones only ============
    CategoryTabs `enhanced` renders both the bar and the dropdown; under 640px the bar is hidden (display: none, so it also leaves the
    accessibility tree) and the dropdown shows in the same sticky wrapper. The list hangs from the wrapper (absolute): opening it moves nothing. */
