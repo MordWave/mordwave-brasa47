@@ -29,6 +29,9 @@ const MESSAGES_BY_CODE = {
     const verb = n === 1 ? 'Elimínalo o muévelo' : 'Elimínalos o muévelos'
     return `No puedes eliminar esta categoría porque todavía tiene ${n} ${noun}. ${verb} primero.`
   },
+  // PUT /categories/order (9L.3). The conflict applied NOTHING: another administrator reordered, created or deleted a category meanwhile.
+  CATEGORY_ORDER_CONFLICT: () => 'El orden de las categorías cambió mientras lo editabas (otra persona lo modificó), así que no se guardó tu cambio. Actualiza la lista e inténtalo de nuevo.',
+  CATEGORY_ORDER_INVALID: () => 'No se pudo guardar el orden porque la lista ya no coincide con las categorías del restaurante. Actualiza la lista e inténtalo de nuevo.',
   BUSINESS_PRODUCT_LIMIT_REACHED: (error) =>
     `Alcanzaste el máximo de ${limitedCount(error.limit, 'productos', 'permitidos')} de tu negocio. Elimina alguno que ya no uses para poder crear uno nuevo.`,
   BUSINESS_CATEGORY_LIMIT_REACHED: (error) =>

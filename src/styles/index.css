@@ -5667,6 +5667,53 @@ p {
   }
 }
 
+/* ============ Category order controls of the admin (Menú > Gestionar categorías) ============ */
+.admin-menu__move-group {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.admin-menu__row-actions .btn.admin-menu__move {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.admin-menu__move[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.admin-menu__move:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.admin-menu__order-status {
+  min-height: 1.3em;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.admin-menu__order-conflict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 639.98px) {
+  .admin-menu__row-actions .btn.admin-menu__move {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 /* ============ Category dropdown of the shareable menu, phones only ============
    CategoryTabs `enhanced` renders both the bar and the dropdown; under 640px the bar is hidden (display: none, so it also leaves the
    accessibility tree) and the dropdown shows in the same sticky wrapper. The list hangs from the wrapper (absolute): opening it moves nothing. */

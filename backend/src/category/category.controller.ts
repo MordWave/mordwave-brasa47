@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -29,6 +30,7 @@ import { Category } from './category.entity.js';
 import { CategoryService } from './category.service.js';
 import { CategoryQueryDto } from './dto/category-query.dto.js';
 import { CreateCategoryDto } from './dto/create-category.dto.js';
+import { ReorderCategoriesDto } from './dto/reorder-categories.dto.js';
 import { UpdateCategoryDto } from './dto/update-category.dto.js';
 
 @Controller('categories')
@@ -59,6 +61,34 @@ export class CategoryController {
     @CurrentUser() user: SafeUser,
   ): Promise<Category[]> {
     return this.categoryService.findAllAdmin(query, user);
+  }
+
+  // PUT /categories/order — the complete order of the restaurant's categories, saved in one transaction (see CategoryService.reorder).
+  // An ADMIN always reorders their own restaurant; a SUPER_ADMIN names it with ?businessId=. 409 CATEGORY_ORDER_CONFLICT when the list the
+  // caller saw is no longer the real one; 400 CATEGORY_ORDER_INVALID when the ids are not exactly the restaurant's.
+  @Put('order')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  async reorder(
+    @Query() query: CategoryQueryDto,
+    @Body() dto: ReorderCategoriesDto,
+    @CurrentUser() user: SafeUser,
+    @Req() req: Request,
+  ): Promise<Category[]> {
+    const { businessId, categories, changed } = await this.categoryService.reorder(query, dto, user);
+    if (changed) {
+      void this.auditService.record({
+        businessId,
+        userId: user.id,
+        userEmail: user.email,
+        action: AUDIT_ACTIONS.CATEGORY_REORDERED,
+        entityType: AUDIT_ENTITY_TYPES.CATEGORY,
+        entityId: businessId,
+        metadata: { orderedIds: dto.orderedIds },
+        ...extractClientInfo(req),
+      });
+    }
+    return categories;
   }
 
   @Get()
