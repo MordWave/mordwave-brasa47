@@ -5540,6 +5540,92 @@ p {
   }
 }
 
+/* ============ Digital menu link of the admin (Negocio) ============ */
+.public-link {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.public-link__title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin: 0;
+}
+
+.public-link__note,
+.public-link__unavailable {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.public-link__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.public-link__field input {
+  width: 100%;
+  padding: 11px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-overflow: ellipsis;
+}
+
+.public-link__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.public-link__actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.public-link__status {
+  min-height: 1.3em;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--success);
+}
+
+.public-link__status--error {
+  color: var(--danger);
+}
+
+@media (min-width: 640px) {
+  .public-link__actions {
+    flex-direction: row;
+  }
+
+  .public-link__actions .btn {
+    width: auto;
+    min-height: 40px;
+    padding: 9px 18px;
+  }
+}
+
 /* ============ Category dropdown of the shareable menu, phones only ============
    CategoryTabs `enhanced` renders both the bar and the dropdown; under 640px the bar is hidden (display: none, so it also leaves the
    accessibility tree) and the dropdown shows in the same sticky wrapper. The list hangs from the wrapper (absolute): opening it moves nothing. */
