@@ -5,7 +5,7 @@ import { loadModule } from '../../../theme/testSupport.js'
 import { LINK_COPIED_NOTICE, LINK_COPY_FAILED_NOTICE, copyLink } from '../../../utils/copyLink.js'
 import { publicOrigin } from '../../../utils/publicOrigin.js'
 
-// 9L.2 — the "Enlace de mi carta digital" dialog in the admin (Menú tab): the public /menu/<slug> link of the restaurant being managed, to copy or open.
+// 9L.2 / 9L.2b — the "Ver enlace" dialog in the admin (Mesas tab, section "Carta digital pública"): the public /menu/<slug> link of the restaurant being managed, to copy or open.
 
 const ORIGIN = 'https://app.example.test'
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -13,6 +13,7 @@ const css = read('../../../styles/index.css')
 const component = read('./PublicMenuLink.jsx')
 const adminBusiness = read('../../../pages/admin/AdminBusiness.jsx')
 const adminMenu = read('../../../pages/admin/AdminMenu.jsx')
+const adminTables = read('../../../pages/admin/AdminTables.jsx')
 const adminPanel = read('../../../pages/admin/AdminPanel.jsx')
 const dialog = read('./PublicMenuLinkDialog.jsx')
 
@@ -44,7 +45,7 @@ test('2. two restaurants with different slugs get different links, and nothing i
   assert.ok(a.endsWith('/menu/brasa-47') && b.endsWith('/menu/la-esquina'))
   assert.ok(!/brasa-47|brasa 47/i.test(component), 'the component names no restaurant')
   // the dialog asks for the business the panel manages (the ADMIN's own, or the SUPER_ADMIN's selected one) and uses ITS slug
-  assert.match(adminMenu, /const requestMyBusiness = useCallback\(\(\) => apiFetch\(scopePath\('\/businesses\/me'\), \{ token \}\), \[token, scopePath\]\)/)
+  assert.match(adminTables, /const requestMyBusiness = useCallback\(\(\) => apiFetch\(scopePath\('\/businesses\/me'\), \{ token \}\), \[token, scopePath\]\)/)
   assert.match(dialog, /setState\(\{ status: 'ready', slug: business\?\.slug \}\)/)
   assert.match(dialog, /<PublicMenuLink slug=\{state\.slug\} origin=\{origin\} \/>/)
 })
@@ -116,31 +117,44 @@ test('9. the component wires the copy and its notices: "Enlace copiado" on succe
   assert.match(component, /setStatus\(null\)/, 'the notice resets by itself and with another restaurant')
 })
 
-test('10. placement: gone from Negocio; in Menú as a compact action before Productos; still four tabs; the existing preview is untouched', () => {
-  assert.ok(!/PublicMenuLink|Carta digital|Enlace de mi carta/.test(adminBusiness), 'Negocio no longer has the card')
-  const trigger = adminMenu.indexOf('Enlace de mi carta digital')
-  assert.ok(trigger > 0 && trigger < adminMenu.indexOf('<section className="admin-card" aria-labelledby="products-heading">'))
-  assert.match(adminMenu, /<div className="admin-menu__tools">\s*<button type="button" className="btn btn--outline btn--small" aria-haspopup="dialog" onClick=\{\(\) => setLinkOpen\(true\)\}>/)
-  assert.match(adminMenu, /\{linkOpen && <PublicMenuLinkDialog request=\{requestMyBusiness\} onClose=\{\(\) => setLinkOpen\(false\)\} \/>\}/)
+test('10. placement: only in Mesas (a compact section at the top, before "Gestión de mesas"); gone from Menú and Negocio; still four tabs; the preview is untouched', () => {
+  for (const [name, source] of [['Negocio', adminBusiness], ['Menú', adminMenu]]) {
+    assert.ok(!/PublicMenuLink|Carta digital|Enlace de mi carta|Ver enlace|linkOpen|requestMyBusiness/.test(source), `${name} no longer has the link`)
+  }
+  const section = adminTables.indexOf('<section className="public-link-row"')
+  assert.ok(section > 0 && section < adminTables.indexOf('<h2>Gestión de mesas</h2>'))
+  assert.match(adminTables, /<h3 id="public-link-row-title" className="public-link-row__title">\s*Carta digital pública\s*<\/h3>/)
+  assert.ok(adminTables.includes('consulten productos y precios desde el celular, sin hacer pedidos'))
+  assert.match(adminTables, /<button type="button" className="btn btn--outline btn--small" aria-haspopup="dialog" onClick=\{\(\) => setLinkOpen\(true\)\}>\s*Ver enlace\s*<\/button>/)
+  assert.match(adminTables, /\{linkOpen && <PublicMenuLinkDialog request=\{requestMyBusiness\} onClose=\{\(\) => setLinkOpen\(false\)\} \/>\}/)
+  // the dialog is the existing one (not copied): AdminTables only imports it
+  assert.ok(!/useDialogA11y|copyLink|navigator\.clipboard/.test(adminTables))
   const tabs = [...adminPanel.slice(adminPanel.indexOf('const TABS'), adminPanel.indexOf(']', adminPanel.indexOf('const TABS'))).matchAll(/key: '(\w+)'/g)].map((m) => m[1])
   assert.deepEqual(tabs, ['pedidos', 'menu', 'mesas', 'negocio'], 'no fifth navigation tab')
   assert.match(adminBusiness, /\{view === 'preview' && <RestaurantPreview key=\{business\.id\} business=\{business\} draft=\{previewDraft\} onBack=\{\(\) => setView\('form'\)\} \/>\}/)
 })
 
-test('11. styles: tokens only, scoped to .public-link / .admin-menu__tools, full-width buttons on phones and side by side from 640px', () => {
+test('10b. "Gestión de mesas" keeps all its functions: New table, the list actions, the table and QR modals, and the table QR keeps its own link', () => {
+  for (const needle of ['+ Nueva mesa', "setTableModal('new')", 'onToggleSession={handleToggleSession}', 'onViewQr={setQrTable}', 'onDelete={handleDeleteTable}', '<TableFormModal', '<TableQrModal', '<PrintQr data={printQr} />', "apiFetch(scopePath('/tables/admin'), { token })"]) assert.ok(adminTables.includes(needle), needle)
+  const qr = read('../tables/TableQrModal.jsx')
+  assert.match(qr, /\/\?t=\$\{qrToken\}/)
+  assert.ok(!/\/menu\/|publicMenuUrl|PublicMenuLink/.test(qr), 'the table QR never points to the public menu')
+})
+
+test('11. styles: tokens only, scoped to .public-link*, full-width buttons on phones and side by side from 640px', () => {
   const start = css.indexOf('/* ============ Digital menu link of the admin')
   const block = css.slice(start, css.indexOf('/* ============', start + 10))
   assert.ok(start > 0 && block.length > 500)
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(block), 'no hard-coded colours')
   const selectors = [...block.matchAll(/(^|\n)\s*([^\n{}@/*][^\n{}]*)\{/g)].map((m) => m[2].trim())
-  for (const s of selectors) assert.match(s, /^\.(public-link|admin-menu__tools)/, s)
+  for (const s of selectors) assert.match(s, /^\.public-link/, s)
   assert.match(block, /\.public-link__actions \{\s*display: flex;\s*flex-direction: column;/)
   assert.match(block, /@media \(min-width: 640px\) \{\s*\.public-link__actions \{\s*flex-direction: row;/)
   assert.match(block, /\.public-link__field input \{[^}]*background: var\(--input-bg\);/)
 })
 
 test('12. isolation: nothing of the public menu, the table (QR) flow or the existing preview is touched by this feature', () => {
-  for (const file of ['../../customer/MenuScreen.jsx', '../../customer/CategoryTabs.jsx', '../tables/TableQrModal.jsx', './RestaurantPreview.jsx', '../../../pages/PublicMenuPage.jsx', '../../../pages/admin/AdminTables.jsx', '../../../pages/admin/AdminBusiness.jsx']) {
+  for (const file of ['../../customer/MenuScreen.jsx', '../../customer/CategoryTabs.jsx', '../tables/TableQrModal.jsx', './RestaurantPreview.jsx', '../../../pages/PublicMenuPage.jsx', '../../../pages/admin/AdminMenu.jsx', '../../../pages/admin/AdminBusiness.jsx']) {
     assert.ok(!/PublicMenuLink|copyLink|publicOrigin/.test(read(file)), file)
   }
   // the table QR keeps its own link: /?t=<token>, not /menu/<slug>
