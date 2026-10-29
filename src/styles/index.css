@@ -5441,8 +5441,8 @@ p {
   -webkit-line-clamp: 3;
 }
 
-/* wide screens: the same grid as before (columns and photo size untouched), easier text */
-@media (min-width: 640px) {
+/* wide screens (from 720px, where the app's grid goes to three columns): the same grid as before (columns and photo size untouched), easier text */
+@media (min-width: 720px) {
   .product-tile--readonly .product-tile__body {
     padding: 13px 14px 14px;
   }
@@ -5472,9 +5472,10 @@ p {
   }
 }
 
-/* phones: one column; the photo (or "Sin foto") on the left, the text on the right. The photo box is always a square (112px, 92px on small
+/* phones and small tablets (up to 719.98px): one column; the photo (or "Sin foto") on the left, the text on the right. The photo box is
+   always a square (112px, 92px on small
    phones), pinned to the top: more text makes the CARD taller, never the photo (object-fit: cover crops it, never stretches it). */
-@media (max-width: 639.98px) {
+@media (max-width: 719.98px) {
   .public-menu .product-grid {
     grid-template-columns: 1fr;
     gap: 12px;

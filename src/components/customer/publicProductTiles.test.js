@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import { before, test } from 'node:test'
 import { loadModule } from '../../theme/testSupport.js'
 
-// 9K.11 — legible cards in the shareable menu: one column with the photo on the left under 640px, the current grid above it. Every new
+// 9K.11 — legible cards in the shareable menu: one column with the photo on the left up to 719px (9K.14: it was 639px), the current grid
+// from 720px. Every new
 // rule is scoped to the read-only tile; the table (QR) menu keeps its own tile, "+" button included.
 
 const css = readFileSync(new URL('../../styles/index.css', import.meta.url), 'utf8')
@@ -38,7 +39,7 @@ before(async () => {
 
 test('1. the new block exists and EVERY selector in it is scoped to the read-only tile or the public menu', () => {
   assert.ok(START > 0 && NEW_BLOCK.length > 500)
-  const all = [...rules(NEW_BLOCK), ...rules(media('min-width: 640px')), ...rules(media('max-width: 639.98px')), ...rules(media('max-width: 359.98px'))]
+  const all = [...rules(NEW_BLOCK), ...rules(media('min-width: 720px')), ...rules(media('max-width: 719.98px')), ...rules(media('max-width: 359.98px'))]
   assert.ok(all.length >= 15)
   for (const { selector } of all) assert.match(selector, /^(\.product-tile--readonly\b|\.public-menu \.product-grid$)/, selector)
 })
@@ -67,7 +68,7 @@ test('3. the markup of both tiles is untouched: the shareable one is a read-only
 })
 
 test('4. names are never cut: they wrap, long words break, and nothing in the new rules truncates or clamps a name', () => {
-  const names = [...rules(NEW_BLOCK), ...rules(media('min-width: 640px')), ...rules(media('max-width: 639.98px'))].filter((x) => x.selector === '.product-tile--readonly .product-tile__name')
+  const names = [...rules(NEW_BLOCK), ...rules(media('min-width: 720px')), ...rules(media('max-width: 719.98px'))].filter((x) => x.selector === '.product-tile--readonly .product-tile__name')
   assert.ok(names.length >= 3)
   const joined = names.map((x) => x.body).join('\n')
   assert.match(joined, /white-space: normal;/)
@@ -80,11 +81,11 @@ test('5. descriptions: up to three lines, long words break; 13px on every screen
   const base = find(NEW_BLOCK.slice(0, NEW_BLOCK.indexOf('@media')), '.product-tile--readonly .product-tile__desc')
   assert.match(base, /-webkit-line-clamp: 3;/)
   assert.match(base, /overflow-wrap: anywhere;/)
-  for (const query of ['min-width: 640px', 'max-width: 639.98px']) assert.match(find(media(query), '.product-tile--readonly .product-tile__desc'), /font-size: 13px;[\s\S]*line-height: 1\.4;/)
+  for (const query of ['min-width: 720px', 'max-width: 719.98px']) assert.match(find(media(query), '.product-tile--readonly .product-tile__desc'), /font-size: 13px;[\s\S]*line-height: 1\.4;/)
 })
 
-test('6. under 640px: one column and a horizontal card (photo left, text right); square photo 112px (92px under 360px) that never grows with the text; cover, never stretched', () => {
-  const phone = media('max-width: 639.98px')
+test('6. up to 719px: one column and a horizontal card (photo left, text right); square photo 112px (92px under 360px) that never grows with the text; cover, never stretched', () => {
+  const phone = media('max-width: 719.98px')
   assert.match(find(phone, '.public-menu .product-grid'), /grid-template-columns: 1fr;[\s\S]*gap: 12px;/)
   assert.match(find(phone, '.product-tile--readonly'), /flex-direction: row;/)
   const photo = find(phone, '.product-tile--readonly .product-tile__media')
@@ -98,19 +99,19 @@ test('6. under 640px: one column and a horizontal card (photo left, text right);
 })
 
 test('7. the price stays at the end of the card and is easy to read: 17px on phones, 18px on wide screens', () => {
-  assert.match(find(media('max-width: 639.98px'), '.product-tile--readonly .product-tile__price'), /font-size: 17px;/)
-  assert.match(find(media('min-width: 640px'), '.product-tile--readonly .product-tile__price'), /font-size: 18px;/)
+  assert.match(find(media('max-width: 719.98px'), '.product-tile--readonly .product-tile__price'), /font-size: 17px;/)
+  assert.match(find(media('min-width: 720px'), '.product-tile--readonly .product-tile__price'), /font-size: 18px;/)
   assert.ok(!/\.product-tile__footer[^{]*\{[^}]*margin-top/.test(NEW_BLOCK), 'the shared margin-top: auto of the footer is not overridden')
 })
 
-test('8. wide screens keep the grid: no change of columns, gap or photo size from 640px', () => {
-  const wide = media('min-width: 640px')
+test('8. wide screens keep the grid: no change of columns, gap or photo size from 720px', () => {
+  const wide = media('min-width: 720px')
   assert.ok(!/grid-template-columns|\.product-grid|aspect-ratio|flex-direction/.test(wide))
-  assert.ok(!/\.product-grid/.test(NEW_BLOCK.slice(0, NEW_BLOCK.indexOf('@media (max-width: 639.98px)'))))
+  assert.ok(!/\.product-grid/.test(NEW_BLOCK.slice(0, NEW_BLOCK.indexOf('@media (max-width: 719.98px)'))))
 })
 
 test('9. the tag stays inside the photo box and wraps instead of being cut (it never overlaps the text)', () => {
-  const tag = find(media('max-width: 639.98px'), '.product-tile--readonly .product-tile__tag')
+  const tag = find(media('max-width: 719.98px'), '.product-tile--readonly .product-tile__tag')
   assert.match(tag, /max-width: calc\(100% - 16px\);/)
   assert.match(tag, /white-space: normal;/)
   assert.ok(!/text-overflow|nowrap/.test(tag))
@@ -121,9 +122,9 @@ test('9. the tag stays inside the photo box and wraps instead of being cut (it n
   assert.match(r.tile({ product: PRODUCT, onSelect() {}, readOnly: true }), /<div class="product-tile__media">[\s\S]*<span class="product-tile__tag">Recomendado<\/span><\/div><div class="product-tile__body">/)
 })
 
-test('10. the breakpoints agree: phones up to 639.98px, wide from 640px, small phones up to 359.98px (no gap, no overlap)', () => {
-  assert.equal((NEW_BLOCK.match(/@media \(min-width: 640px\)/g) ?? []).length, 1)
-  assert.equal((NEW_BLOCK.match(/@media \(max-width: 639\.98px\)/g) ?? []).length, 1)
+test('10. the breakpoints agree: phones and small tablets up to 719.98px, wide from 720px, small phones up to 359.98px (no gap, no overlap)', () => {
+  assert.equal((NEW_BLOCK.match(/@media \(min-width: 720px\)/g) ?? []).length, 1)
+  assert.equal((NEW_BLOCK.match(/@media \(max-width: 719\.98px\)/g) ?? []).length, 1)
   assert.equal((NEW_BLOCK.match(/@media \(max-width: 359\.98px\)/g) ?? []).length, 1)
   // the same 359.98px / 360px limit as the header's icon-only Share
   assert.match(css, /@media \(max-width: 359\.98px\) \{\s*\.public-menu__share \{/)
@@ -136,4 +137,17 @@ test('11. the table menu cannot be reached by the new rules: its tile has no .pr
   assert.match(menuScreen, /<ProductTile key=\{product\.id\} product=\{product\} onSelect=\{onSelectProduct\} readOnly=\{readOnly\} \/>/)
   const page = readFileSync(new URL('../../pages/PublicMenuPage.jsx', import.meta.url), 'utf8')
   assert.match(page, /className="customer-app public-menu"/)
+})
+
+test('12. 9K.14: the cards switch to the grid at 720px, the same width where the app already goes to three columns; the header keeps its 640px query', () => {
+  // no query of the cards block is left at 640px / 639.98px: the 640-719px band no longer gets two columns of 292px+ photos
+  assert.ok(!/640px|639\.98px/.test(NEW_BLOCK.replace(/\/\*[\s\S]*?\*\//g, '')))
+  // the app's own grid rule (3 columns from 720px, 4 from 980px) is unchanged and agrees with the cards breakpoint
+  assert.match(css, /@media \(min-width: 720px\) \{\s*\.menu \{[\s\S]*?\.product-grid \{\s*grid-template-columns: repeat\(3, 1fr\);\s*gap: 16px;/)
+  assert.match(css, /@media \(min-width: 980px\) \{\s*\.product-grid \{\s*grid-template-columns: repeat\(4, 1fr\);/)
+  // the single column of the phone block (specificity .public-menu .product-grid) beats the base two columns, and stops at 719.98px
+  assert.match(css, /\.product-grid \{\s*display: grid;\s*grid-template-columns: repeat\(2, 1fr\);\s*gap: 12px;/)
+  // the header / Share / theme selector breakpoints are not touched
+  assert.match(css, /@media \(min-width: 640px\) \{\s*\.menu__header--public \{/)
+  assert.match(css, /@media \(max-width: 359\.98px\) \{\s*\.public-menu__share \{/)
 })
