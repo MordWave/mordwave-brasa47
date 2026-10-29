@@ -353,7 +353,7 @@ test('tenant code touches no network, JWT, token or headers, and never localStor
 test('the Admin no longer reads user.businessId; only the allowed reads go through scopePath, creates through scopeBody', () => {
   const files = ['../pages/admin/AdminMenu.jsx', '../pages/admin/AdminTables.jsx', '../pages/admin/AdminBusiness.jsx', '../pages/admin/AdminPanel.jsx', '../pages/AdminApp.jsx', '../components/admin/OrderHistoryModal.jsx']
   const allowed = new Set(['/orders/admin', '/orders/admin/history', '/tables/admin', '/categories/admin', '/products/admin', '/products/admin/summary', '/businesses/me', '/businesses/me/logo', '/businesses/me/cover'])
-  let scopedCalls = 0 // AdminApp 3 + OrderHistoryModal 1 + AdminTables 1 + AdminMenu 3 + AdminBusiness 2 (get, patch) + AdminPanel 1
+  let scopedCalls = 0 // AdminApp 3 + OrderHistoryModal 1 + AdminTables 1 + AdminMenu 4 (categories, products x2, my business for the public link) + AdminBusiness 2 (get, patch) + AdminPanel 1
   for (const f of files) {
     const src = code(read(f))
     assert.doesNotMatch(src, /user\??\.businessId|businessId:\s*user/, f)
@@ -362,7 +362,7 @@ test('the Admin no longer reads user.businessId; only the allowed reads go throu
       assert.ok(allowed.has(m[2]), `${f}: scopePath on ${m[2]}`)
     }
   }
-  assert.equal(scopedCalls, 11, 'orders x3 + history, tables, categories, products x2, business x2 (get, patch)')
+  assert.equal(scopedCalls, 12, 'orders x3 + history, tables, categories, products x2, business x3 (menu link, get, patch)')
   // the business IMAGES (logo / cover) go through ONE scoped request function (AdminBusiness: scopePath(path)), and the only paths
   // the images store ever asks for are these (all of them "my business" routes that accept ?businessId= for a SUPER_ADMIN)
   assert.match(code(read('../pages/admin/AdminBusiness.jsx')), /apiFetch\(scopePath\(path\), \{ token, \.\.\.options \}\)/)

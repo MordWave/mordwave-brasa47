@@ -5,8 +5,8 @@ import { publicOrigin } from '../../../utils/publicOrigin.js'
 
 const STATUS_RESET_MS = 4000
 
-// "Carta digital": the public, read-only link of THIS restaurant (/menu/<slug>), to copy or open. The slug comes from the restaurant the panel
-// is showing; when there is none (or it is not a valid one) no link is made up. `origin` is only for tests: normally it is the configured
+// The body of the "Enlace de mi carta digital" dialog: the public, read-only link of THIS restaurant (/menu/<slug>), to copy or open. The slug is the
+// one of the restaurant the panel is managing; when there is none (or it is not a valid one) no link is made up. `origin` is only for tests: normally it is the configured
 // public origin or the one the panel is served from, the same the table QR uses.
 export default function PublicMenuLink({ slug, origin }) {
   const input = useRef(null)
@@ -44,10 +44,7 @@ export default function PublicMenuLink({ slug, origin }) {
   }
 
   return (
-    <section className="public-link" aria-labelledby="public-link-title">
-      <h3 id="public-link-title" className="public-link__title">
-        Carta digital
-      </h3>
+    <div className="public-link">
       <p className="public-link__note">
         Este es el enlace de tu carta: tus clientes la ven en el celular sin escanear ningún QR. Compártelo por WhatsApp, Instagram o donde quieras.
       </p>
@@ -74,6 +71,6 @@ export default function PublicMenuLink({ slug, origin }) {
           El enlace de tu carta no está disponible por ahora. Recarga la página y, si sigue igual, avísale a MordWave.
         </p>
       )}
-    </section>
+    </div>
   )
 }

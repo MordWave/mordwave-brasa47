@@ -7,7 +7,6 @@ import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import BusinessImages from '../../components/admin/business/BusinessImages'
-import PublicMenuLink from '../../components/admin/business/PublicMenuLink'
 import RestaurantPreview from '../../components/admin/business/RestaurantPreview'
 import { composePreview } from '../../branding/previewModel.js'
 
@@ -246,8 +245,6 @@ export default function AdminBusiness({ onBusinessSaved }) {
       {view === 'preview' && <RestaurantPreview key={business.id} business={business} draft={previewDraft} onBack={() => setView('form')} />}
 
       <div className="business-edit" hidden={view === 'preview'}>
-        <PublicMenuLink key={business.id} slug={business.slug} />
-
         <BusinessImages key={business.id} business={business} request={imageRequest} describeError={translateApiError} onConfirmed={handleImagesConfirmed} previewBranding={previewBranding} />
 
         <form className="admin-menu__form" onSubmit={handleSubmit}>
