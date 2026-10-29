@@ -694,6 +694,174 @@ describe.skipIf(!ADMIN_URL)('Categories and the products under them under real c
     }, 120_000);
   });
 
+  // ---- 9L.6: the order of the products of ONE category (PUT /products/order), "a new product goes last" and "a change of category goes last" ----
+  // Same protocol as the categories above: the Business row is the coordination point (creation, change of category and reorder take it first),
+  // then the products of the category, then the category row. Independent connections on a real PostgreSQL.
+  describe('the order of the products of a category (9L.6)', () => {
+    let seqBiz = 0;
+    const freshBusiness = async () => {
+      seqBiz += 1;
+      const biz = await ds.getRepository(Business).save(ds.getRepository(Business).create({ name: `Porder biz ${seqBiz}`, slug: `porder-biz-${seqBiz}-${randomBytes(3).toString('hex')}` }));
+      const admin: SafeUser = { ...adminA, businessId: biz.id };
+      return { biz, admin };
+    };
+    const listIds = async (categoryId: string) => ((await ds.query(`SELECT id FROM products WHERE category_id = $1 AND deleted_at IS NULL ORDER BY sort_order, created_at, id`, [categoryId])) as Array<{ id: string }>).map((r) => r.id);
+    const positions = async (categoryId: string) => ((await ds.query(`SELECT sort_order AS s FROM products WHERE category_id = $1 AND deleted_at IS NULL ORDER BY sort_order, created_at, id`, [categoryId])) as Array<{ s: number }>).map((r) => r.s);
+    const ask = (admin: SafeUser, categoryId: string, orderedIds: string[], expectedIds: string[], svc = products()) => svc.reorder({ categoryId, orderedIds, expectedIds }, admin);
+    const add = (categoryId: string, businessId: string, sortOrder: number) => newProduct(categoryId, { sortOrder }, businessId);
+
+    it('TWO ADMINS reorder the same category at the same time from the same list: exactly one is saved, the other gets a recoverable 409; the result is the winner\'s, consecutive', async () => {
+      const { biz, admin } = await freshBusiness();
+      const cat = await newCategory({}, biz.id);
+      const [p1, p2, p3] = [await add(cat.id, biz.id, 0), await add(cat.id, biz.id, 0), await add(cat.id, biz.id, 0)];
+      const seen = [p1.id, p2.id, p3.id];
+      const outcomes = await Promise.all([settle(ask(admin, cat.id, [p3.id, p2.id, p1.id], seen)), settle(ask(admin, cat.id, [p2.id, p1.id, p3.id], seen))]);
+      expect(outcomes.filter((o) => o.ok)).toHaveLength(1);
+      expect(outcomes.filter((o) => !o.ok)).toMatchObject([{ status: 409, code: 'PRODUCT_ORDER_CONFLICT' }]);
+      const winner = outcomes.findIndex((o) => o.ok) === 0 ? [p3.id, p2.id, p1.id] : [p2.id, p1.id, p3.id];
+      expect(await listIds(cat.id)).toEqual(winner);
+      expect(await positions(cat.id)).toEqual([1, 2, 3]);
+    });
+
+    it('a REORDER that holds the restaurant lock makes a simultaneous CREATION wait; the new product then goes last and the order stays consecutive', async () => {
+      const { biz, admin } = await freshBusiness();
+      const cat = await newCategory({}, biz.id);
+      const [p1, p2] = [await add(cat.id, biz.id, 1), await add(cat.id, biz.id, 2)];
+      const g = gate();
+      // paused right after the products were read under the lock: the Business row and both product rows stay locked
+      const reordering = settle(ask(admin, cat.id, [p2.id, p1.id], [p1.id, p2.id], products([{ entity: Product, method: 'find', gate: g }])));
+      await g.reached;
+      const creating = settle(products().create({ name: 'Nuevo', price: 900, categoryId: cat.id, businessId: biz.id } as never, admin));
+      expect(await state(creating)).toBe('pending'); // waiting on the Business lock, not inserting yet
+      g.release();
+      const [r, created] = await Promise.all([reordering, creating]);
+      expect(r.ok).toBe(true);
+      expect(created.ok).toBe(true);
+      expect(await listIds(cat.id)).toEqual([p2.id, p1.id, (created as { value: Product }).value.id]);
+      expect(await positions(cat.id)).toEqual([1, 2, 3]);
+    });
+
+    it('a CREATION that commits first makes a reorder made from the old list a 409 (nothing written), and the same move works after re-reading', async () => {
+      const { biz, admin } = await freshBusiness();
+      const cat = await newCategory({}, biz.id);
+      const [p1, p2] = [await add(cat.id, biz.id, 1), await add(cat.id, biz.id, 2)];
+      const g = gate();
+      const creating = settle(products([{ entity: Product, method: 'save', gate: g }]).create({ name: 'Nuevo', price: 900, categoryId: cat.id, businessId: biz.id } as never, admin));
+      await g.reached; // inserted, not committed, Business row locked
+      const reordering = settle(ask(admin, cat.id, [p2.id, p1.id], [p1.id, p2.id]));
+      expect(await state(reordering)).toBe('pending');
+      g.release();
+      expect(await creating).toMatchObject({ ok: true });
+      expect(await reordering).toMatchObject({ ok: false, status: 409, code: 'PRODUCT_ORDER_CONFLICT' });
+      expect(await positions(cat.id)).toEqual([1, 2, 3]); // untouched: the creation took the next position
+      const now = await listIds(cat.id);
+      await ask(admin, cat.id, [...now].reverse(), now);
+      expect(await listIds(cat.id)).toEqual([...now].reverse());
+    });
+
+    it('a CHANGE OF CATEGORY in flight into the category makes a reorder of it wait; afterwards the reorder made from the old list is a 409 and the moved product is last', async () => {
+      const { biz, admin } = await freshBusiness();
+      const [origin, dest] = [await newCategory({}, biz.id), await newCategory({}, biz.id)];
+      const moving = await add(origin.id, biz.id, 1);
+      const [d1, d2] = [await add(dest.id, biz.id, 0), await add(dest.id, biz.id, 0)];
+      const g = gate();
+      const move = settle(products([{ entity: Product, method: 'update', gate: g }]).update(moving.id, { categoryId: dest.id }, admin));
+      await g.reached; // written, not committed: Business row and the product row locked
+      const reordering = settle(ask(admin, dest.id, [d2.id, d1.id], [d1.id, d2.id]));
+      expect(await state(reordering)).toBe('pending');
+      g.release();
+      expect(await move).toMatchObject({ ok: true });
+      expect(await reordering).toMatchObject({ ok: false, status: 409, code: 'PRODUCT_ORDER_CONFLICT' });
+      expect(await listIds(dest.id)).toEqual([d1.id, d2.id, moving.id]);
+      expect(await positions(dest.id)).toEqual([0, 0, 1]); // nothing renumbered by the move; the moved one is above every value
+      expect(await listIds(origin.id)).toEqual([]);
+    });
+
+    it('a reorder of the ORIGIN category racing a change of category out of it: one wins cleanly, the other is a 409 or waits; no lost product, no duplicated position', async () => {
+      const { biz, admin } = await freshBusiness();
+      const [origin, dest] = [await newCategory({}, biz.id), await newCategory({}, biz.id)];
+      const [a, b, c] = [await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0), await add(origin.id, biz.id, 0)];
+      const outcomes = await Promise.all([
+        settle(ask(admin, origin.id, [c.id, b.id, a.id], [a.id, b.id, c.id])),
+        settle(products().update(b.id, { categoryId: dest.id }, admin)),
+      ]);
+      expect(outcomes.every((o) => o.ok || o.status === 409)).toBe(true);
+      expect(outcomes.some((o) => o.ok)).toBe(true);
+      const total = (await listIds(origin.id)).length + (await listIds(dest.id)).length;
+      expect(total).toBe(3);
+      expect(await listIds(dest.id)).toEqual([b.id]);
+      const left = await positions(origin.id);
+      expect(new Set(left).size).toBe(left.length);
+    });
+
+    it('a PATCH holding one product row (an edit in flight) makes a reorder wait for it; after it commits the reorder goes through and the edit is not lost', async () => {
+      const { biz, admin } = await freshBusiness();
+      const cat = await newCategory({}, biz.id);
+      const [p1, p2] = [await add(cat.id, biz.id, 1), await add(cat.id, biz.id, 2)];
+      const g = gate();
+      const editing = settle(products([{ entity: Product, method: 'update', gate: g }]).update(p1.id, { name: 'Renombrado' }, admin));
+      await g.reached; // written, not committed: the row lock of p1 is held
+      const reordering = settle(ask(admin, cat.id, [p2.id, p1.id], [p1.id, p2.id]));
+      expect(await state(reordering)).toBe('pending');
+      g.release();
+      expect(await editing).toMatchObject({ ok: true });
+      expect(await reordering).toMatchObject({ ok: true });
+      expect(await listIds(cat.id)).toEqual([p2.id, p1.id]);
+      expect(((await ds.query(`SELECT name FROM products WHERE id = $1`, [p1.id])) as Array<{ name: string }>)[0].name).toBe('Renombrado');
+    });
+
+    it('SIMULTANEOUS CREATIONS on independent connections never share a position, also when the category starts with every product at 0', async () => {
+      const { biz, admin } = await freshBusiness();
+      const cat = await newCategory({}, biz.id);
+      await add(cat.id, biz.id, 0);
+      await add(cat.id, biz.id, 0);
+      const results = await Promise.all(Array.from({ length: 12 }, (_, i) => settle(products().create({ name: `N${i}`, price: 500, categoryId: cat.id, businessId: biz.id } as never, admin))));
+      expect(results.every((r) => r.ok)).toBe(true);
+      expect(await positions(cat.id)).toEqual([0, 0, ...Array.from({ length: 12 }, (_, i) => i + 1)]);
+    });
+
+    it('SIMULTANEOUS CHANGES of category into the same destination never share a position', async () => {
+      const { biz, admin } = await freshBusiness();
+      const [origin, dest] = [await newCategory({}, biz.id), await newCategory({}, biz.id)];
+      await add(dest.id, biz.id, 3);
+      const movers = [] as Product[];
+      for (let i = 0; i < 6; i++) movers.push(await add(origin.id, biz.id, 0));
+      const results = await Promise.all(movers.map((m) => settle(products().update(m.id, { categoryId: dest.id }, admin))));
+      expect(results.every((r) => r.ok)).toBe(true);
+      expect(await positions(dest.id)).toEqual([3, 4, 5, 6, 7, 8, 9]);
+    });
+
+    it('no deadlock and no broken order under a mix of reorders, creations, edits, changes of category and deletions of the same restaurant (only 2xx / 4xx answers)', async () => {
+      const { biz, admin } = await freshBusiness();
+      const [cat, other] = [await newCategory({}, biz.id), await newCategory({}, biz.id)];
+      for (let i = 0; i < 5; i++) await add(cat.id, biz.id, 0);
+      let unexpected = 0;
+      for (let round = 0; round < 8; round++) {
+        const ids = await listIds(cat.id);
+        const otherIds = await listIds(other.id);
+        const ops: Array<() => Promise<unknown>> = [
+          () => ask(admin, cat.id, [...ids].reverse(), ids),
+          () => ask(admin, cat.id, [ids[1], ids[0], ...ids.slice(2)], ids),
+          () => ask(admin, other.id, [...otherIds].reverse(), otherIds),
+          () => products().create({ name: `M${round}`, price: 500, categoryId: cat.id, businessId: biz.id } as never, admin),
+          () => products().update(ids[0], { name: `Ren ${round}` }, admin),
+          () => products().update(ids[ids.length - 1], { categoryId: other.id }, admin),
+          () => products().update(ids[1], { active: round % 2 === 0 }, admin),
+          () => products().remove(ids[2], admin),
+        ];
+        const results = await Promise.all(ops.map((op) => settle(op())));
+        for (const r of results) if (!r.ok && (r.status < 400 || r.status >= 500)) unexpected += 1;
+      }
+      expect(unexpected).toBe(0); // a deadlock would surface as a 500 (SQLSTATE 40P01)
+      // whatever happened, a final reorder from the real list leaves exactly 1..n in each category
+      for (const c of [cat, other]) {
+        const real = await listIds(c.id);
+        if (real.length > 0) await ask(admin, c.id, real, real);
+        expect(await positions(c.id)).toEqual(real.map((_, i) => i + 1));
+      }
+    }, 120_000);
+  });
+
   describe('the product fixes of PR #65 keep working next to the category lock', () => {
     it('a PATCH of a product, an image change and a deletion still write column-scoped and never revive a deleted product', async () => {
       const c = await newCategory();

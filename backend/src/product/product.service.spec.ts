@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -67,7 +68,7 @@ describe('ProductService', () => {
   let productImageService: ReturnType<typeof createProductImageServiceMock>;
   let publicBusinessResolver: ReturnType<typeof createPublicBusinessResolverMock>;
   let businessLimits: ReturnType<typeof createBusinessLimitsMock>;
-  let transactionManager: { getRepository: ReturnType<typeof vi.fn> };
+  let transactionManager: { getRepository: ReturnType<typeof vi.fn>; query: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -96,6 +97,8 @@ describe('ProductService', () => {
     // create()/moves run inside a transaction — manager.getRepository() routes
     // to the same product mock as the injected repository.
     transactionManager = {
+      // the position "at the end" (MAX + 1 of the category) and the reorder write: raw SQL on the transaction's connection
+      query: vi.fn().mockResolvedValue([{ next: 1 }]),
       getRepository: vi.fn((entity: unknown) => {
         if (entity === Product) return productRepo;
         // update() judges the merged state on the transaction's own connection
@@ -603,7 +606,8 @@ describe('ProductService', () => {
       await service.update('p1', { businessId: 'biz-2', categoryId: 'cat-9' }, superAdmin);
 
       expect(businessLimits.assertCanCreate).toHaveBeenCalledWith(transactionManager, 'biz-2', 'product', superAdmin);
-      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { businessId: 'biz-2', categoryId: 'cat-9' });
+      // the product goes LAST in the destination category (position read under the destination Business lock)
+      expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { businessId: 'biz-2', categoryId: 'cat-9', sortOrder: 1 });
     });
 
     it('a move into a full Business is rejected and nothing is saved', async () => {
@@ -1446,5 +1450,184 @@ describe('ProductService', () => {
 
     expect(productImageService).not.toHaveProperty('remove');
     expect(productRepo.softDelete).toHaveBeenCalledWith('p1');
+  });
+
+  // ---- 9L.6: the order of the products of a category is decided by the server -------------------------------------------------------------
+  describe('order of the products (9L.6)', () => {
+    const FOR_UPDATE = { mode: 'pessimistic_write' };
+    const SHARE = { mode: 'pessimistic_read' };
+    const live = { id: 'p1', businessId: 'biz-1', categoryId: 'cat-1', active: true, price: 1000 };
+
+    describe('a new product goes last in its category', () => {
+      it('the position is MAX + 1 of the live products of THAT category, read after the Business lock and the category lock, before the INSERT', async () => {
+        businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+        transactionManager.query.mockResolvedValue([{ next: '7' }]);
+
+        await service.create({ name: 'Nuevo', price: 900, categoryId: 'cat-1' } as never, admin);
+
+        expect(transactionManager.query).toHaveBeenCalledTimes(1);
+        const [sql, params] = transactionManager.query.mock.calls[0] as [string, unknown[]];
+        expect(sql).toMatch(/MAX\(sort_order\), 0\) \+ 1/);
+        expect(sql).toMatch(/FROM products WHERE category_id = \$1 AND deleted_at IS NULL/);
+        expect(params).toEqual(['cat-1']);
+        expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ sortOrder: 7 }));
+        expect(businessLimits.assertCanCreate.mock.invocationCallOrder[0]).toBeLessThan(transactionManager.query.mock.invocationCallOrder[0]);
+        expect(categoryRepo.findOne.mock.invocationCallOrder[1]).toBeLessThan(transactionManager.query.mock.invocationCallOrder[0]);
+        expect(transactionManager.query.mock.invocationCallOrder[0]).toBeLessThan(productRepo.save.mock.invocationCallOrder[0]);
+      });
+
+      it('an explicit sortOrder (an older client) is honoured: nothing is computed', async () => {
+        businessRepo.findOne.mockResolvedValue({ id: 'biz-1' });
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+        await service.create({ name: 'Nuevo', price: 900, categoryId: 'cat-1', sortOrder: 0 } as never, admin);
+
+        expect(transactionManager.query).not.toHaveBeenCalled();
+        expect(productRepo.save).toHaveBeenCalledWith(expect.objectContaining({ sortOrder: 0 }));
+      });
+    });
+
+    describe('changing the category puts the product last in the destination category', () => {
+      it('takes the Business lock BEFORE the product row (Business -> Product -> Category), then reads the end of the destination and writes it', async () => {
+        productRepo.findOne.mockResolvedValue({ ...live });
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-2', businessId: 'biz-1', active: true });
+        transactionManager.query.mockResolvedValue([{ next: 4 }]);
+
+        await service.update('p1', { categoryId: 'cat-2' }, admin);
+
+        expect(businessRepo.findOne).toHaveBeenCalledWith({ where: { id: 'biz-1' }, lock: FOR_UPDATE });
+        const productRowLock = productRepo.findOne.mock.calls.findIndex(([arg]) => (arg as { lock?: unknown }).lock !== undefined);
+        expect(businessRepo.findOne.mock.invocationCallOrder[0]).toBeLessThan(productRepo.findOne.mock.invocationCallOrder[productRowLock]);
+        expect(categoryRepo.findOne).toHaveBeenCalledWith({ where: { id: 'cat-2' }, lock: SHARE });
+        expect(transactionManager.query.mock.calls[0][1]).toEqual(['cat-2']);
+        expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { categoryId: 'cat-2', sortOrder: 4 });
+      });
+
+      it('an edit that keeps the category takes no Business lock and computes nothing (the position stays)', async () => {
+        productRepo.findOne.mockResolvedValue({ ...live });
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+        await service.update('p1', { price: 1200, categoryId: 'cat-1' }, admin);
+
+        expect(businessRepo.findOne).not.toHaveBeenCalled();
+        expect(transactionManager.query).not.toHaveBeenCalled();
+        expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { price: 1200, categoryId: 'cat-1' });
+      });
+
+      it('an explicit sortOrder together with the new category (an older client) is honoured as sent', async () => {
+        productRepo.findOne.mockResolvedValue({ ...live });
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-2', businessId: 'biz-1', active: true });
+
+        await service.update('p1', { categoryId: 'cat-2', sortOrder: 3 }, admin);
+
+        expect(businessRepo.findOne).not.toHaveBeenCalled();
+        expect(transactionManager.query).not.toHaveBeenCalled();
+        expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { categoryId: 'cat-2', sortOrder: 3 });
+      });
+
+      it('reactivating or editing other fields never moves the product in its list', async () => {
+        productRepo.findOne.mockResolvedValue({ ...live, active: false });
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+
+        await service.update('p1', { active: true }, admin);
+
+        expect(transactionManager.query).not.toHaveBeenCalled();
+        expect(productRepo.update).toHaveBeenCalledWith({ id: 'p1', deletedAt: IsNull() }, { active: true });
+      });
+
+      it('if someone else moved the product between the first read and the lock, nothing is written (409, safe to retry)', async () => {
+        // first read: already in cat-2 (so no Business lock was planned); under the lock it is in cat-1, so this request WOULD change it
+        productRepo.findOne.mockResolvedValueOnce({ ...live, categoryId: 'cat-2' }).mockResolvedValueOnce({ ...live, categoryId: 'cat-1' });
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-2', businessId: 'biz-1', active: true });
+
+        await expect(service.update('p1', { categoryId: 'cat-2' }, admin)).rejects.toMatchObject({ response: { errorCode: 'PRODUCT_CONCURRENT_MODIFICATION' } });
+        expect(productRepo.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('PUT /products/order', () => {
+      const dto = (orderedIds: string[], expectedIds: string[]) => ({ categoryId: 'cat-1', orderedIds, expectedIds });
+      const row = (id: string, sortOrder: number) => ({ id, sortOrder, businessId: 'biz-1', categoryId: 'cat-1' });
+
+      beforeEach(() => {
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+        businessRepo.findOne.mockResolvedValue({ id: 'biz-1', active: true });
+      });
+
+      it('takes the locks in the order Business -> products of the category -> category, then writes the new positions and reads them back', async () => {
+        const before = [row('a', 0), row('b', 0), row('c', 0)];
+        const after = [row('c', 1), row('a', 2), row('b', 3)];
+        productRepo.find.mockResolvedValueOnce(before).mockResolvedValueOnce(after);
+
+        const result = await service.reorder(dto(['c', 'a', 'b'], ['a', 'b', 'c']), admin);
+
+        expect(businessRepo.findOne).toHaveBeenCalledWith({ where: { id: 'biz-1' }, lock: FOR_UPDATE });
+        expect(productRepo.find.mock.calls[0][0]).toMatchObject({ where: { businessId: 'biz-1', categoryId: 'cat-1' }, lock: FOR_UPDATE });
+        expect(categoryRepo.findOne).toHaveBeenLastCalledWith({ where: { id: 'cat-1' }, lock: SHARE });
+        const business = businessRepo.findOne.mock.invocationCallOrder[0];
+        const products = productRepo.find.mock.invocationCallOrder[0];
+        const category = categoryRepo.findOne.mock.invocationCallOrder[1];
+        const write = transactionManager.query.mock.invocationCallOrder[0];
+        expect(business).toBeLessThan(products);
+        expect(products).toBeLessThan(category);
+        expect(category).toBeLessThan(write);
+        const [sql, params] = transactionManager.query.mock.calls[0] as [string, unknown[]];
+        expect(sql).toMatch(/UPDATE products SET sort_order = t\.position/);
+        expect(sql).toMatch(/products\.category_id = \$3 AND products\.business_id = \$4 AND products\.deleted_at IS NULL/);
+        expect(params).toEqual([['c', 'a', 'b'], [1, 2, 3], 'cat-1', 'biz-1']);
+        expect(result).toMatchObject({ businessId: 'biz-1', categoryId: 'cat-1', changed: true, products: after });
+      });
+
+      it('writes only the rows whose position changes, and nothing at all when the order is already the one asked (no write, no audit)', async () => {
+        productRepo.find.mockResolvedValueOnce([row('a', 1), row('b', 2), row('c', 3)]).mockResolvedValueOnce([row('a', 1), row('c', 2), row('b', 3)]);
+        await service.reorder(dto(['a', 'c', 'b'], ['a', 'b', 'c']), admin);
+        expect((transactionManager.query.mock.calls[0] as [string, unknown[]])[1]).toEqual([['c', 'b'], [2, 3], 'cat-1', 'biz-1']);
+
+        transactionManager.query.mockClear();
+        productRepo.find.mockReset().mockResolvedValueOnce([row('a', 1), row('b', 2)]);
+        const same = await service.reorder(dto(['a', 'b'], ['a', 'b']), admin);
+        expect(same.changed).toBe(false);
+        expect(transactionManager.query).not.toHaveBeenCalled();
+      });
+
+      it('409 when the list the caller saw is not the real one, 400 when the ids are not a permutation of the category: nothing is written', async () => {
+        productRepo.find.mockResolvedValue([row('a', 0), row('b', 0)]);
+        await expect(service.reorder(dto(['b', 'a'], ['b', 'a']), admin)).rejects.toMatchObject({ response: { errorCode: 'PRODUCT_ORDER_CONFLICT' } });
+        await expect(service.reorder(dto(['a', 'zzz'], ['a', 'b']), admin)).rejects.toMatchObject({ response: { errorCode: 'PRODUCT_ORDER_INVALID' } });
+        expect(transactionManager.query).not.toHaveBeenCalled();
+      });
+
+      it('a write that did not leave exactly the order asked rolls the transaction back', async () => {
+        productRepo.find.mockResolvedValueOnce([row('a', 0), row('b', 0)]).mockResolvedValueOnce([row('a', 1), row('b', 2)]);
+        await expect(service.reorder(dto(['b', 'a'], ['a', 'b']), admin)).rejects.toBeInstanceOf(InternalServerErrorException);
+      });
+
+      it('an ADMIN with a category of another restaurant gets the same 404 as with one that does not exist; a SUPER_ADMIN can use any', async () => {
+        categoryRepo.findOne.mockResolvedValueOnce({ id: 'cat-x', businessId: 'biz-2', active: true });
+        await expect(service.reorder({ ...dto(['a'], ['a']), categoryId: 'cat-x' }, admin)).rejects.toBeInstanceOf(NotFoundException);
+        categoryRepo.findOne.mockResolvedValueOnce(null);
+        await expect(service.reorder({ ...dto(['a'], ['a']), categoryId: 'cat-none' }, admin)).rejects.toBeInstanceOf(NotFoundException);
+        expect(businessRepo.findOne).not.toHaveBeenCalled();
+
+        categoryRepo.findOne.mockResolvedValue({ id: 'cat-1', businessId: 'biz-1', active: true });
+        productRepo.find.mockResolvedValueOnce([row('a', 1)]);
+        await expect(service.reorder(dto(['a'], ['a']), superAdmin)).resolves.toMatchObject({ businessId: 'biz-1', changed: false });
+      });
+
+      it('a suspended restaurant is refused for an ADMIN (403) and allowed for a SUPER_ADMIN', async () => {
+        businessRepo.findOne.mockResolvedValue({ id: 'biz-1', active: false });
+        await expect(service.reorder(dto(['a'], ['a']), admin)).rejects.toBeInstanceOf(ForbiddenException);
+        productRepo.find.mockResolvedValueOnce([row('a', 1)]);
+        await expect(service.reorder(dto(['a'], ['a']), superAdmin)).resolves.toMatchObject({ changed: false });
+      });
+
+      it('a category deleted while the request waited for the locks is a 404 and nothing is written', async () => {
+        productRepo.find.mockResolvedValue([row('a', 0)]);
+        categoryRepo.findOne.mockReset().mockResolvedValueOnce({ id: 'cat-1', businessId: 'biz-1', active: true }).mockResolvedValueOnce(null);
+        await expect(service.reorder(dto(['a'], ['a']), admin)).rejects.toBeInstanceOf(NotFoundException);
+        expect(transactionManager.query).not.toHaveBeenCalled();
+      });
+    });
   });
 });

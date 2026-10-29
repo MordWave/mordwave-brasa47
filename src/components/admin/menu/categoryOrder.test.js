@@ -84,7 +84,8 @@ test('6. AdminMenu saves with ONE request to PUT /categories/order (scoped like 
   assert.match(adminMenu, /const move = categoryMove\(categories, category\.id, direction\)/)
   assert.match(adminMenu, /setCategories\(saved\)/, 'the list afterwards is what the server answered')
   assert.ok(!/\/categories\/\$\{[^}]*\}[^)]*sortOrder/.test(adminMenu), 'no per-category PATCH of sortOrder: a move is never several writes')
-  assert.equal((adminMenu.match(/method: 'PUT'/g) ?? []).length, 1)
+  assert.equal((adminMenu.match(/method: 'PUT'/g) ?? []).length, 2, 'one PUT for the categories\' order and one for the products\' (9L.6)')
+  assert.equal((adminMenu.match(/scopePath\('\/categories\/order'\)/g) ?? []).length, 1)
 })
 
 test('7. one operation at a time, clear state, and recovery: no parallel moves, "Guardando orden…" / "Orden guardado.", the confirmed list is re-read after a failure', () => {

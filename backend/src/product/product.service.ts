@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, FindOptionsWhere, ILike, In, IsNull, Repository } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity.js';
@@ -9,6 +9,7 @@ import {
 } from '../auth/tenant.util.js';
 import type { SafeUser } from '../auth/safe-user.js';
 import { Business } from '../business/business.entity.js';
+import { businessInactiveError } from '../business/business-active.js';
 import { BusinessLimitsService } from '../business/business-limits.service.js';
 import { PublicBusinessResolverService } from '../business/public-business-resolver.service.js';
 import { Category } from '../category/category.entity.js';
@@ -19,7 +20,10 @@ import { CreateProductDto } from './dto/create-product.dto.js';
 import { ProductAdminQueryDto } from './dto/product-admin-query.dto.js';
 import { ProductQueryDto } from './dto/product-query.dto.js';
 import { ProductSummaryQueryDto } from './dto/product-summary-query.dto.js';
+import { ReorderProductsDto } from './dto/reorder-products.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
+import { planProductReorder } from './product-order.js';
+import { UserRole } from '../user/user-role.enum.js';
 import { ProductImageService, type UploadableFile } from './product-image.service.js';
 import { Product, type ProductAddOn } from './product.entity.js';
 
@@ -183,8 +187,23 @@ export class ProductService {
       const productRepository = manager.getRepository(Product);
       const product = productRepository.create(dto);
       product.businessId = businessId;
+      // A new product goes LAST in its category, decided here and not by the browser: the position after the highest one of the live products
+      // of that category (active and inactive). The Business row is already locked FOR UPDATE above (the same lock PUT /products/order and a
+      // change of category take), so two simultaneous creations cannot read the same maximum. An explicit sortOrder (older clients, scripts)
+      // is still honoured as before.
+      if (dto.sortOrder === undefined) product.sortOrder = await this.nextSortOrder(manager, dto.categoryId);
       return productRepository.save(product);
     });
+  }
+
+  // MAX(sort_order) + 1 over the live products of ONE category (soft-deleted ones do not count): the position "at the end", also when the
+  // existing ones are all 0 or repeated (the new one is simply above every value there). Call it holding the Business lock.
+  private async nextSortOrder(manager: EntityManager, categoryId: string): Promise<number> {
+    const rows = (await manager.query(
+      `SELECT COALESCE(MAX(sort_order), 0) + 1 AS next FROM products WHERE category_id = $1 AND deleted_at IS NULL`,
+      [categoryId],
+    )) as Array<{ next: number | string }>;
+    return Number(rows[0].next);
   }
 
   private async findActiveCategoryIds(businessId: string, categoryId?: string): Promise<string[]> {
@@ -384,9 +403,14 @@ export class ProductService {
     // Only a SUPER_ADMIN can move a product (see resolveBusinessIdForUpdate). That consumes quota in the DESTINATION Business, so it
     // goes through the same locked count as a create (Business row first, then the product row).
     const moving = initialBusinessId !== initial.businessId;
+    // Changing the category (without an explicit order from an older client) puts the product LAST in the destination category. That position is
+    // read under the Business lock, the same one creations and PUT /products/order take, so it must be taken BEFORE the product row (lock order
+    // Business -> Product -> Category, see category-locks.ts). A move to another restaurant already takes it above.
+    const placesAtEnd = !moving && dto.categoryId !== undefined && dto.categoryId !== initial.categoryId && dto.sortOrder === undefined;
 
     return this.dataSource.transaction(async (manager) => {
       if (moving) await this.businessLimits.assertCanCreate(manager, initialBusinessId, 'product', user);
+      else if (placesAtEnd) await manager.getRepository(Business).findOne({ where: { id: initial.businessId }, lock: { mode: 'pessimistic_write' } });
 
       const productRepository = manager.getRepository(Product);
       const product = await productRepository.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
@@ -405,6 +429,16 @@ export class ProductService {
       }
 
       if (moving) await this.assertBusinessExists(businessId, manager.getRepository(Business));
+
+      // The category the product has NOW (judged on the locked row) decides whether it changes. If it changed since the first read (someone
+      // else moved it), the Business lock taken above (or not taken) no longer matches what this request does: nothing is written, safe to retry.
+      const categoryChanges = dto.categoryId !== undefined && dto.categoryId !== product.categoryId;
+      if (!moving && categoryChanges && dto.sortOrder === undefined && !placesAtEnd) {
+        throw new ConflictException({
+          message: `Product "${id}" was changed by another request; nothing was applied, review and retry`,
+          errorCode: 'PRODUCT_CONCURRENT_MODIFICATION',
+        });
+      }
 
       // Re-validate the category (existence, business, and active status)
       // whenever it's actually being assigned to the product: the category
@@ -442,6 +476,8 @@ export class ProductService {
         if (value !== undefined) (columns as Record<string, unknown>)[field] = value;
       }
       if (moving) columns.businessId = businessId;
+      // last in the destination category (the Business lock is held: from the branch above, or from assertCanCreate when moving restaurants)
+      if (categoryChanges && dto.sortOrder === undefined) columns.sortOrder = await this.nextSortOrder(manager, categoryId);
 
       if (Object.keys(columns).length > 0) {
         const result = await productRepository.update({ id, deletedAt: IsNull() }, columns);
@@ -450,6 +486,65 @@ export class ProductService {
       }
       // the row as it is now (the lock is still held): every column, including those this request did not touch
       return productRepository.findOneByOrFail({ id });
+    });
+  }
+
+  // PUT /products/order — saves the COMPLETE order of the products of ONE category, atomically.
+  //
+  // The category decides the restaurant. An ADMIN can only use a category of their own restaurant: a foreign category answers exactly like one
+  // that does not exist (404), so nothing is revealed about other tenants. A SUPER_ADMIN may use any.
+  //
+  // One transaction, and in it, in this order (the lock order of the whole module: Business -> Product -> Category, see category-locks.ts):
+  //  1. the Business row FOR UPDATE: the coordination point per restaurant, the same lock product CREATION and a CHANGE OF CATEGORY take, so a
+  //     reorder never interleaves with a product that appears in, or moves into or out of, the list. (Row locks on the products alone could not
+  //     stop an INSERT that happens meanwhile.) It is also where a suspended restaurant is refused for an ADMIN.
+  //  2. every live product of the category FOR UPDATE (active and inactive), in the order the lists show. A plain PATCH/DELETE of one product
+  //     holds only its own row lock and never waits for the Business row, so there is no cycle.
+  //  3. the category FOR SHARE, so it cannot be deleted or deactivated-with-products while its products are being ordered.
+  //  4. planProductReorder judges the rows just read: 409 when the sequence the caller saw (expectedIds) is no longer the real one, 400 when
+  //     orderedIds is not a permutation of the category's ids (unknown / foreign / missing look the same).
+  //  5. ONE UPDATE writes the new consecutive positions (1..n), only on rows whose value changes, and the rows are read back and checked: a
+  //     mismatch throws and the whole transaction rolls back. Nothing else is written: no other category, no other restaurant, no other column
+  //     of the products but their position (and updated_at).
+  // The starting point is the order the lists already show (sort_order, created_at, id), so a category whose products were all 0 keeps looking
+  // exactly the same until the one move that was asked for; the values become 1..n only here (never automatically when deploying).
+  async reorder(
+    dto: ReorderProductsDto,
+    user: SafeUser,
+  ): Promise<{ businessId: string; categoryId: string; products: Product[]; changed: boolean }> {
+    const outline = await this.categoryRepository.findOne({ where: { id: dto.categoryId } });
+    if (!outline || (user.role !== UserRole.SUPER_ADMIN && outline.businessId !== user.businessId)) {
+      throw new NotFoundException(`Category with id "${dto.categoryId}" does not exist`);
+    }
+    const businessId = outline.businessId;
+
+    return this.dataSource.transaction(async (manager) => {
+      const business = await manager.getRepository(Business).findOne({ where: { id: businessId }, lock: { mode: 'pessimistic_write' } });
+      if (!business) throw new NotFoundException(`Business with id "${businessId}" does not exist`);
+      if (!business.active && user.role !== UserRole.SUPER_ADMIN) throw businessInactiveError();
+
+      const repository = manager.getRepository(Product);
+      const listOrder = { sortOrder: 'ASC', createdAt: 'ASC', id: 'ASC' } as const;
+      const current = await repository.find({ where: { businessId, categoryId: dto.categoryId }, order: listOrder, lock: { mode: 'pessimistic_write' } });
+
+      // deleted while this request was waiting for the locks: same 404 as a category that never existed
+      const category = await lockCategoryShared(manager, dto.categoryId);
+      if (!category || category.businessId !== businessId) throw new NotFoundException(`Category with id "${dto.categoryId}" does not exist`);
+
+      const plan = planProductReorder(current, dto.orderedIds, dto.expectedIds);
+      if (plan.updates.length === 0) return { businessId, categoryId: dto.categoryId, products: current, changed: false };
+
+      await manager.query(
+        `UPDATE products SET sort_order = t.position, updated_at = now()
+           FROM unnest($1::uuid[], $2::int[]) AS t(id, position)
+          WHERE products.id = t.id AND products.category_id = $3 AND products.business_id = $4 AND products.deleted_at IS NULL`,
+        [plan.updates.map((u) => u.id), plan.updates.map((u) => u.position), dto.categoryId, businessId],
+      );
+
+      const after = await repository.find({ where: { businessId, categoryId: dto.categoryId }, order: listOrder });
+      const saved = after.length === dto.orderedIds.length && after.every((row, index) => row.id === dto.orderedIds[index] && row.sortOrder === index + 1);
+      if (!saved) throw new InternalServerErrorException('The product order could not be saved');
+      return { businessId, categoryId: dto.categoryId, products: after, changed: true };
     });
   }
 

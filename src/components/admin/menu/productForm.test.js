@@ -90,17 +90,21 @@ test('why the tag is outside the QR section: the card of BOTH menus shows it, wh
   assert.doesNotMatch(code(endpoint.replace(/\/\/.*$/gm, '')), /ingredients|addOns|removableIngredients/)
 })
 
-test('the optional QR-ordering fields (ingredients, extras) and the technical "Orden" are in sections after the essentials, nothing removed', () => {
+test('the optional QR-ordering fields (ingredients, extras) are in a section after the essentials, nothing removed; nobody types an order number any more', () => {
   const html = r.form({})
   assert.ok(at(html, 'Opciones para el pedido por QR') > at(html, '>Disponible<'))
-  assert.ok(at(html, 'Avanzado') > at(html, 'Opciones para el pedido por QR'))
-  for (const text of ['Etiqueta (opcional)', 'Ingredientes (uno por línea)', 'Extras', '+ Agregar extra', '>Orden<', 'Opcional · ingredientes y extras', 'Opcional · posición en la lista']) {
+  for (const text of ['Etiqueta (opcional)', 'Ingredientes (uno por línea)', 'Extras', '+ Agregar extra', 'Opcional · ingredientes y extras']) {
     assert.ok(html.includes(text), text)
   }
-  assert.equal((html.match(/<details class="admin-menu__section"/g) ?? []).length, 2)
+  assert.equal((html.match(/<details class="admin-menu__section"/g) ?? []).length, 1)
+  // 9L.6: the position is decided by the server (new products go last) and moved from the list: no "Orden" field and no "Avanzado" section
+  for (const html2 of [html, r.form({ product: PRODUCT })]) {
+    assert.doesNotMatch(html2, /Avanzado|>Orden<|posición en la lista|Define la posición/)
+    assert.equal((html2.match(/type="number"/g) ?? []).length, 1 + (html2.includes('Queso extra') ? 1 : 0), 'only the price (and the price of each extra)')
+  }
 })
 
-test('a new product starts with both sections closed; editing a product that has ingredients or extras opens the first one (a tag alone does not); "Avanzado" is always closed', () => {
+test('a new product starts with the QR section closed; editing a product that has ingredients or extras opens it (a tag alone does not)', () => {
   const closed = r.form({})
   assert.equal((closed.match(/<details class="admin-menu__section" open=""/g) ?? []).length, 0)
   const simple = r.form({ product: SIMPLE })
@@ -115,20 +119,19 @@ test('a new product starts with both sections closed; editing a product that has
 
 test('editing shows every saved value, the ones in the closed section included (they stay in the form and are sent)', () => {
   const html = r.form({ product: PRODUCT })
-  for (const value of ['value="Lomo de prueba"', 'Descripción de prueba', 'value="11900"', 'value="Nuevo"', 'Lomo\nPapas', 'value="Queso extra"', 'value="1200"', 'value="3"']) {
+  for (const value of ['value="Lomo de prueba"', 'Descripción de prueba', 'value="11900"', 'value="Nuevo"', 'Lomo\nPapas', 'value="Queso extra"', 'value="1200"']) {
     assert.ok(html.includes(value), value)
   }
   assert.match(html, /<option value="c1" selected="">Platos<\/option>/)
   // the closed section still renders its fields
   const closed = r.form({ product: SIMPLE })
-  assert.ok(closed.includes('Etiqueta (opcional)') && closed.includes('>Orden<'))
+  assert.ok(closed.includes('Etiqueta (opcional)') && closed.includes('Ingredientes (uno por línea)'))
 })
 
 test('the explanations are short hints; examples are written as examples so they are not mistaken for data', () => {
   const html = r.form({})
   assert.match(html, /El cliente los ve al elegir el producto y puede quitar los que marques abajo\./)
   assert.match(html, /El precio de cada extra se suma al del producto cuando el cliente lo elige\./)
-  assert.match(html, /Define la posición del producto dentro de su categoría/)
   assert.match(html, /placeholder="Ejemplo: Recomendado"/)
   assert.match(html, /placeholder="Ejemplo, uno por línea:\nCarne 180 g\nPan brioche"/)
   assert.doesNotMatch(html, /placeholder="Ej: /)
@@ -136,11 +139,11 @@ test('the explanations are short hints; examples are written as examples so they
   assert.match(style, /\.admin-menu__form ::placeholder \{[^}]*font-style: italic;/)
 })
 
-test('the data sent to the backend is unchanged: same keys, same cleaning, same single submit', () => {
+test('the data sent to the backend is the same, minus the order number nobody types now (an edit leaves the position alone, a new product goes last: the server decides): same cleaning, same single submit', () => {
   const src = code(source)
   assert.match(
     src,
-    /await onSave\(\s*\{\s*name,\s*description: description \|\| undefined,\s*price: Number\(price\),\s*categoryId,\s*available,\s*sortOrder: Number\(sortOrder\),\s*tag: trimmedTag \|\| undefined,\s*ingredients: ingredientsList,\s*removableIngredients: cleanedRemovable,\s*addOns: cleanedAddOns,\s*\},\s*product\?\.id,\s*pendingFile,\s*\)/,
+    /await onSave\(\s*\{\s*name,\s*description: description \|\| undefined,\s*price: Number\(price\),\s*categoryId,\s*available,\s*tag: trimmedTag \|\| undefined,\s*ingredients: ingredientsList,\s*removableIngredients: cleanedRemovable,\s*addOns: cleanedAddOns,\s*\},\s*product\?\.id,\s*pendingFile,\s*\)/,
   )
   assert.equal((src.match(/type="submit"/g) ?? []).length, 1)
 })

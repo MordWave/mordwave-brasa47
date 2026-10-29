@@ -32,6 +32,9 @@ const MESSAGES_BY_CODE = {
   // PUT /categories/order (9L.3). The conflict applied NOTHING: another administrator reordered, created or deleted a category meanwhile.
   CATEGORY_ORDER_CONFLICT: () => 'El orden de las categorías cambió mientras lo editabas (otra persona lo modificó), así que no se guardó tu cambio. Actualiza la lista e inténtalo de nuevo.',
   CATEGORY_ORDER_INVALID: () => 'No se pudo guardar el orden porque la lista ya no coincide con las categorías del restaurante. Actualiza la lista e inténtalo de nuevo.',
+  // PUT /products/order (9L.6). Same meaning as the categories': nothing was applied.
+  PRODUCT_ORDER_CONFLICT: () => 'El orden de los productos de esta categoría cambió mientras lo editabas (otra persona lo modificó), así que no se guardó tu cambio. Actualiza la lista e inténtalo de nuevo.',
+  PRODUCT_ORDER_INVALID: () => 'No se pudo guardar el orden porque la lista ya no coincide con los productos de la categoría. Actualiza la lista e inténtalo de nuevo.',
   BUSINESS_PRODUCT_LIMIT_REACHED: (error) =>
     `Alcanzaste el máximo de ${limitedCount(error.limit, 'productos', 'permitidos')} de tu negocio. Elimina alguno que ya no uses para poder crear uno nuevo.`,
   BUSINESS_CATEGORY_LIMIT_REACHED: (error) =>
