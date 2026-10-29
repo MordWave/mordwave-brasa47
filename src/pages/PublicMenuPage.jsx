@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import useCategoryScrollSpy from '../hooks/useCategoryScrollSpy.js'
+import { ShareIcon } from '../components/customer/Icons'
 import MenuScreen from '../components/customer/MenuScreen'
 import ThemeToggle from '../components/ThemeToggle'
 import { translateApiError } from '../services/errorMessages'
@@ -8,6 +9,7 @@ import { brandingStyleVars } from '../theme/brandStyle.js'
 import { useTheme } from '../theme/useTheme.js'
 import { safeBranding } from '../utils/brandingRefresh.js'
 import { parsePublicMenuPath, publicMenuUrl } from '../utils/publicMenuRoute.js'
+import { sharePublicMenu } from '../utils/shareMenu.js'
 
 // Stable empty list while the menu loads (the scroll tracking re-attaches only when the categories change).
 const NO_CATEGORIES = []
@@ -74,12 +76,15 @@ export function PublicMenuView({
         registerSection={registerSection}
         headerActions={
           <>
+            {/* Visual order = keyboard order: the quiet theme selector, then Share at the right margin. Below 360px the text is
+                hidden visually (CSS) but stays in the button: its accessible name is still "Compartir". */}
+            <ThemeToggle variant="compact" />
             {status === 'ready' && onShare && (
-              <button type="button" className="btn btn--small public-menu__share" onClick={onShare}>
-                Compartir
+              <button type="button" className="btn btn--primary public-menu__share" onClick={onShare}>
+                <ShareIcon />
+                <span className="public-menu__share-label">Compartir</span>
               </button>
             )}
-            <ThemeToggle variant="compact" />
           </>
         }
       >
@@ -132,19 +137,10 @@ export default function PublicMenuPage() {
     noticeTimer.current = setTimeout(() => setShareNotice(''), 2500)
   }
 
-  async function share() {
+  function share() {
     const url = publicMenuUrl(window.location.origin, slug)
     if (!url) return
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: businessName ? `Menú de ${businessName}` : 'Menú', url })
-      } else {
-        await navigator.clipboard.writeText(url)
-        notify('Enlace copiado')
-      }
-    } catch (err) {
-      if (err?.name !== 'AbortError') notify('No pudimos compartir el enlace. Copia la dirección de esta página.')
-    }
+    return sharePublicMenu({ url, businessName, notify })
   }
 
   const business = state.menu?.business ?? null
