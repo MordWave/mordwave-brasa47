@@ -41,7 +41,7 @@ test('2. the shareable menu bar is a sticky wrapper around a scrollable <nav>, w
   const html = r.tabs({ ...props, enhanced: true })
   assert.ok(html.startsWith('<div class="menu-nav-wrap" data-menu-nav="">'))
   assert.match(html, /<nav class="menu-nav menu-nav--scroller" aria-label="Categorías del menú">/)
-  assert.equal(buttons(html).length, 6)
+  assert.equal(buttons(html).length, 7, 'six tabs + the trigger of the phone dropdown')
   for (const name of ['Hamburguesas', 'Pizzas', 'Bebidas', 'Acompañamientos', 'Postres', 'cafes']) assert.ok(html.includes(`<span>${name}</span>`), name)
 })
 
