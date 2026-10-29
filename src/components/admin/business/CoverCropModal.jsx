@@ -1,12 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useDialogA11y } from '../../../hooks/useDialogA11y'
 import { COVER_ASPECT, isLightCover, isSmallCover } from '../../../branding/coverGeometry.js'
 import { renderCover } from '../../../branding/coverCanvas.js'
+import LazyCropper from '../LazyCropper'
 import { WelcomePreview } from './PreviewFrame'
-
-// Lazy like PhotoCropModal: the cropper is only needed once a picture is actually being adjusted.
-const Cropper = lazy(() => import('react-easy-crop'))
 
 const INITIAL_CROP = { x: 0, y: 0 }
 const INITIAL_ZOOM = 1
@@ -80,9 +78,7 @@ export default function CoverCropModal({ imageSrc, sourceSmall = false, uploadin
           <>
             <p className="cover-crop__hint">Arrastra la imagen y usa el zoom para elegir qué se ve. La portada se usa en proporción 4:5 (vertical), como en el teléfono de tus clientes.</p>
             <div className="admin-menu__crop-area cover-crop__area">
-              <Suspense fallback={<p className="admin-menu__crop-loading">Cargando editor…</p>}>
-                <Cropper image={imageSrc} crop={crop} zoom={zoom} aspect={COVER_ASPECT} onCropChange={setCrop} onZoomChange={setZoom} onCropComplete={handleCropComplete} />
-              </Suspense>
+              <LazyCropper image={imageSrc} crop={crop} zoom={zoom} aspect={COVER_ASPECT} onCropChange={setCrop} onZoomChange={setZoom} onCropComplete={handleCropComplete} />
             </div>
             <label className="admin-menu__crop-zoom">
               <span>Zoom</span>

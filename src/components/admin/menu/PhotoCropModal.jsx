@@ -1,9 +1,6 @@
-import { lazy, Suspense, useCallback, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { getCroppedBlob } from '../../../utils/cropImage'
-
-// Lazy: react-easy-crop is only needed here, in the admin panel, once a
-// photo is actually being adjusted — keeps it out of the public menu bundle.
-const Cropper = lazy(() => import('react-easy-crop'))
+import LazyCropper from '../LazyCropper'
 
 const INITIAL_CROP = { x: 0, y: 0 }
 const INITIAL_ZOOM = 1
@@ -42,17 +39,15 @@ export default function PhotoCropModal({ imageSrc, onCancel, onConfirm }) {
       <div className="confirm-dialog admin-menu__crop-modal">
         <h3 className="admin-menu__modal-title">Ajustar foto</h3>
         <div className="admin-menu__crop-area">
-          <Suspense fallback={<p className="admin-menu__crop-loading">Cargando editor…</p>}>
-            <Cropper
-              image={imageSrc}
-              crop={crop}
-              zoom={zoom}
-              aspect={1}
-              onCropChange={setCrop}
-              onZoomChange={setZoom}
-              onCropComplete={handleCropComplete}
-            />
-          </Suspense>
+          <LazyCropper
+            image={imageSrc}
+            crop={crop}
+            zoom={zoom}
+            aspect={1}
+            onCropChange={setCrop}
+            onZoomChange={setZoom}
+            onCropComplete={handleCropComplete}
+          />
         </div>
         <label className="admin-menu__crop-zoom">
           <span>Zoom</span>
