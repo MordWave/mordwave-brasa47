@@ -5421,3 +5421,120 @@ p {
     transform: none;
   }
 }
+
+/* ---- Legible cards of the shareable menu (9K.11) ----------------------------------------------------------------------------------
+   Everything below is scoped to .product-tile--readonly / .public-menu: the table (QR) menu keeps its own cards, "+" button included.
+   Names are never cut (they wrap, long words break), descriptions take up to three lines, the price stays at the end of the card. */
+.product-tile--readonly .product-tile__body {
+  min-width: 0;
+}
+
+.product-tile--readonly .product-tile__name {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.product-tile--readonly .product-tile__desc {
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 3;
+}
+
+/* wide screens: the same grid as before (columns and photo size untouched), easier text */
+@media (min-width: 640px) {
+  .product-tile--readonly .product-tile__body {
+    padding: 13px 14px 14px;
+  }
+
+  .product-tile--readonly .product-tile__name {
+    font-size: 16px;
+  }
+
+  .product-tile--readonly .product-tile__desc {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .product-tile--readonly .product-tile__footer {
+    padding-top: 10px;
+  }
+
+  .product-tile--readonly .product-tile__price {
+    font-size: 18px;
+  }
+
+  .product-tile--readonly .product-tile__tag {
+    font-size: 10.5px;
+    padding: 4px 8px;
+    top: 8px;
+    left: 8px;
+  }
+}
+
+/* phones: one column; the photo (or "Sin foto") on the left, the text on the right. The photo is as wide as the box and at least as tall
+   as it is wide; with more text it grows with the card (object-fit: cover crops it, never stretches it). */
+@media (max-width: 639.98px) {
+  .public-menu .product-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .product-tile--readonly {
+    flex-direction: row;
+  }
+
+  .product-tile--readonly .product-tile__media {
+    flex: none;
+    width: 112px;
+    min-height: 112px;
+    aspect-ratio: auto;
+  }
+
+  .product-tile--readonly .product-tile__body {
+    padding: 12px 14px;
+  }
+
+  .product-tile--readonly .product-tile__name {
+    font-size: 16px;
+  }
+
+  .product-tile--readonly .product-tile__desc {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .product-tile--readonly .product-tile__price {
+    font-size: 17px;
+  }
+
+  /* the tag stays inside the photo box (never over the text) and wraps instead of being cut */
+  .product-tile--readonly .product-tile__tag {
+    top: 8px;
+    left: 8px;
+    max-width: calc(100% - 16px);
+    padding: 3px 7px;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    border-radius: 12px;
+  }
+}
+
+@media (max-width: 359.98px) {
+  .product-tile--readonly .product-tile__media {
+    width: 92px;
+    min-height: 92px;
+  }
+
+  /* a smaller tag, so that "RECOMENDADO" still fits whole in the narrower photo box */
+  .product-tile--readonly .product-tile__tag {
+    top: 5px;
+    left: 5px;
+    max-width: calc(100% - 10px);
+    padding: 3px 5px;
+    font-size: 9px;
+    letter-spacing: 0;
+  }
+}
