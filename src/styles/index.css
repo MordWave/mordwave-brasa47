@@ -475,6 +475,59 @@ p {
   border-bottom-color: var(--primary-ui);
 }
 
+/* Shareable menu (CategoryTabs `enhanced`): the sticky bar is a wrapper, so the fades at its sides do not scroll with the tabs. */
+.menu-nav-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.menu-nav-wrap::before,
+.menu-nav-wrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.menu-nav-wrap::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg), transparent);
+}
+
+.menu-nav-wrap::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg), transparent);
+}
+
+.menu-nav-wrap--more-start::before,
+.menu-nav-wrap--more-end::after {
+  opacity: 1;
+}
+
+.menu-nav--scroller {
+  position: relative;
+  top: auto;
+  z-index: auto;
+  background: none;
+  border-bottom: 0;
+  overscroll-behavior-x: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu-nav-wrap::before,
+  .menu-nav-wrap::after {
+    transition: none;
+  }
+}
+
 /* ============ Category section ============ */
 .menu-section {
   scroll-margin-top: 52px;
