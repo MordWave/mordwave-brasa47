@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import DevAutofill from '../../../devtools/autofill/DevAutofill'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../../devtools/buildFlag.js'
 import { translateApiError } from '../../../services/errorMessages'
@@ -89,6 +89,17 @@ export default function ProductFormModal({
   )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // The optional QR-ordering fields (ingredients, extras) and the technical "Orden" live in collapsible sections. They start open only when
+  // there is something in them (editing a product that already has data), and are forced open if the validation message is about them.
+  // The tag is NOT one of them: it is shown on the product's card in the public digital menu too.
+  const [qrOpen, setQrOpen] = useState((product?.ingredients?.length ?? 0) > 0 || (product?.addOns?.length ?? 0) > 0)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const errorRef = useRef(null)
+
+  // The error sits at the end of a long scrolling form: bring it into view so it is never missed on a phone.
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [error])
 
   const ingredientsList = useMemo(() => parseIngredientsText(ingredientsText), [ingredientsText])
 
@@ -231,6 +242,7 @@ export default function ProductFormModal({
       addOns: cleanedAddOns,
     })
     if (validationError) {
+      if (trimmedTag.length <= MAX_TAG_LENGTH) setQrOpen(true) // the problem is in the ingredients or the extras
       setError(validationError)
       return
     }
@@ -289,16 +301,20 @@ export default function ProductFormModal({
               }}
             />
           )}
+          <p className="admin-menu__form-note">
+            Los campos con <span className="admin-menu__required" aria-hidden="true">*</span> son obligatorios. Lo demás es opcional.
+          </p>
+
           <label>
-            <span>Nombre</span>
+            <span>
+              Nombre <span className="admin-menu__required" aria-hidden="true">*</span>
+            </span>
             <input value={name} onChange={(e) => setName(e.target.value)} required />
           </label>
           <label>
-            <span>Descripción</span>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
-          </label>
-          <label>
-            <span>Precio (CLP)</span>
+            <span>
+              Precio (CLP) <span className="admin-menu__required" aria-hidden="true">*</span>
+            </span>
             <input
               type="number"
               min="0"
@@ -309,7 +325,9 @@ export default function ProductFormModal({
             />
           </label>
           <label>
-            <span>Categoría</span>
+            <span>
+              Categoría <span className="admin-menu__required" aria-hidden="true">*</span>
+            </span>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -319,93 +337,13 @@ export default function ProductFormModal({
               ))}
             </select>
           </label>
-
           <label>
-            <span>Etiqueta (opcional)</span>
-            <input
-              value={tag}
-              onChange={(e) => setTag(e.target.value)}
-              maxLength={MAX_TAG_LENGTH}
-              placeholder="Ej: Más pedido"
-            />
+            <span>Descripción (opcional)</span>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
           </label>
-
-          <label>
-            <span>Ingredientes (uno por línea)</span>
-            <textarea
-              value={ingredientsText}
-              onChange={(e) => setIngredientsText(e.target.value)}
-              rows={4}
-              placeholder={'Carne 180 g\nPan brioche\nQueso cheddar'}
-            />
-          </label>
-
-          {ingredientsList.length > 0 && (
-            <div className="admin-menu__field-group">
-              <span className="admin-menu__field-label">Ingredientes que se pueden quitar</span>
-              <div className="admin-menu__ingredient-checks">
-                {ingredientsList.map((ingredient) => (
-                  <label key={ingredient} className="admin-menu__checkbox">
-                    <input
-                      type="checkbox"
-                      checked={removableIngredients.includes(ingredient)}
-                      onChange={() => toggleRemovable(ingredient)}
-                    />
-                    <span>{ingredient}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="admin-menu__field-group">
-            <span className="admin-menu__field-label">Extras</span>
-            {addOns.length > 0 && (
-              <div className="admin-menu__addons">
-                {addOns.map((addOn, index) => (
-                  <div className="admin-menu__addon-row" key={index}>
-                    <input
-                      type="text"
-                      value={addOn.name}
-                      onChange={(e) => updateAddOn(index, { name: e.target.value })}
-                      maxLength={MAX_ADD_ON_NAME_LENGTH}
-                      placeholder="Nombre"
-                      aria-label="Nombre del extra"
-                    />
-                    <input
-                      type="number"
-                      value={addOn.price}
-                      onChange={(e) => updateAddOn(index, { price: e.target.value })}
-                      min="0"
-                      max={MAX_ADD_ON_PRICE}
-                      step="1"
-                      placeholder="Precio"
-                      aria-label="Precio del extra"
-                    />
-                    <button
-                      type="button"
-                      className="admin-menu__addon-remove"
-                      onClick={() => removeAddOn(index)}
-                      aria-label="Eliminar extra"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              className="btn btn--outline btn--small"
-              onClick={addAddOnRow}
-              disabled={addOns.length >= MAX_ADD_ONS}
-            >
-              + Agregar extra
-            </button>
-          </div>
 
           <div className="admin-menu__image-field">
-            <span className="admin-menu__image-label">Foto</span>
+            <span className="admin-menu__image-label">Foto (opcional)</span>
             <div className="admin-menu__image-preview">
               {imagePreviewUrl ? (
                 <img src={imagePreviewUrl} alt="" className="admin-menu__image-thumb" />
@@ -435,27 +373,145 @@ export default function ProductFormModal({
                 </button>
               )}
             </div>
+            <p className="admin-menu__hint">Podrás recortarla en formato cuadrado antes de guardarla.</p>
             {uploadingImage && <p className="admin-menu__image-status">Subiendo imagen…</p>}
             {imageError && <p className="admin-menu__form-error">{imageError}</p>}
           </div>
 
           <label>
-            <span>Orden</span>
+            <span>Etiqueta (opcional)</span>
             <input
-              type="number"
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              maxLength={MAX_TAG_LENGTH}
+              placeholder="Ejemplo: Recomendado"
             />
+            <small className="admin-menu__hint">
+              Aparece como una insignia sobre el producto, en la carta digital y en el pedido por QR, por ejemplo «Nuevo» o «Recomendado».
+            </small>
           </label>
-          <label className="admin-menu__checkbox">
-            <input
-              type="checkbox"
-              checked={available}
-              onChange={(e) => setAvailable(e.target.checked)}
-            />
-            <span>Disponible</span>
-          </label>
-          {error && <p className="admin-menu__form-error">{error}</p>}
+
+          <div className="admin-menu__availability">
+            <label className="admin-menu__checkbox">
+              <input
+                type="checkbox"
+                checked={available}
+                onChange={(e) => setAvailable(e.target.checked)}
+              />
+              <span>Disponible</span>
+            </label>
+            <p className="admin-menu__hint">
+              Desmárcalo si hoy no puedes ofrecerlo: seguirá en la carta como «No disponible hoy» y no se podrá pedir. Para ocultarlo por completo, usa
+              «Desactivar» en la lista de productos.
+            </p>
+          </div>
+
+          <details className="admin-menu__section" open={qrOpen} onToggle={(e) => setQrOpen(e.currentTarget.open)}>
+            <summary>
+              <span className="admin-menu__section-title">Opciones para el pedido por QR</span>
+              <span className="admin-menu__section-note">Opcional · ingredientes y extras</span>
+            </summary>
+            <div className="admin-menu__section-body">
+              <label>
+                <span>Ingredientes (uno por línea)</span>
+                <textarea
+                  value={ingredientsText}
+                  onChange={(e) => setIngredientsText(e.target.value)}
+                  rows={4}
+                  placeholder={'Ejemplo, uno por línea:\nCarne 180 g\nPan brioche'}
+                />
+                <small className="admin-menu__hint">El cliente los ve al elegir el producto y puede quitar los que marques abajo.</small>
+              </label>
+
+              {ingredientsList.length > 0 && (
+                <div className="admin-menu__field-group">
+                  <span className="admin-menu__field-label">Ingredientes que se pueden quitar</span>
+                  <div className="admin-menu__ingredient-checks">
+                    {ingredientsList.map((ingredient) => (
+                      <label key={ingredient} className="admin-menu__checkbox">
+                        <input
+                          type="checkbox"
+                          checked={removableIngredients.includes(ingredient)}
+                          onChange={() => toggleRemovable(ingredient)}
+                        />
+                        <span>{ingredient}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="admin-menu__field-group">
+                <span className="admin-menu__field-label">Extras</span>
+                <p className="admin-menu__hint">El precio de cada extra se suma al del producto cuando el cliente lo elige.</p>
+                {addOns.length > 0 && (
+                  <div className="admin-menu__addons">
+                    {addOns.map((addOn, index) => (
+                      <div className="admin-menu__addon-row" key={index}>
+                        <input
+                          type="text"
+                          value={addOn.name}
+                          onChange={(e) => updateAddOn(index, { name: e.target.value })}
+                          maxLength={MAX_ADD_ON_NAME_LENGTH}
+                          placeholder="Nombre del extra"
+                          aria-label="Nombre del extra"
+                        />
+                        <input
+                          type="number"
+                          value={addOn.price}
+                          onChange={(e) => updateAddOn(index, { price: e.target.value })}
+                          min="0"
+                          max={MAX_ADD_ON_PRICE}
+                          step="1"
+                          placeholder="Precio"
+                          aria-label="Precio del extra"
+                        />
+                        <button
+                          type="button"
+                          className="admin-menu__addon-remove"
+                          onClick={() => removeAddOn(index)}
+                          aria-label="Eliminar extra"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="btn btn--outline btn--small"
+                  onClick={addAddOnRow}
+                  disabled={addOns.length >= MAX_ADD_ONS}
+                >
+                  + Agregar extra
+                </button>
+              </div>
+            </div>
+          </details>
+
+          <details className="admin-menu__section" open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
+            <summary>
+              <span className="admin-menu__section-title">Avanzado</span>
+              <span className="admin-menu__section-note">Opcional · posición en la lista</span>
+            </summary>
+            <div className="admin-menu__section-body">
+              <label>
+                <span>Orden</span>
+                <input
+                  type="number"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                />
+                <small className="admin-menu__hint">Define la posición del producto dentro de su categoría: los números menores van primero. Déjalo como está si no necesitas cambiarlo.</small>
+              </label>
+            </div>
+          </details>
+          {error && (
+            <p ref={errorRef} role="alert" className="admin-menu__form-error">
+              {error}
+            </p>
+          )}
           <div className="confirm-dialog__actions">
             <button type="button" className="btn btn--outline btn--small" onClick={onClose} disabled={busy}>
               Cancelar
