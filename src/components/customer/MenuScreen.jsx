@@ -9,7 +9,7 @@ export const MENU_FALLBACK_NAME = 'Nuestro restaurante'
 //   status        'loading' | 'error' | 'ready'
 //   headerActions node rendered at the right of the header (the real menu puts the theme toggle and the table name there)
 //   registerSection(categoryId, element)  lets the owner observe the sections (scroll tracking); optional
-//   readOnly      the shareable menu: products are shown without the add-to-cart affordance
+//   readOnly      the shareable menu: products are shown without the add-to-cart affordance, and its category bar keeps the active tab in view
 //   children      rendered at the end (the real menu puts its product sheet and toast there)
 export default function MenuScreen({
   businessName,
@@ -57,7 +57,7 @@ export default function MenuScreen({
 
       {status === 'ready' && !isEmpty && (
         <>
-          <CategoryTabs categories={categories} activeId={activeCategory} onSelect={onSelectCategory} />
+          <CategoryTabs categories={categories} activeId={activeCategory} onSelect={onSelectCategory} enhanced={readOnly} />
 
           {categories.map((category) => {
             const items = products.filter((p) => p.categoryId === category.id)

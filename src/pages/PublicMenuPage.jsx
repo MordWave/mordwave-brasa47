@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import useCategoryScrollSpy from '../hooks/useCategoryScrollSpy.js'
 import MenuScreen from '../components/customer/MenuScreen'
 import ThemeToggle from '../components/ThemeToggle'
 import { translateApiError } from '../services/errorMessages'
@@ -7,6 +8,9 @@ import { brandingStyleVars } from '../theme/brandStyle.js'
 import { useTheme } from '../theme/useTheme.js'
 import { safeBranding } from '../utils/brandingRefresh.js'
 import { parsePublicMenuPath, publicMenuUrl } from '../utils/publicMenuRoute.js'
+
+// Stable empty list while the menu loads (the scroll tracking re-attaches only when the categories change).
+const NO_CATEGORIES = []
 
 export const NOT_FOUND_TITLE = 'No encontramos este restaurante'
 export const NOT_FOUND_TEXT = 'Revisa que el enlace esté completo o pídele al restaurante que te lo envíe de nuevo.'
@@ -93,9 +97,7 @@ export default function PublicMenuPage() {
   const slug = parsePublicMenuPath(window.location.pathname)
   const { resolvedTheme } = useTheme()
   const [state, setState] = useState({ status: slug ? 'loading' : 'not-found', menu: null, error: '' })
-  const [activeCategory, setActiveCategory] = useState(null)
   const [shareNotice, setShareNotice] = useState('')
-  const sections = useRef({})
   const noticeTimer = useRef(null)
 
   const load = useCallback(async () => {
@@ -106,7 +108,6 @@ export default function PublicMenuPage() {
       const categories = [...(menu.categories ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
       const products = [...(menu.products ?? [])].sort((a, b) => a.sortOrder - b.sortOrder).map((p) => ({ ...p, image: p.imageUrl }))
       setState({ status: 'ready', menu: { business: menu.business, categories, products }, error: '' })
-      setActiveCategory(categories[0]?.id ?? null)
     } catch (err) {
       setState(isRestaurantNotFound(err) ? { status: 'not-found', menu: null, error: '' } : { status: 'error', menu: null, error: translateApiError(err) })
     }
@@ -116,22 +117,14 @@ export default function PublicMenuPage() {
     load()
   }, [load])
 
+  const { activeCategory, selectCategory, registerSection } = useCategoryScrollSpy(state.menu?.categories ?? NO_CATEGORIES)
+
   const businessName = state.menu?.business?.name
   useEffect(() => {
     document.title = businessName ? `${businessName} — Menú` : 'Menú'
   }, [businessName])
 
   useEffect(() => () => clearTimeout(noticeTimer.current), [])
-
-  const registerSection = useCallback((id, element) => {
-    if (element) sections.current[id] = element
-    else delete sections.current[id]
-  }, [])
-
-  function selectCategory(id) {
-    setActiveCategory(id)
-    sections.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
 
   function notify(message) {
     setShareNotice(message)
