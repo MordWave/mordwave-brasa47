@@ -60,3 +60,25 @@ export function CategoryIcon({ name, size = 20 }) {
     </svg>
   )
 }
+
+// Share (an arrow leaving a tray), drawn like the icons of the theme selector: 16px, round 2px stroke. Decorative: the button that holds
+// it carries the text "Compartir".
+export function ShareIcon({ size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 15V3" />
+      <path d="M8 7l4-4 4 4" />
+      <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+    </svg>
+  )
+}

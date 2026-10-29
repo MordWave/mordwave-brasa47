@@ -99,7 +99,7 @@ test('7. no restaurant is written in the components, and the page keeps passing 
 test('8. the stylesheet: label and actions share the first row on phones, one compact row from 640px, the name wraps and is never truncated', () => {
   const css = read('../../styles/index.css')
   const header = rule(css, '.menu__header--public')
-  assert.match(header, /grid-template-columns: minmax\(0, 1fr\) auto;/)
+  assert.match(header, /grid-template-columns: minmax\(min-content, 1fr\) auto;/) // the label column never gets narrower than its longest word
   assert.match(header, /'label actions'\s*'title title';/)
   const title = rule(css, '.menu__header--public .menu__title')
   assert.match(title, /font-size: 30px;/)
