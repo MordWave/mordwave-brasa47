@@ -104,7 +104,7 @@ export default function RestaurantPreview({ business, draft, onBack }) {
         </div>
         <div className="preview-seg" role="group" aria-label="Pantalla">
           <SEGMENT value="home" current={screen} onChange={setScreen}>Bienvenida</SEGMENT>
-          <SEGMENT value="menu" current={screen} onChange={setScreen}>Menú</SEGMENT>
+          <SEGMENT value="menu" current={screen} onChange={setScreen}>Pedido por QR</SEGMENT>
         </div>
         {hasPending && (
           <div className="preview-seg" role="group" aria-label="Qué mostrar">
@@ -113,6 +113,10 @@ export default function RestaurantPreview({ business, draft, onBack }) {
           </div>
         )}
       </div>
+
+      <p className="restaurant-preview__hint">
+        Esta vista muestra cómo piden tus clientes desde la mesa, al escanear el QR: la bienvenida y el menú de pedidos. La carta digital pública se abre desde Mesas.
+      </p>
 
       <div className="restaurant-preview__stage">
         <p className="restaurant-preview__badge" aria-hidden="true">

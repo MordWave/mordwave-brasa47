@@ -234,6 +234,28 @@ test('RestaurantPreview: saved only -> says so, no "pending" controls; the welco
   assert.match(html, /--primary:#2F6B4F/)
 })
 
+test('RestaurantPreview: the screen switch is "Bienvenida" / "Pedido por QR" (no "Menú" label here) and a short note says this is the table ordering flow', () => {
+  const same = { name: SAVED.name, primaryColor: SAVED.primaryColor, accentColor: SAVED.accentColor }
+  const html = r.preview({ business: SAVED, draft: same })
+  assert.match(html, /aria-label="Pantalla"[\s\S]*>Bienvenida<\/button>[\s\S]*>Pedido por QR<\/button>/)
+  assert.doesNotMatch(html, />Menú<\/button>/)
+  assert.match(html, /<p class="restaurant-preview__hint">Esta vista muestra cómo piden tus clientes desde la mesa, al escanear el QR/)
+  // the other controls are still there: device, and (with unsaved changes) saved / unsaved
+  assert.match(html, /aria-label="Dispositivo"[\s\S]*>Móvil<\/button>[\s\S]*>Escritorio<\/button>/)
+  assert.doesNotMatch(html, /Con cambios sin guardar/)
+  const pending = r.preview({ business: SAVED, draft: { ...same, primaryColor: '#112233' } })
+  assert.match(pending, /aria-label="Qué mostrar"[\s\S]*>Con cambios sin guardar<\/button>[\s\S]*>Solo lo guardado<\/button>/)
+  assert.match(pending, />Pedido por QR<\/button>/)
+})
+
+test('the new labels stay inside the preview: the "Menú" tab of the panel and the titles of the menus are untouched, and the preview offers no way to open the public menu', () => {
+  assert.match(read('../pages/admin/AdminPanel.jsx'), /\{ key: 'menu', label: 'Menú' \}/)
+  assert.match(read('../components/customer/MenuScreen.jsx'), /PUBLIC_MENU_NEUTRAL_TITLE = 'Menú'/)
+  assert.match(read('../components/customer/MenuView.jsx'), /<h1 className="menu__title">Menú<\/h1>/)
+  const comp = read('../components/admin/business/RestaurantPreview.jsx')
+  assert.doesNotMatch(comp, /<a[\s>]|href=|iframe|\/menu\/|window\.open/)
+})
+
 test('RestaurantPreview: unsaved colours are shown, flagged as NOT saved, and can be compared with the saved look', () => {
   const html = r.preview({ business: SAVED, draft: { name: SAVED.name, primaryColor: '#112233', accentColor: '' } })
   assert.match(html, /Estás viendo cambios sin guardar:<\/strong> el color principal y el color secundario/)
