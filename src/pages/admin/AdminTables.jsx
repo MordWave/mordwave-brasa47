@@ -6,6 +6,7 @@ import { apiFetch } from '../../services/api'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
+import PublicMenuLinkDialog from '../../components/admin/business/PublicMenuLinkDialog'
 import PrintQr from '../../components/admin/tables/PrintQr'
 import TableFormModal from '../../components/admin/tables/TableFormModal'
 import TableList from '../../components/admin/tables/TableList'
@@ -36,6 +37,8 @@ export default function AdminTables({ businessName }) {
   const [tableModal, setTableModal] = useState(null)
   const [qrTable, setQrTable] = useState(null)
   const [printQr, setPrintQr] = useState(null)
+  // the "Ver enlace" dialog: the public link of this restaurant's digital menu (not the table QR)
+  const [linkOpen, setLinkOpen] = useState(false)
   // Table id whose open request is currently in flight — disables that
   // card's own action buttons. Closing a session goes through the confirm
   // dialog instead, which already blocks the whole page while open.
@@ -67,6 +70,9 @@ export default function AdminTables({ businessName }) {
     const interval = setInterval(() => loadTables({ silent: true }), POLL_MS)
     return () => clearInterval(interval)
   }, [loadTables])
+
+  // The business this panel is managing (an ADMIN's own, a SUPER_ADMIN's selected one): its slug builds the public link.
+  const requestMyBusiness = useCallback(() => apiFetch(scopePath('/businesses/me'), { token }), [token, scopePath])
 
   // businessId is required by the backend DTO. scopeBody() (useActiveBusiness) fills it: an ADMIN's own business
   // (the backend ignores whatever is sent for an ADMIN and uses the token's), a SUPER_ADMIN's explicitly chosen
@@ -137,6 +143,18 @@ export default function AdminTables({ businessName }) {
 
   return (
     <div className="admin-menu">
+      <section className="public-link-row" aria-labelledby="public-link-row-title">
+        <div className="public-link-row__text">
+          <h3 id="public-link-row-title" className="public-link-row__title">
+            Carta digital pública
+          </h3>
+          <p className="public-link-row__note">Un enlace para que tus clientes consulten productos y precios desde el celular, sin hacer pedidos.</p>
+        </div>
+        <button type="button" className="btn btn--outline btn--small" aria-haspopup="dialog" onClick={() => setLinkOpen(true)}>
+          Ver enlace
+        </button>
+      </section>
+
       <div className="admin-menu__section-head">
         <h2>Gestión de mesas</h2>
         <button type="button" className="btn btn--primary btn--small" onClick={() => setTableModal('new')}>
@@ -173,6 +191,8 @@ export default function AdminTables({ businessName }) {
           onPrint={handlePrintQr}
         />
       )}
+
+      {linkOpen && <PublicMenuLinkDialog request={requestMyBusiness} onClose={() => setLinkOpen(false)} />}
 
       <PrintQr data={printQr} />
     </div>

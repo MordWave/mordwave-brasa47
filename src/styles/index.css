@@ -5540,11 +5540,42 @@ p {
   }
 }
 
-/* ============ Digital menu link of the admin (Menú tab trigger + dialog) ============ */
-.admin-menu__tools {
+/* ============ Digital menu link of the admin (Mesas section + dialog) ============ */
+/* a compact row above "Gestión de mesas": what the link is for, and the button that opens the dialog */
+.public-link-row {
   display: flex;
-  justify-content: flex-start;
-  margin-bottom: -8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.public-link-row__title {
+  font-size: 14px;
+  margin: 0 0 2px;
+}
+
+.public-link-row__note {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .public-link-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .public-link-row .btn {
+    flex-shrink: 0;
+  }
 }
 
 .public-link {

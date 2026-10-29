@@ -14,7 +14,6 @@ import CategoryList from '../../components/admin/menu/CategoryList'
 import ProductFilters from '../../components/admin/menu/ProductFilters'
 import ProductFormModal from '../../components/admin/menu/ProductFormModal'
 import ProductList from '../../components/admin/menu/ProductList'
-import PublicMenuLinkDialog from '../../components/admin/business/PublicMenuLinkDialog'
 
 const PRODUCTS_PAGE_SIZE = 20
 const SEARCH_DEBOUNCE_MS = 300
@@ -40,8 +39,6 @@ export default function AdminMenu() {
   // null = closed, 'new' = create form, an object = editing that record.
   const [categoryModal, setCategoryModal] = useState(null)
   const [productModal, setProductModal] = useState(null)
-  // the "Enlace de mi carta digital" dialog (the public link of this restaurant)
-  const [linkOpen, setLinkOpen] = useState(false)
 
   // Product list query state. Every filter change resets `page` to 1 (see the
   // change* helpers below) — otherwise a narrower result set could leave the
@@ -65,9 +62,6 @@ export default function AdminMenu() {
 
   const categoriesRequestRef = useRef(0)
   const summaryRequestRef = useRef(0)
-
-  // The business this panel is managing (an ADMIN's own, a SUPER_ADMIN's selected one): its slug builds the public link.
-  const requestMyBusiness = useCallback(() => apiFetch(scopePath('/businesses/me'), { token }), [token, scopePath])
 
   // Categories: small, and independent of the product list's page/filters.
   const loadCategories = useCallback(async () => {
@@ -412,12 +406,6 @@ export default function AdminMenu() {
     <div className="admin-menu">
       {error && <p className="admin-menu__error">{error}</p>}
 
-      <div className="admin-menu__tools">
-        <button type="button" className="btn btn--outline btn--small" aria-haspopup="dialog" onClick={() => setLinkOpen(true)}>
-          Enlace de mi carta digital
-        </button>
-      </div>
-
       <section className="admin-card" aria-labelledby="products-heading">
         <header className="admin-card__header">
           <div className="admin-card__title-group">
@@ -547,7 +535,6 @@ export default function AdminMenu() {
           onRemoveImage={handleRemoveProductImage}
         />
       )}
-      {linkOpen && <PublicMenuLinkDialog request={requestMyBusiness} onClose={() => setLinkOpen(false)} />}
     </div>
   )
 }
