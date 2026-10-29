@@ -71,7 +71,7 @@ test('4. the loaded menu shows the restaurant, its categories in order and each 
   // grouped: each product sits inside the section of its category
   const burgers = html.slice(html.indexOf('data-category-id="c2"'))
   assert.ok(burgers.includes('Clásica') && burgers.includes('Agotada') && !burgers.includes('Limonada'))
-  assert.match(html, /<h1[^>]*>Menú<\/h1>/)
+  assert.match(html, /<h1[^>]*>Alpha Burgers<\/h1>/)
 })
 
 test('5. the menu is read-only: no add-to-cart affordance, no product buttons, tiles are plain cards', () => {

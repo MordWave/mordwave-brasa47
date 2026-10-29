@@ -426,6 +426,51 @@ p {
   margin-top: 2px;
 }
 
+/* Shareable menu header: "Carta digital" and the actions share the first row on phones, the restaurant's name takes the full width of
+   the second; from 640px up it is one compact row (label over name on the left, actions at the right). The name wraps, it is never cut. */
+.menu__header--public {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'label actions'
+    'title title';
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.menu__header--public .menu__eyebrow {
+  grid-area: label;
+  min-width: 0;
+}
+
+.menu__header--public .menu__header-actions {
+  grid-area: actions;
+}
+
+.menu__header--public .menu__title {
+  grid-area: title;
+  min-width: 0;
+  margin-top: 0;
+  font-size: 30px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+@media (min-width: 640px) {
+  .menu__header--public {
+    grid-template-areas:
+      'label actions'
+      'title actions';
+    align-items: end;
+    row-gap: 4px;
+  }
+
+  .menu__header--public .menu__title {
+    font-size: 28px;
+  }
+}
+
 .menu__mesa {
   background: var(--inverse-surface);
   color: var(--inverse-text);
