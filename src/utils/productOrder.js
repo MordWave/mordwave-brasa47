@@ -10,6 +10,8 @@ export const PRODUCT_ORDER_CONFLICT = 'PRODUCT_ORDER_CONFLICT'
 export function productMove(products, categoryId, id, move) {
   const index = products.findIndex((product) => product.id === id)
   if (index < 0 || !categoryId) return null
+  // the list must be the one of THIS category (a list left over from the previous category while the new one loads is never a starting point)
+  if (products.some((product) => product.categoryId !== categoryId)) return null
   const last = products.length - 1
   const target = { start: 0, up: index - 1, down: index + 1, end: last }[move]
   if (target === undefined || target < 0 || target > last || target === index) return null
@@ -21,3 +23,9 @@ export function productMove(products, categoryId, id, move) {
 }
 
 export const canMoveProduct = (products, categoryId, id, move) => productMove(products, categoryId, id, move) !== null
+
+// The moves are offered only when the list on screen is the COMPLETE list of the chosen category: the mode allows it (a category, no search or
+// filter), the complete reading of THAT category finished (`loadedFor` is the category it finished for, null while it loads, after a failure, or
+// after a reading of another category) and no reading is in flight.
+export const reorderReadiness = ({ reorderMode, selectedCategory, loadedFor, loading }) =>
+  Boolean(reorderMode && selectedCategory && selectedCategory !== 'all' && loadedFor === selectedCategory && !loading)

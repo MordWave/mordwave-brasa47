@@ -377,7 +377,7 @@ jobs:
             --no-file-parallelism \
             --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/realpg-report.json"
       # Without REAL_PG_ADMIN_URL these suites are skipped silently and the run still exits 0, so the report decides:
-      # exactly these four files, every test passed, none skipped or todo, and at least the 87 measured with 9L.6.
+      # exactly these four files, every test passed, none skipped or todo, and at least the 89 measured with 9L.6c.
       - name: Check the concurrency report
         if: ${{ !cancelled() }}
         run: |
@@ -385,9 +385,9 @@ jobs:
           import { existsSync, readFileSync, appendFileSync } from 'node:fs';
           import { basename } from 'node:path';
 
-          // Minimum number of tests per file (37 + 11 + 20 + 19 = 87 measured with 9L.6); raise when tests are added.
+          // Minimum number of tests per file (39 + 11 + 20 + 19 = 89 measured with 9L.6c); raise when tests are added.
           const EXPECTED = {
-            'category-concurrency.e2e-spec.ts': 37,
+            'category-concurrency.e2e-spec.ts': 39,
             'order-status-concurrency.e2e-spec.ts': 11,
             'product-concurrency.e2e-spec.ts': 20,
             'table-concurrency.e2e-spec.ts': 19,

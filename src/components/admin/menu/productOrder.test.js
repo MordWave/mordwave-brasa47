@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { before, test } from 'node:test'
 import { loadModule } from '../../../theme/testSupport.js'
-import { PRODUCT_ORDER_CONFLICT, canMoveProduct, productMove } from '../../../utils/productOrder.js'
-import { WholeCategoryError, loadWholeCategory } from '../../../utils/productPages.js'
+import { PRODUCT_ORDER_CONFLICT, canMoveProduct, productMove, reorderReadiness } from '../../../utils/productOrder.js'
+import { WholeCategoryError, loadCategoryForOrder, loadWholeCategory } from '../../../utils/productPages.js'
 
 // 9L.6 — the order of the products of a category: up / down / to the start / to the end, saved with ONE request (PUT /products/order) from the
 // COMPLETE list of the category, never from a page or a filtered list.
@@ -111,7 +111,7 @@ before(async () => {
   `)
 })
 
-const reorder = (extra = {}) => ({ categoryId: CAT, busy: false, onMove() {}, ...extra })
+const reorder = (extra = {}) => ({ categoryId: CAT, ready: true, busy: false, onMove() {}, ...extra })
 
 test('without a chosen category (or with a search / filter) the list has NO way to move anything', () => {
   const html = r.list({ products: PRODUCTS, reorder: null })
@@ -175,14 +175,14 @@ test('wiring: ONE request to PUT /products/order (scoped like the other product 
 
 test('wiring: the moves exist only for the COMPLETE list of one category (a category chosen, no search, no filters), which is read page by page', () => {
   assert.match(adminMenu, /const productReorderMode = productCategoryFilter !== 'all' && search === '' && activeFilter === 'all' && availableFilter === 'all'/)
-  assert.match(adminMenu, /if \(productReorderMode\) \{\s*const items = await loadWholeCategory\(/)
-  assert.match(adminMenu, /reorder=\{\s*productReorderMode && !initialLoading\s*\?\s*\{ categoryId: productCategoryFilter,/)
+  assert.match(adminMenu, /if \(productReorderMode\) \{\s*await loadCategoryForOrder\(\{/)
+  assert.match(adminMenu, /reorder=\{\s*productReorderMode && !initialLoading\s*\?\s*\{ categoryId: productCategoryFilter, ready: productReorderReady,/)
   // the hint that explains why there are no arrows otherwise
   assert.match(adminMenu, /Para cambiar el orden de los productos, elige una categoría \(sin búsqueda ni filtros\)\./)
 })
 
 test('wiring: one operation at a time, clear state, recovery: no parallel moves, "Guardando orden…" / "Orden guardado.", the confirmed list is re-read after a failure', () => {
-  assert.match(adminMenu, /if \(productReordering \|\| productOrderConflict\) return/)
+  assert.match(adminMenu, /if \(!productReorderReady \|\| productReordering \|\| productOrderConflict\) return/)
   assert.match(adminMenu, /productOrderStatus === 'saving' \? 'Guardando orden…' : productOrderStatus === 'saved' \? 'Orden guardado\.' : PRODUCT_ORDER_HELP/)
   assert.match(adminMenu, /const PRODUCT_ORDER_HELP = 'Ordena con las flechas o con «Mover al inicio» y «Mover al final» del menú ⋯\.'/)
   assert.match(adminMenu, /toast\.error\(translateApiError\(err\)\)\s*await loadProducts\(\)/)
@@ -221,4 +221,169 @@ test('styles: tokens only, a phone-sized tap target for the arrows, and the dimm
   assert.match(block, /@media \(max-width: 719\.98px\) \{\s*\.product-row--reorder \{\s*grid-template-areas:\s*'thumb main main'\s*'thumb price price'\s*'actions actions actions';/)
   assert.match(r.list({ products: PRODUCTS, reorder: reorder() }), /class="product-row product-row--reorder"/)
   assert.doesNotMatch(r.list({ products: PRODUCTS, reorder: null }), /product-row--reorder/)
+})
+
+// ---- 9L.6c: nothing can be moved from a list that is still loading, failed, or is the previous category's ---------------------------------------
+
+test('productMove refuses a list that is not the one of the category it is sent for (the previous category\'s list while the new one loads)', () => {
+  assert.equal(productMove(PRODUCTS, 'cat-2', 'b', 'up'), null)
+  assert.equal(productMove([...PRODUCTS.slice(0, 3), { ...PRODUCTS[3], categoryId: 'cat-2' }], CAT, 'b', 'up'), null, 'one product of another category is enough')
+  assert.notEqual(productMove(PRODUCTS, CAT, 'b', 'up'), null)
+})
+
+test('reorderReadiness: the moves are on only when the complete reading of THE CHOSEN category finished and none is in flight', () => {
+  const ok = { reorderMode: true, selectedCategory: 'B', loadedFor: 'B', loading: false }
+  assert.equal(reorderReadiness(ok), true)
+  assert.equal(reorderReadiness({ ...ok, loading: true }), false, 'while it loads')
+  assert.equal(reorderReadiness({ ...ok, loadedFor: null }), false, 'after a failure, or before the first reading')
+  assert.equal(reorderReadiness({ ...ok, loadedFor: 'A' }), false, 'the list on screen is the previous category\'s')
+  assert.equal(reorderReadiness({ ...ok, reorderMode: false }), false, 'a search or a filter hides products')
+  assert.equal(reorderReadiness({ ...ok, selectedCategory: 'all', loadedFor: 'all' }), false, '"Todos" is never orderable')
+  assert.equal(reorderReadiness({ ...ok, selectedCategory: '', loadedFor: '' }), false)
+})
+
+// The state AdminMenu keeps, driven exactly like AdminMenu drives it: every request gets a number, only the latest may apply its answer, and the
+// controls come from reorderReadiness on (selected category, category the list belongs to, loading).
+function screen() {
+  const ui = { selected: null, loadedFor: null, products: [], failed: null, latest: 0, loading: false }
+  const deferred = () => {
+    let resolve, reject
+    const promise = new Promise((res, rej) => ((resolve = res), (reject = rej)))
+    return { promise, resolve, reject }
+  }
+  const page = (items) => ({ items, total: items.length, totalPages: 1 })
+  return {
+    ui,
+    deferred,
+    page,
+    ready: () => reorderReadiness({ reorderMode: true, selectedCategory: ui.selected, loadedFor: ui.loadedFor, loading: ui.loading }),
+    choose(category, fetchPage) {
+      ui.selected = category
+      const id = ++ui.latest
+      ui.loading = true
+      ui.loadedFor = null
+      ui.failed = null
+      return loadCategoryForOrder({
+        categoryId: category,
+        fetchPage,
+        isCurrent: () => id === ui.latest,
+        onLoaded: (items, loadedCategory) => ((ui.products = items), (ui.loadedFor = loadedCategory)),
+        onFailed: (error) => (ui.failed = error),
+      }).finally(() => {
+        if (id === ui.latest) ui.loading = false
+      })
+    },
+  }
+}
+const itemsOf = (category, n) => Array.from({ length: n }, (_, i) => ({ id: `${category}${i + 1}`, categoryId: category }))
+
+test('the moves are off while the list loads and come back, for that category, when the complete reading finishes', async () => {
+  const s = screen()
+  const gate = s.deferred()
+  const loading = s.choose('A', () => gate.promise)
+  assert.equal(s.ready(), false, 'loading')
+  gate.resolve(s.page(itemsOf('A', 3)))
+  await loading
+  assert.equal(s.ready(), true)
+  assert.deepEqual(s.ui.products.map((p) => p.id), ['A1', 'A2', 'A3'])
+  assert.equal(s.ui.loadedFor, 'A')
+})
+
+test('a quick change of category: the answer of the PREVIOUS category that arrives late is dropped and cannot turn the moves on for the wrong list', async () => {
+  const s = screen()
+  const slowA = s.deferred()
+  const fastB = s.deferred()
+  const a = s.choose('A', () => slowA.promise)
+  const b = s.choose('B', () => fastB.promise)
+  assert.equal(s.ready(), false, 'B is loading')
+  fastB.resolve(s.page(itemsOf('B', 2)))
+  await b
+  assert.equal(s.ready(), true)
+  assert.deepEqual(s.ui.products.map((p) => p.id), ['B1', 'B2'])
+  // now A answers, late
+  slowA.resolve(s.page(itemsOf('A', 5)))
+  await a
+  assert.deepEqual(s.ui.products.map((p) => p.id), ['B1', 'B2'], 'the late answer of A changed nothing')
+  assert.equal(s.ui.loadedFor, 'B')
+  assert.equal(s.ready(), true)
+  assert.equal(productMove(s.ui.products, 'B', 'B2', 'up')?.orderedIds.join(), 'B2,B1')
+})
+
+test('a late answer of the previous category cannot enable the controls while the NEW category is still loading', async () => {
+  const s = screen()
+  const slowA = s.deferred()
+  const slowB = s.deferred()
+  const a = s.choose('A', () => slowA.promise)
+  const b = s.choose('B', () => slowB.promise)
+  slowA.resolve(s.page(itemsOf('A', 4)))
+  await a
+  assert.equal(s.ready(), false, 'B has not answered: the list on screen is not B\'s')
+  assert.equal(s.ui.loadedFor, null)
+  assert.deepEqual(s.ui.products, [], 'A\'s late list was not even stored')
+  slowB.resolve(s.page(itemsOf('B', 1)))
+  await b
+  assert.equal(s.ready(), true)
+})
+
+test('a failed reading leaves the moves off and says why (nothing is moved from an incomplete list); choosing again recovers', async () => {
+  const s = screen()
+  const failing = s.choose('A', async () => {
+    throw new Error('network')
+  })
+  await failing
+  assert.equal(s.ready(), false)
+  assert.equal(s.ui.loadedFor, null)
+  assert.equal(s.ui.failed?.message, 'network')
+  await s.choose('A', async () => s.page(itemsOf('A', 2)))
+  assert.equal(s.ready(), true)
+  assert.equal(s.ui.failed, null)
+})
+
+test('a category that changed while it was being read (an incomplete list) is a failure too, never shown as the category', async () => {
+  const s = screen()
+  let calls = 0
+  await s.choose('A', async () => {
+    calls += 1
+    return { items: itemsOf('A', 2), total: 3, totalPages: 1 } // 2 items but 3 announced: it changed meanwhile, and keeps changing
+  })
+  assert.equal(calls, 2, 'read again once')
+  assert.equal(s.ready(), false)
+  assert.ok(s.ui.failed instanceof WholeCategoryError)
+})
+
+test('an answer that is no longer current is silent: neither callback is called', async () => {
+  const calls = []
+  await loadCategoryForOrder({ categoryId: 'A', fetchPage: async () => ({ items: [], total: 0, totalPages: 0 }), isCurrent: () => false, onLoaded: () => calls.push('loaded'), onFailed: () => calls.push('failed') })
+  await loadCategoryForOrder({ categoryId: 'A', fetchPage: async () => { throw new Error('x') }, isCurrent: () => false, onLoaded: () => calls.push('loaded'), onFailed: () => calls.push('failed') })
+  assert.deepEqual(calls, [])
+})
+
+test('markup: while the list is not ready (loading, failed, the previous category\'s) every arrow is truly disabled, so are the menu moves, and a click does nothing', () => {
+  const html = r.list({ products: PRODUCTS, reorder: reorder({ ready: false }) })
+  for (const p of PRODUCTS) {
+    for (const direction of ['up', 'down']) {
+      const button = html.match(new RegExp(`<button[^>]*data-product-move="${p.id}:${direction}"[^>]*>`))[0]
+      assert.match(button, /disabled=""/, `${p.id} ${direction}`)
+    }
+  }
+  const list = code(read('./ProductList.jsx'))
+  assert.match(list, /const canMove = \(product, move\) => reorder !== null && reorder\.ready && canMoveProduct\(/)
+  assert.match(list, /disabled: !canMove\(product, move\) \|\| reorder\.busy,/)
+  assert.match(list, /if \(reorder\.ready && !reorder\.busy\) reorder\.onMove\(product, direction\)/)
+  assert.match(list, /if \(reorder\.ready && !reorder\.busy\) reorder\.onMove\(product, move\)/)
+  // and with a ready list nothing changes (the first can still not go up)
+  const ready = r.list({ products: PRODUCTS, reorder: reorder() })
+  assert.doesNotMatch(ready.match(/<button[^>]*data-product-move="b:up"[^>]*>/)[0], /disabled=""/)
+})
+
+test('wiring: the reading clears the "loaded for" mark when it starts, sets it only for the category it finished (and only while current); the screen says it is loading or failed', () => {
+  assert.match(adminMenu, /setProductsLoading\(true\)\s*setProductsLoadedFor\(null\)/)
+  assert.match(adminMenu, /onLoaded: \(items, categoryId\) => \{[\s\S]*?setProductsLoadedFor\(categoryId\)/)
+  assert.equal((adminMenu.match(/setProductsLoadedFor\(/g) ?? []).length, 2, 'only the reset when a reading starts and the one that comes from a current answer')
+  assert.match(adminMenu, /isCurrent: \(\) => requestId === productsRequestRef\.current/)
+  assert.match(adminMenu, /const productReorderReady = reorderReadiness\(\{ reorderMode: productReorderMode, selectedCategory: productCategoryFilter, loadedFor: productsLoadedFor, loading: productsLoading \}\)/)
+  assert.match(adminMenu, /const PRODUCT_ORDER_LOADING = 'Cargando la lista completa de la categoría…'/)
+  assert.match(adminMenu, /const PRODUCT_ORDER_UNAVAILABLE = 'No se pudo cargar la lista completa de la categoría, así que por ahora no se puede ordenar\.'/)
+  assert.match(adminMenu, /productsLoading \? PRODUCT_ORDER_LOADING : PRODUCT_ORDER_UNAVAILABLE/)
+  assert.match(adminMenu, /onClick=\{handleRefreshProductOrder\}>\s*Reintentar/)
 })

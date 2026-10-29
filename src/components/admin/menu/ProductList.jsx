@@ -11,8 +11,9 @@ function Arrow({ direction }) {
   )
 }
 
-// `reorder`: null (the list is paged or filtered: no way to move anything) or { categoryId, busy, onMove(product, move) } when the COMPLETE list of one
-// category is shown. `busy`: a move is being saved: the buttons keep their place and focus (aria-disabled, not disabled) but ignore clicks until
+// `reorder`: null (the list is paged or filtered: no way to move anything) or { categoryId, ready, busy, onMove(product, move) } when the list is meant to
+// be the COMPLETE list of one category. `ready`: it really is (loaded completely, for THIS category); while it is not (loading, failed, the previous
+// category's list still on screen) every move is disabled. `busy`: a move is being saved: the buttons keep their place and focus (aria-disabled, not disabled) but ignore clicks until
 // it ends. A move that cannot exist (first one up / to the start, last one down / to the end) is a truly disabled button or menu item.
 
 export default function ProductList({
@@ -30,7 +31,7 @@ export default function ProductList({
   if (products.length === 0) return <p className="empty-state">{emptyMessage}</p>
 
   const categoryNameById = Object.fromEntries(categories.map((c) => [c.id, c.name]))
-  const canMove = (product, move) => reorder !== null && canMoveProduct(products, reorder.categoryId, product.id, move)
+  const canMove = (product, move) => reorder !== null && reorder.ready && canMoveProduct(products, reorder.categoryId, product.id, move)
   const moveButton = (product, direction) => (
     <button
       type="button"
@@ -38,9 +39,9 @@ export default function ProductList({
       aria-label={`${direction === 'up' ? 'Subir' : 'Bajar'} el producto ${product.name}`}
       data-product-move={`${product.id}:${direction}`}
       disabled={!canMove(product, direction)}
-      aria-disabled={reorder?.busy ? 'true' : undefined}
+      aria-disabled={reorder?.ready && reorder.busy ? 'true' : undefined}
       onClick={() => {
-        if (!reorder.busy) reorder.onMove(product, direction)
+        if (reorder.ready && !reorder.busy) reorder.onMove(product, direction)
       }}
     >
       <Arrow direction={direction} />
@@ -49,9 +50,9 @@ export default function ProductList({
   const moveItem = (product, move, label) => ({
     key: `move-${move}`,
     label,
-    disabled: !canMove(product, move),
+    disabled: !canMove(product, move) || reorder.busy,
     onSelect: () => {
-      if (!reorder.busy) reorder.onMove(product, move)
+      if (reorder.ready && !reorder.busy) reorder.onMove(product, move)
     },
   })
 

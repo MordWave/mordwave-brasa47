@@ -8,8 +8,8 @@ import { translateApiError } from '../../services/errorMessages'
 import { PRODUCT_CONFLICT, refreshOnConflict } from '../../services/conflicts'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
 import { CATEGORY_ORDER_CONFLICT, categoryMove } from '../../utils/categoryOrder.js'
-import { PRODUCT_ORDER_CONFLICT, productMove } from '../../utils/productOrder.js'
-import { WholeCategoryError, loadWholeCategory } from '../../utils/productPages.js'
+import { PRODUCT_ORDER_CONFLICT, productMove, reorderReadiness } from '../../utils/productOrder.js'
+import { WholeCategoryError, loadCategoryForOrder } from '../../utils/productPages.js'
 import Pager from '../../components/admin/Pager'
 import CategoryFilterBar from '../../components/admin/menu/CategoryFilterBar'
 import CategoryFormModal from '../../components/admin/menu/CategoryFormModal'
@@ -23,6 +23,8 @@ const SEARCH_DEBOUNCE_MS = 300
 const EMPTY_SUMMARY = { total: 0, byCategory: {} }
 // the line under the filters while a category is chosen: how to order, replaced by the state of the save and back (it never moves the list)
 const PRODUCT_ORDER_HELP = 'Ordena con las flechas o con «Mover al inicio» y «Mover al final» del menú ⋯.'
+const PRODUCT_ORDER_LOADING = 'Cargando la lista completa de la categoría…'
+const PRODUCT_ORDER_UNAVAILABLE = 'No se pudo cargar la lista completa de la categoría, así que por ahora no se puede ordenar.'
 
 export default function AdminMenu() {
   const { token } = useAuth()
@@ -65,10 +67,15 @@ export default function AdminMenu() {
   const productReorderMode = productCategoryFilter !== 'all' && search === '' && activeFilter === 'all' && availableFilter === 'all'
   // One request at a time (`productReordering`), a short state line ('saving' | 'saved') and, when another administrator changed the category's
   // order meanwhile, a notice with "Actualizar lista" (`productOrderConflict`) until the list is re-read. Same behaviour as the categories'.
+  // The category the complete list on screen belongs to: set only when the complete reading of THAT category finished, null while one is in flight and
+  // after a failure. The moves are offered only when it is the chosen category (see reorderReadiness), so nothing can be moved from a list that is still the
+  // previous category's, incomplete, or failed.
+  const [productsLoadedFor, setProductsLoadedFor] = useState(null)
   const [productReordering, setProductReordering] = useState(false)
   const [productOrderStatus, setProductOrderStatus] = useState(null)
   const [productOrderConflict, setProductOrderConflict] = useState('')
   const focusAfterProductMove = useRef(null)
+  const productReorderReady = reorderReadiness({ reorderMode: productReorderMode, selectedCategory: productCategoryFilter, loadedFor: productsLoadedFor, loading: productsLoading })
 
   // Closed by default on every fresh /admin load — plain component state
   // (no persistence) is exactly what gives that for free. Once the admin
@@ -122,17 +129,22 @@ export default function AdminMenu() {
   const loadProducts = useCallback(async () => {
     const requestId = ++productsRequestRef.current
     setProductsLoading(true)
+    setProductsLoadedFor(null)
     setError('')
     try {
       if (productReorderMode) {
-        const items = await loadWholeCategory(
-          (pageNumber, pageSize) =>
+        await loadCategoryForOrder({
+          categoryId: productCategoryFilter,
+          fetchPage: (pageNumber, pageSize) =>
             apiFetch(scopePath(`/products/admin?${new URLSearchParams({ page: String(pageNumber), limit: String(pageSize), categoryId: productCategoryFilter })}`), { token }),
-          { isCurrent: () => requestId === productsRequestRef.current },
-        )
-        if (items === null || requestId !== productsRequestRef.current) return
-        setProducts(items)
-        setProductsMeta({ total: items.length, totalPages: items.length === 0 ? 0 : 1 })
+          isCurrent: () => requestId === productsRequestRef.current,
+          onLoaded: (items, categoryId) => {
+            setProducts(items)
+            setProductsMeta({ total: items.length, totalPages: items.length === 0 ? 0 : 1 })
+            setProductsLoadedFor(categoryId)
+          },
+          onFailed: (err) => setError(err instanceof WholeCategoryError ? err.message : translateApiError(err)),
+        })
         return
       }
       const params = new URLSearchParams({ page: String(page), limit: String(PRODUCTS_PAGE_SIZE) })
@@ -333,7 +345,7 @@ export default function AdminMenu() {
   // shown afterwards is what the server answers. On any failure the list is re-read, so the screen always shows the order the server confirmed; a
   // conflict (409) only informs and lets the admin refresh, it is never retried by itself.
   async function handleMoveProduct(product, move) {
-    if (productReordering || productOrderConflict) return
+    if (!productReorderReady || productReordering || productOrderConflict) return
     const request = productMove(products, productCategoryFilter, product.id, move)
     if (!request) return
     setProductReordering(true)
@@ -582,7 +594,19 @@ export default function AdminMenu() {
               onSelect={changeCategoryFilter}
             />
             {productReorderMode ? (
-              productOrderConflict ? (
+              !productReorderReady && !initialLoading ? (
+                <p className="admin-menu__order-status" role="status">
+                  {productsLoading ? PRODUCT_ORDER_LOADING : PRODUCT_ORDER_UNAVAILABLE}
+                  {!productsLoading && (
+                    <>
+                      {' '}
+                      <button type="button" className="btn btn--outline btn--small" onClick={handleRefreshProductOrder}>
+                        Reintentar
+                      </button>
+                    </>
+                  )}
+                </p>
+              ) : productOrderConflict ? (
                 <p className="admin-menu__error admin-menu__order-conflict" role="alert">
                   <span>{productOrderConflict}</span>
                   <button type="button" className="btn btn--outline btn--small" onClick={handleRefreshProductOrder}>
@@ -615,7 +639,7 @@ export default function AdminMenu() {
             onDelete={handleDeleteProduct}
             reorder={
               productReorderMode && !initialLoading
-                ? { categoryId: productCategoryFilter, busy: productReordering || Boolean(productOrderConflict), onMove: handleMoveProduct }
+                ? { categoryId: productCategoryFilter, ready: productReorderReady, busy: productReordering || Boolean(productOrderConflict), onMove: handleMoveProduct }
                 : null
             }
           />

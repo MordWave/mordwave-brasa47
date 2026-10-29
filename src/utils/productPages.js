@@ -35,3 +35,18 @@ export async function loadWholeCategory(fetchPage, { pageSize = WHOLE_CATEGORY_P
   }
   throw new WholeCategoryError('La lista cambió mientras se cargaba. Actualiza para volver a intentarlo.', 'CHANGED_WHILE_LOADING')
 }
+
+// One reading of the complete category for the order controls. `isCurrent()` says whether this is still the latest request: a response that arrives
+// after the admin chose another category (or changed a filter) is dropped WITHOUT touching anything, so it can never turn the controls on for a list
+// that is no longer the one on screen. Calls exactly one of the callbacks, or none when it is no longer current.
+//   onLoaded(items, categoryId)  the complete list of `categoryId`
+//   onFailed(error)              the list could not be read completely: the controls stay off
+export async function loadCategoryForOrder({ categoryId, fetchPage, isCurrent, onLoaded, onFailed }) {
+  try {
+    const items = await loadWholeCategory(fetchPage, { isCurrent })
+    if (items === null || !isCurrent()) return
+    onLoaded(items, categoryId)
+  } catch (error) {
+    if (isCurrent()) onFailed(error)
+  }
+}
