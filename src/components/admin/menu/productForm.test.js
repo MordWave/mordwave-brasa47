@@ -3,13 +3,15 @@ import { readFileSync } from 'node:fs'
 import { before, test } from 'node:test'
 import { loadModule } from '../../../theme/testSupport.js'
 
-// 9L.5 — creating and editing a product: essential fields first, the optional ones in collapsible sections, short explanations. Presentation only: the
-// fields and the data sent to the backend are the same as before.
+// 9L.7 — the product form (Nuevo / Editar producto): three groups separated by hairlines, a compact photo row, an availability switch and a light
+// "Personalización del pedido" disclosure. Presentation only: the fields and the data sent to the backend are the same as before.
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const code = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+// block comments only where a comment can start (not the `/*` of the string "image/*")
+const code = (source) => source.replace(/(^|\s)\/\*[\s\S]*?\*\//g, '$1').replace(/^\s*\/\/.*$/gm, '')
 const source = read('./ProductFormModal.jsx')
 const css = read('../../../styles/index.css')
+const formCss = css.slice(css.indexOf('/* ============ Product form (Menú > Nuevo / Editar producto)'), css.indexOf('/* ============ Category dropdown of the shareable menu'))
 
 const CATEGORIES = [
   { id: 'c1', name: 'Platos', active: true },
@@ -27,9 +29,9 @@ const PRODUCT = {
   ingredients: ['Lomo', 'Papas'],
   removableIngredients: ['Papas'],
   addOns: [{ name: 'Queso extra', price: 1200 }],
-  imageUrl: null,
+  imageUrl: 'https://img.test/lomo.webp',
 }
-const SIMPLE = { ...PRODUCT, tag: '', ingredients: [], removableIngredients: [], addOns: [] }
+const SIMPLE = { ...PRODUCT, tag: '', ingredients: [], removableIngredients: [], addOns: [], imageUrl: null, available: true }
 
 let r
 before(async () => {
@@ -45,132 +47,193 @@ const at = (html, text) => {
   assert.ok(index >= 0, `missing: ${text}`)
   return index
 }
+const ordered = (html, texts) => {
+  const positions = texts.map((text) => at(html, text))
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions, `order: ${texts.join(' < ')}`)
+}
+const openDetails = (html) => (html.match(/<details class="pf-more" open=""/g) ?? []).length
+const escapeId = (id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-test('the essential fields come first and are marked as required: name, price, category (then the optional description, photo and tag)', () => {
+// ---- structure ----------------------------------------------------------------------------------------------------------------------------
+
+test('the form is a labelled dialog with three groups in the approved order, and the fields inside them in the approved order', () => {
   const html = r.form({})
-  const order = ['Nombre', 'Precio (CLP)', 'Categoría', 'Descripción (opcional)', 'Foto (opcional)', 'Etiqueta (opcional)'].map((label) => at(html, label))
-  assert.deepEqual([...order].sort((a, b) => a - b), order)
-  // the three required inputs keep their `required` attribute and show the asterisk; the note explains it
-  assert.equal((html.match(/ required=""/g) ?? []).length, 3)
-  assert.equal((html.match(/class="admin-menu__required" aria-hidden="true">\*</g) ?? []).length, 4) // three labels + the note
-  assert.match(html, /son obligatorios\. Lo demás es opcional\./)
+  const titleId = html.match(/<div class="pf" role="dialog" aria-modal="true" aria-labelledby="([^"]+)">/)?.[1]
+  assert.ok(titleId, 'a dialog labelled by its title')
+  assert.ok(html.includes(`<h3 id="${titleId}" class="pf__title">Nuevo producto</h3>`))
+  assert.ok(r.form({ product: PRODUCT }).includes('>Editar producto</h3>'))
+  ordered(html, ['Información principal', 'Presentación', 'Estado y personalización'])
+  ordered(html, ['Nombre', 'Precio (CLP)', 'Categoría', 'Descripción', 'Fotografía', 'Etiqueta', 'Disponibilidad', 'Personalización del pedido'])
+  assert.equal((html.match(/<section class="pf-sec /g) ?? []).length, 3)
+  for (const section of ['main', 'look', 'state']) assert.match(html, new RegExp(`<section class="pf-sec pf-sec--${section}" aria-labelledby="[^"]+">`))
 })
 
-test('availability sits with the essentials and explains the difference with "Activo": still listed as "No disponible hoy" vs hidden with "Desactivar"', () => {
+test('required and optional are discreet: an asterisk and a legend on the required ones, "Opcional" on the right of the optional ones', () => {
   const html = r.form({})
-  assert.ok(at(html, '>Disponible<') > at(html, 'Etiqueta (opcional)'))
-  assert.ok(at(html, '>Disponible<') < at(html, 'Opciones para el pedido por QR'))
-  assert.match(html, /seguirá en la carta como «No disponible hoy» y no se podrá pedir/)
-  assert.match(html, /usa\s+«Desactivar» en la lista de productos/)
-  assert.match(r.form({ product: PRODUCT }), /<input type="checkbox"\/><span>Disponible<\/span>/) // available: false is respected
-  assert.match(html, /<input type="checkbox" checked=""\/><span>Disponible<\/span>/) // a new product starts available
+  assert.equal((html.match(/ required=""/g) ?? []).length, 3, 'name, price and category stay required')
+  assert.equal((html.match(/class="pf-req" aria-hidden="true">\*</g) ?? []).length, 3)
+  assert.match(html, /<span class="pf-sec__legend">\* obligatorio<\/span>/)
+  assert.equal((html.match(/<span class="pf-opt">Opcional<\/span>/g) ?? []).length, 3, 'description, photo and tag')
+  assert.doesNotMatch(html, /\(opcional\)/, 'no repeated "(opcional)" in the labels')
 })
 
-test('the tag is a presentation field (it shows on the card of the public digital menu too): after the photo, outside the collapsible QR section', () => {
+test('Precio and Categoría share a row in the markup (the stylesheet decides when there is room); everything else is one column', () => {
   const html = r.form({})
-  assert.ok(at(html, 'Etiqueta (opcional)') > at(html, 'Foto (opcional)'))
-  assert.ok(at(html, 'Etiqueta (opcional)') < at(html, '<details'), 'the tag comes before any collapsible section')
-  assert.match(html, /en la carta digital y en el pedido por QR, por ejemplo «Nuevo» o «Recomendado»\./)
-  // and the section note no longer lists it
-  assert.ok(!html.includes('etiqueta, ingredientes'))
+  assert.match(html, /<div class="pf-row"><label class="pf-field"><span class="pf-label">Precio \(CLP\)[\s\S]*?<\/label><label class="pf-field"><span class="pf-label">Categoría[\s\S]*?<\/label><\/div>/)
+  assert.equal((html.match(/class="pf-row"/g) ?? []).length, 1)
 })
 
-test('why the tag is outside the QR section: the card of BOTH menus shows it, while ingredients and extras exist only in the ordering flow', () => {
-  const tile = code(read('../../customer/ProductTile.jsx'))
-  assert.match(tile, /product\.tag && <span className="product-tile__tag">\{product\.tag\}<\/span>/) // one card, used by the QR menu and by the read-only public menu
-  assert.match(code(read('../../../pages/PublicMenuPage.jsx')), /<MenuScreen\s+readOnly/)
-  const modal = code(read('../../customer/ProductModal.jsx')) // the ordering sheet: only the QR flow opens it
-  assert.match(modal, /product\.removableIngredients/)
-  assert.match(modal, /product\.addOns/)
-  assert.match(modal, /product\.ingredients/)
-  assert.doesNotMatch(tile, /ingredients|addOns|removableIngredients/)
-  // the public menu endpoint sends the tag and leaves out ingredients and extras
-  const endpoint = read('../../../../backend/src/public-menu/public-menu.service.ts')
-  assert.match(endpoint, /tag: p\.tag \?\? null,/)
-  assert.doesNotMatch(code(endpoint.replace(/\/\/.*$/gm, '')), /ingredients|addOns|removableIngredients/)
+// ---- photo --------------------------------------------------------------------------------------------------------------------------------
+
+test('photo: a compact row with the thumbnail and its actions beside it; "Seleccionar foto" without one, "Reemplazar" and "Quitar" with one', () => {
+  const empty = r.form({})
+  assert.match(empty, /<div class="pf-photo__thumb"><span class="pf-photo__empty">[\s\S]*?Sin foto<\/span><\/span><\/div>/)
+  assert.ok(empty.includes('>Seleccionar foto<input type="file" accept="image/*"'))
+  assert.doesNotMatch(empty, />Quitar</)
+  const withPhoto = r.form({ product: PRODUCT })
+  assert.match(withPhoto, /<div class="pf-photo__thumb pf-photo__thumb--has"><img src="https:\/\/img\.test\/lomo\.webp" alt=""\/><\/div>/)
+  assert.ok(withPhoto.includes('>Reemplazar<input type="file"'))
+  assert.match(withPhoto, /<button type="button" class="pf-link pf-link--danger">Quitar<\/button>/)
+  assert.ok(empty.includes('Formato cuadrado. Puedes recortarla antes de guardar.'))
 })
 
-test('the optional QR-ordering fields (ingredients, extras) are in a section after the essentials, nothing removed; nobody types an order number any more', () => {
-  const html = r.form({})
-  assert.ok(at(html, 'Opciones para el pedido por QR') > at(html, '>Disponible<'))
-  for (const text of ['Etiqueta (opcional)', 'Ingredientes (uno por línea)', 'Extras', '+ Agregar extra', 'Opcional · ingredientes y extras']) {
-    assert.ok(html.includes(text), text)
+test('photo: the editor, the preview, the readable errors and the PR #90 protection are untouched (the form keeps what was typed)', () => {
+  const src = code(source)
+  assert.match(src, /import PhotoCropModal from '\.\/PhotoCropModal'/)
+  assert.match(src, /onChange=\{handleFileChange\}/)
+  assert.match(src, /No pudimos previsualizar esta foto\. Probá con otro formato \(JPG o PNG\) o sacá la foto de nuevo\./)
+  assert.match(src, /\{cropSrc && <PhotoCropModal imageSrc=\{cropSrc\} onCancel=\{handleCropCancel\} onConfirm=\{handleCropConfirm\} \/>\}/)
+  assert.match(src, /\{imageError && <p className="pf-error">\{imageError\}<\/p>\}/)
+  assert.match(src, /setImageError\(translateApiError\(err\)\)/)
+  assert.match(src, /await onUploadImage\(product\.id, croppedFile\)/)
+  assert.match(src, /await onRemoveImage\(product\.id\)/)
+  // the cropper lives outside the <form>: its failure or its closing never touches what was typed
+  assert.ok(src.indexOf('</form>') < src.indexOf('<PhotoCropModal imageSrc'))
+  // and the cropper's own protection (PR #90) is still the one used
+  assert.match(code(read('./PhotoCropModal.jsx')), /import LazyCropper from '\.\.\/LazyCropper'/)
+})
+
+// ---- availability ---------------------------------------------------------------------------------------------------------------------------
+
+test('availability: a real checkbox with the switch role, named "Disponible hoy", described by its explanation, checked as `available` says', () => {
+  for (const [props, checked] of [[{}, true], [{ product: PRODUCT }, false], [{ product: SIMPLE }, true]]) {
+    const html = r.form(props)
+    const input = html.match(/<input type="checkbox" role="switch" aria-labelledby="([^"]+)" aria-describedby="([^"]+)"( checked="")?\/>/)
+    assert.ok(input, 'the switch')
+    assert.equal(Boolean(input[3]), checked)
+    assert.match(html, new RegExp(`<span class="pf-switch__title" id="${escapeId(input[1])}">Disponible hoy</span>`))
+    assert.match(html, new RegExp(`<span class="pf-hint" id="${escapeId(input[2])}">Si lo desactivas, seguirá visible como «No disponible hoy»\\.`))
   }
-  assert.equal((html.match(/<details class="admin-menu__section"/g) ?? []).length, 1)
-  // 9L.6: the position is decided by the server (new products go last) and moved from the list: no "Orden" field and no "Avanzado" section
-  for (const html2 of [html, r.form({ product: PRODUCT })]) {
-    assert.doesNotMatch(html2, /Avanzado|>Orden<|posición en la lista|Define la posición/)
-    assert.equal((html2.match(/type="number"/g) ?? []).length, 1 + (html2.includes('Queso extra') ? 1 : 0), 'only the price (and the price of each extra)')
-  }
+  const html = r.form({})
+  assert.ok(html.includes('Para ocultarlo, usa «Desactivar» en la lista.'), 'the difference with deactivating the product')
+  assert.match(html, /<span class="pf-label">Disponibilidad<\/span>/)
+  assert.match(code(source), /checked=\{available\} onChange=\{\(e\) => setAvailable\(e\.target\.checked\)\}/)
 })
 
-test('a new product starts with the QR section closed; editing a product that has ingredients or extras opens it (a tag alone does not)', () => {
-  const closed = r.form({})
-  assert.equal((closed.match(/<details class="admin-menu__section" open=""/g) ?? []).length, 0)
-  const simple = r.form({ product: SIMPLE })
-  assert.equal((simple.match(/<details class="admin-menu__section" open=""/g) ?? []).length, 0)
-  const tagOnly = r.form({ product: { ...SIMPLE, tag: 'Nuevo' } })
-  assert.equal((tagOnly.match(/<details class="admin-menu__section" open=""/g) ?? []).length, 0)
-  assert.ok(tagOnly.includes('value="Nuevo"'), 'the tag is shown, outside the closed section')
+test('availability: keyboard and focus — the input covers the row (Space toggles it), and focus shows on the switch', () => {
+  assert.match(formCss, /\.pf \.pf-switch input \{[^}]*position: absolute;[^}]*inset: 0;[^}]*opacity: 0;/)
+  assert.match(formCss, /\.pf-switch input:focus-visible ~ \.pf-switch__track \{[^}]*outline: 2px solid var\(--focus-ring\);/)
+  assert.match(formCss, /\.pf-switch input:checked ~ \.pf-switch__track \{[^}]*background: var\(--success\);/)
+})
+
+// ---- personalisation ------------------------------------------------------------------------------------------------------------------------
+
+test('"Personalización del pedido": a light disclosure with ingredients, removable ingredients and extras, for ANY category', () => {
+  const html = r.form({})
+  assert.match(html, /<summary><span class="pf-more__text"><span class="pf-more__title">Personalización del pedido<\/span><span class="pf-more__sub">Ingredientes y extras · Opcional<\/span><\/span><svg class="pf-more__chev"/)
+  for (const text of ['>Ingredientes<', '+ Agregar extra', 'El precio de cada extra se suma al del producto.', 'Uno por línea.']) assert.ok(html.includes(text), text)
   const withData = r.form({ product: PRODUCT })
-  assert.equal((withData.match(/<details class="admin-menu__section" open=""/g) ?? []).length, 1)
-  assert.match(withData, /<details class="admin-menu__section" open=""><summary><span class="admin-menu__section-title">Opciones para el pedido por QR/)
+  for (const text of ['Se pueden quitar', 'value="Queso extra"', 'value="1200"', 'Lomo\nPapas']) assert.ok(withData.includes(text), text)
+  // nothing here depends on the name of the category (a drink, a coffee, a dessert can have ingredients and extras)
+  assert.doesNotMatch(code(source), /category\.name|categories\.find|\.toLowerCase\(\)\.includes|bebida|café|postre/i)
+  assert.match(code(source), /const \[qrOpen, setQrOpen\] = useState\(\(product\?\.ingredients\?\.length \?\? 0\) > 0 \|\| \(product\?\.addOns\?\.length \?\? 0\) > 0\)/)
 })
 
-test('editing shows every saved value, the ones in the closed section included (they stay in the form and are sent)', () => {
+test('"Personalización del pedido" opens by itself only when the edited product already has ingredients or extras (a tag alone does not), and when its validation fails', () => {
+  assert.equal(openDetails(r.form({})), 0, 'a new product')
+  assert.equal(openDetails(r.form({ product: SIMPLE })), 0, 'nothing in it')
+  assert.equal(openDetails(r.form({ product: { ...SIMPLE, tag: 'Nuevo' } })), 0, 'a tag alone')
+  assert.equal(openDetails(r.form({ product: PRODUCT })), 1, 'ingredients and extras')
+  assert.equal(openDetails(r.form({ product: { ...SIMPLE, addOns: [{ name: 'Extra', price: 100 }] } })), 1, 'extras only')
+  assert.equal(openDetails(r.form({ product: { ...SIMPLE, ingredients: ['Sal'] } })), 1, 'ingredients only')
+  // the tag is a presentation field: it lives in "Presentación", outside the disclosure
+  const html = r.form({ product: { ...SIMPLE, tag: 'Nuevo' } })
+  assert.ok(at(html, 'Etiqueta') < at(html, '<details'))
+  assert.match(code(source), /if \(validationError\) \{\s*if \(trimmedTag\.length <= MAX_TAG_LENGTH\) setQrOpen\(true\)/)
+})
+
+// ---- what did not change --------------------------------------------------------------------------------------------------------------------
+
+test('editing shows every saved value, the ones inside the closed disclosure included (they stay in the form and are sent)', () => {
   const html = r.form({ product: PRODUCT })
-  for (const value of ['value="Lomo de prueba"', 'Descripción de prueba', 'value="11900"', 'value="Nuevo"', 'Lomo\nPapas', 'value="Queso extra"', 'value="1200"']) {
-    assert.ok(html.includes(value), value)
-  }
+  for (const value of ['value="Lomo de prueba"', 'Descripción de prueba', 'value="11900"', 'value="Nuevo"', 'Lomo\nPapas', 'value="Queso extra"', 'value="1200"']) assert.ok(html.includes(value), value)
   assert.match(html, /<option value="c1" selected="">Platos<\/option>/)
-  // the closed section still renders its fields
-  const closed = r.form({ product: SIMPLE })
-  assert.ok(closed.includes('Etiqueta (opcional)') && closed.includes('Ingredientes (uno por línea)'))
+  assert.ok(r.form({ product: SIMPLE }).includes('Ingredientes'), 'the closed section still renders its fields')
 })
 
-test('the explanations are short hints; examples are written as examples so they are not mistaken for data', () => {
-  const html = r.form({})
-  assert.match(html, /El cliente los ve al elegir el producto y puede quitar los que marques abajo\./)
-  assert.match(html, /El precio de cada extra se suma al del producto cuando el cliente lo elige\./)
-  assert.match(html, /placeholder="Ejemplo: Recomendado"/)
-  assert.match(html, /placeholder="Ejemplo, uno por línea:\nCarne 180 g\nPan brioche"/)
-  assert.doesNotMatch(html, /placeholder="Ej: /)
-  const style = css.slice(css.indexOf('/* Product form: essential fields first'), css.indexOf('.admin-menu__crop-modal {'))
-  assert.match(style, /\.admin-menu__form ::placeholder \{[^}]*font-style: italic;/)
-})
-
-test('the data sent to the backend is the same, minus the order number nobody types now (an edit leaves the position alone, a new product goes last: the server decides): same cleaning, same single submit', () => {
+test('the data sent to the backend is the same, minus the order number nobody types: same keys, same cleaning, one submit', () => {
   const src = code(source)
   assert.match(
     src,
     /await onSave\(\s*\{\s*name,\s*description: description \|\| undefined,\s*price: Number\(price\),\s*categoryId,\s*available,\s*tag: trimmedTag \|\| undefined,\s*ingredients: ingredientsList,\s*removableIngredients: cleanedRemovable,\s*addOns: cleanedAddOns,\s*\},\s*product\?\.id,\s*pendingFile,\s*\)/,
   )
   assert.equal((src.match(/type="submit"/g) ?? []).length, 1)
+  assert.doesNotMatch(src, /sortOrder|Orden/, 'the position of a product is decided by the server and moved from the list')
+  assert.doesNotMatch(r.form({ product: PRODUCT }), /Avanzado|>Orden<|name="sortOrder"/)
 })
 
-test('validation: the message is an alert, is scrolled into view and, when it is about the ingredients or extras, opens their section first', () => {
+test('validation: the message is an alert, scrolled into view; the autofill stays behind its dev-only gate; the dialog is cancelled by Cancelar and the backdrop', () => {
   const src = code(source)
-  assert.match(src, /<p ref=\{errorRef\} role="alert" className="admin-menu__form-error">/)
+  assert.match(src, /<p ref=\{errorRef\} role="alert" className="pf-error">/)
   assert.match(src, /errorRef\.current\?\.scrollIntoView\(\{ block: 'center', behavior: 'smooth' \}\)/)
-  // the section of ingredients and extras opens unless the problem is the tag, which lives outside it
-  assert.match(src, /if \(validationError\) \{\s*if \(trimmedTag\.length <= MAX_TAG_LENGTH\) setQrOpen\(true\)[^\n]*\n\s*setError\(validationError\)\s*return\s*\}/)
+  assert.match(src, /\{DEV_TOOLS_BUILD_ENABLED && \(\s*<DevAutofill/)
+  assert.match(src, /<div className="confirm-backdrop" onClick=\{onClose\}>/)
+  assert.match(src, /onClick=\{\(e\) => e\.stopPropagation\(\)\}/)
+  assert.match(r.form({}), /<button type="button" class="btn btn--outline pf__btn">Cancelar<\/button><button type="submit" class="btn btn--primary pf__btn">Guardar<\/button>/)
 })
 
-test('the photo flow and its failure handling are untouched (picker, cropper, readable message, the form is kept)', () => {
-  const src = code(source)
-  assert.match(src, /<input\s+type="file"\s+accept="image\/\*"\s+onChange=\{handleFileChange\}/)
-  assert.match(src, /import PhotoCropModal from '\.\/PhotoCropModal'/)
-  assert.match(src, /No pudimos previsualizar esta foto\. Probá con otro formato \(JPG o PNG\) o sacá la foto de nuevo\./)
-  assert.match(src, /\{cropSrc && \(\s*<PhotoCropModal imageSrc=\{cropSrc\}/)
-  // the cropper lives inside the form dialog's backdrop, outside the <form>: its failure never touches what was typed
-  assert.ok(src.indexOf('</form>') < src.indexOf('<PhotoCropModal imageSrc'))
+// ---- styles ---------------------------------------------------------------------------------------------------------------------------------
+
+test('styles: editable fields of at least 16px and a comfortable height (iPhone Safari does not zoom), in a single column until there is room', () => {
+  assert.match(formCss, /\.pf input:not\(\[type='checkbox'\]\):not\(\[type='file'\]\),\s*\.pf select,\s*\.pf textarea \{[^}]*min-height: 46px;[^}]*font-size: 16px;/)
+  // the base is one column; two only from 481px up
+  assert.match(formCss, /\.pf-row \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\);/)
+  assert.match(formCss, /@media \(min-width: 481px\) \{\s*\.pf-row \{\s*grid-template-columns: minmax\(0, 0\.8fr\) minmax\(0, 1\.2fr\);/)
+  // the extras row never overflows a 320px screen: the name shrinks, the price and the remove button have fixed widths
+  assert.match(formCss, /\.pf-addon \{[^}]*grid-template-columns: minmax\(0, 1fr\) 92px 40px;/)
+  assert.match(formCss, /\.pf-field \{[^}]*min-width: 0;/)
+  // at 320px the side padding and the extras row get tighter so the name of an extra keeps room
+  assert.match(formCss, /@media \(max-width: 360px\) \{[^@]*\.pf-addon \{\s*grid-template-columns: minmax\(0, 1fr\) 80px 36px;/)
 })
 
-test('the new styles use tokens only (no colours of their own) and keep the scrollbar off the fields and give the availability checkbox a phone-sized tap target', () => {
-  const style = css.slice(css.indexOf('/* Product form: essential fields first'), css.indexOf('.admin-menu__crop-modal {'))
-  assert.ok(style.length > 500)
-  assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(style))
-  assert.match(style, /@media \(max-width: 639\.98px\) \{[^@]*\.admin-menu__modal--product \.admin-menu__availability \.admin-menu__checkbox \{\s*min-height: 44px;/)
-  assert.match(style, /\.admin-menu__modal--product \.admin-menu__form \{[^}]*padding-right: 10px;/)
-  assert.match(style, /\.admin-menu__section > summary \{[^}]*min-height: 44px;/)
+test('styles: hairlines between the groups, no nested cards or decorative backgrounds, tokens only (light and dark), actions always visible and thumb-sized', () => {
+  assert.match(formCss, /\.pf-sec \+ \.pf-sec \{\s*border-top: 1px solid var\(--border\);/)
+  const secRule = formCss.match(/\.pf-sec \{[^}]*\}/)[0]
+  assert.doesNotMatch(secRule, /background|box-shadow|border-radius/)
+  assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(formCss), 'colours come from the tokens')
+  assert.match(formCss, /\.pf__foot \{[^}]*border-top: 1px solid var\(--border\);/)
+  assert.match(formCss, /\.pf \.pf__btn \{[^}]*flex: 1;[^}]*min-height: 48px;/)
+  assert.match(formCss, /@media \(min-width: 640px\) \{\s*\.pf \{\s*max-width: 560px;/)
+  // only the body scrolls: the title and the actions stay put
+  assert.match(formCss, /\.pf__body \{[^}]*overflow-y: auto;/)
+  assert.match(formCss, /\.pf \{[^}]*max-height: min\(92vh, 880px\);[^}]*overflow: hidden;/)
+})
+
+test('the old product-form styles are gone (no dead CSS) and nothing else changed: the public menu, the QR menu and the product list know nothing about the form', () => {
+  for (const gone of ['.admin-menu__modal--product', '.admin-menu__ingredient-checks', '.admin-menu__addon-row', '.admin-menu__field-group', '.admin-menu__availability', '.admin-menu__form-note']) {
+    assert.ok(!css.includes(gone), `${gone} should be gone`)
+  }
+  for (const file of ['../../customer/MenuScreen.jsx', '../../customer/MenuView.jsx', '../../customer/ProductTile.jsx', '../../customer/ProductModal.jsx', '../../../pages/PublicMenuPage.jsx', './ProductList.jsx']) {
+    assert.ok(!/pf-|ProductFormModal/.test(read(file)), file)
+  }
+  const pkg = JSON.parse(read('../../../../package.json'))
+  assert.deepEqual(Object.keys(pkg.dependencies).sort(), ['qrcode', 'react', 'react-dom', 'react-easy-crop'], 'no dependency was added')
+})
+
+test('why the tag is in "Presentación": the card of BOTH menus shows it; ingredients and extras exist only in the ordering sheet', () => {
+  const tile = code(read('../../customer/ProductTile.jsx'))
+  assert.match(tile, /product\.tag && <span className="product-tile__tag">\{product\.tag\}<\/span>/)
+  const modal = code(read('../../customer/ProductModal.jsx'))
+  for (const field of ['product.removableIngredients', 'product.addOns', 'product.ingredients']) assert.match(modal, new RegExp(field.replace('.', '\\.')))
+  assert.doesNotMatch(tile, /ingredients|addOns|removableIngredients/)
 })
