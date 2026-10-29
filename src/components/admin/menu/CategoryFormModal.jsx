@@ -7,7 +7,6 @@ import { slugify } from '../../../utils/format'
 export default function CategoryFormModal({ category, existingNames, onClose, onSave }) {
   const isEditing = Boolean(category)
   const [name, setName] = useState(category?.name ?? '')
-  const [sortOrder, setSortOrder] = useState(category?.sortOrder ?? 0)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -18,8 +17,10 @@ export default function CategoryFormModal({ category, existingNames, onClose, on
     try {
       // The slug is never edited by hand: on create it's derived from the
       // name automatically; on edit it's simply not sent, so the category
-      // keeps whatever slug it already has.
-      const payload = { name, sortOrder: Number(sortOrder) }
+      // keeps whatever slug it already has. The position is not asked for
+      // either: the server puts a new category last, and the order is changed
+      // with the up / down buttons of the list.
+      const payload = { name }
       if (!isEditing) {
         payload.slug = slugify(name)
       }
@@ -41,25 +42,16 @@ export default function CategoryFormModal({ category, existingNames, onClose, on
           {DEV_TOOLS_BUILD_ENABLED && (
             <DevAutofill
               kind="category"
-              values={{ name, sortOrder }}
+              values={{ name }}
               context={{ isEditing, existingNames }}
               onApply={(patch) => {
                 if ('name' in patch) setName(patch.name)
-                if ('sortOrder' in patch) setSortOrder(patch.sortOrder)
               }}
             />
           )}
           <label>
             <span>Nombre</span>
             <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
-          </label>
-          <label>
-            <span>Orden</span>
-            <input
-              type="number"
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value)}
-            />
           </label>
           {error && <p className="admin-menu__form-error">{error}</p>}
           <div className="confirm-dialog__actions">

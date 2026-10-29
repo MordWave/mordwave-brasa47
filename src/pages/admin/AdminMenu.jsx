@@ -7,6 +7,7 @@ import { DEV_TOOLS_BUILD_ENABLED } from '../../devtools/buildFlag.js'
 import { translateApiError } from '../../services/errorMessages'
 import { PRODUCT_CONFLICT, refreshOnConflict } from '../../services/conflicts'
 import { useActiveBusiness } from '../../tenant/useActiveBusiness'
+import { CATEGORY_ORDER_CONFLICT, categoryMove } from '../../utils/categoryOrder.js'
 import Pager from '../../components/admin/Pager'
 import CategoryFilterBar from '../../components/admin/menu/CategoryFilterBar'
 import CategoryFormModal from '../../components/admin/menu/CategoryFormModal'
@@ -59,6 +60,13 @@ export default function AdminMenu() {
   // opens it (e.g. to create a category), it's free to stay open for the
   // rest of the session; nothing here ever closes it automatically.
   const [categoriesOpen, setCategoriesOpen] = useState(false)
+
+  // Moving a category (up / down): one request at a time (`reordering`), a short state line ('saving' | 'saved'), and, when another
+  // administrator changed the order meanwhile, a notice with "Actualizar lista" (`orderConflict`) until the list is re-read.
+  const [reordering, setReordering] = useState(false)
+  const [orderStatus, setOrderStatus] = useState(null)
+  const [orderConflict, setOrderConflict] = useState('') // the notice to show, or ''
+  const focusAfterMove = useRef(null)
 
   const categoriesRequestRef = useRef(0)
   const summaryRequestRef = useRef(0)
@@ -244,6 +252,56 @@ export default function AdminMenu() {
       toast.error(translateApiError(err))
     }
   }
+
+  // Saves the new order through PUT /categories/order, which writes ALL the positions in one transaction or none. The list shown afterwards
+  // is what the server answers (never a guess of the browser). On any failure the list is re-read, so what the screen shows is always
+  // the order the server confirmed; a conflict (409) only informs and lets the admin refresh, it is never retried by itself.
+  async function handleMoveCategory(category, direction) {
+    if (reordering || orderConflict) return
+    const move = categoryMove(categories, category.id, direction)
+    if (!move) return
+    setReordering(true)
+    setOrderStatus('saving')
+    focusAfterMove.current = { id: category.id, direction }
+    try {
+      const saved = await apiFetch(scopePath('/categories/order'), { method: 'PUT', token, body: JSON.stringify(move) })
+      setCategories(saved)
+      setOrderStatus('saved')
+    } catch (err) {
+      setOrderStatus(null)
+      if (err?.code === CATEGORY_ORDER_CONFLICT) {
+        setOrderConflict(translateApiError(err))
+      } else {
+        toast.error(translateApiError(err))
+        await loadCategories()
+      }
+    } finally {
+      setReordering(false)
+    }
+  }
+
+  async function handleRefreshOrder() {
+    setOrderConflict('')
+    await loadCategories()
+  }
+
+  // "Guardado" goes away by itself
+  useEffect(() => {
+    if (orderStatus !== 'saved') return undefined
+    const timer = setTimeout(() => setOrderStatus(null), 2500)
+    return () => clearTimeout(timer)
+  }, [orderStatus])
+
+  // The moved row changes place: the focus stays on its button (or on the other arrow when that one is no longer possible, e.g. it reached an end)
+  useEffect(() => {
+    const target = focusAfterMove.current
+    if (!target) return
+    focusAfterMove.current = null
+    const other = target.direction === 'up' ? 'down' : 'up'
+    const find = (direction) => document.querySelector(`[data-category-move="${target.id}:${direction}"]`)
+    const button = find(target.direction)
+    ;(button && !button.disabled ? button : find(other))?.focus()
+  }, [categories])
 
   async function handleSaveProduct(payload, editingId, pendingImageFile) {
     const body = editingId ? payload : scopeBody(payload)
@@ -506,9 +564,22 @@ export default function AdminMenu() {
                 + Nueva categoría
               </button>
             </div>
+            {orderConflict && (
+              <p className="admin-menu__error admin-menu__order-conflict" role="alert">
+                {orderConflict}{' '}
+                <button type="button" className="btn btn--outline btn--small" onClick={handleRefreshOrder}>
+                  Actualizar lista
+                </button>
+              </p>
+            )}
+            <p className="admin-menu__order-status" role="status">
+              {orderStatus === 'saving' ? 'Guardando orden…' : orderStatus === 'saved' ? 'Orden guardado.' : ''}
+            </p>
             <CategoryList
               categories={categories}
               loading={initialLoading}
+              busy={reordering || Boolean(orderConflict)}
+              onMove={handleMoveCategory}
               onEdit={setCategoryModal}
               onToggleActive={handleToggleCategoryActive}
               onDelete={handleDeleteCategory}

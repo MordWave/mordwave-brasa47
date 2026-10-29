@@ -52,7 +52,8 @@ describe('CategoryService', () => {
   let productRepo: ReturnType<typeof createRepoMock>;
   let publicBusinessResolver: { resolve: ReturnType<typeof vi.fn> };
   let businessLimits: ReturnType<typeof createBusinessLimitsMock>;
-  let transactionManager: { getRepository: ReturnType<typeof vi.fn> };
+  let dataSource: { transaction: ReturnType<typeof vi.fn> };
+  let transactionManager: { getRepository: ReturnType<typeof vi.fn>; query: ReturnType<typeof vi.fn> };
 
   const admin: SafeUser = {
     id: 'admin-1',
@@ -80,14 +81,18 @@ describe('CategoryService', () => {
     // create() runs inside a transaction — manager.getRepository() routes to
     // the same category mock as the injected repository.
     transactionManager = {
+      // the position of a new category (MAX(sort_order) + 1, read under the Business lock)
+      query: vi.fn(async () => [{ next: 1 }]),
       getRepository: vi.fn((entity: unknown) => {
         if (entity === Category) return categoryRepo;
         // the category writers count the products UNDER the category's lock, on the transaction's connection
         if (entity === Product) return productRepo;
+        // reorder() locks the Business row first, on the transaction's connection
+        if (entity === Business) return businessRepo;
         throw new Error(`unexpected entity in manager.getRepository: ${String(entity)}`);
       }),
     };
-    const dataSource = {
+    dataSource = {
       transaction: vi.fn(async (cb: (manager: unknown) => unknown) => cb(transactionManager)),
     };
 
@@ -468,5 +473,61 @@ describe('CategoryService', () => {
 
     const callArgs = categoryRepo.find.mock.calls.at(-1)[0];
     expect(callArgs).not.toHaveProperty('withDeleted');
+  });
+  describe('new categories go last (9L.3)', () => {
+    const base = { name: 'Nueva', slug: 'nueva' };
+    beforeEach(() => businessRepo.findOne.mockResolvedValue({ id: 'biz-1', active: true }));
+
+    it('without sortOrder the position is the next one after the highest live one, asked under the Business lock', async () => {
+      transactionManager.query.mockResolvedValueOnce([{ next: '7' }]);
+      await service.create({ ...base, businessId: 'biz-1' } as never, admin);
+      const order = businessLimits.assertCanCreate.mock.invocationCallOrder[0];
+      expect(transactionManager.query.mock.invocationCallOrder[0]).toBeGreaterThan(order);
+      expect(transactionManager.query).toHaveBeenCalledWith(expect.stringContaining('MAX(sort_order)'), ['biz-1']);
+      expect(categoryRepo.save).toHaveBeenCalledWith(expect.objectContaining({ sortOrder: 7, businessId: 'biz-1' }));
+    });
+
+    it('an explicit sortOrder (older clients, scripts) is kept, 0 included, and no position is asked', async () => {
+      await service.create({ ...base, businessId: 'biz-1', sortOrder: 0 } as never, admin);
+      expect(transactionManager.query).not.toHaveBeenCalled();
+      expect(categoryRepo.save).toHaveBeenCalledWith(expect.objectContaining({ sortOrder: 0 }));
+    });
+  });
+
+  describe('reorder (9L.3): guards before anything is written', () => {
+    const dto = { orderedIds: ['c1'], expectedIds: ['c1'] };
+
+    it('a SUPER_ADMIN must name the restaurant: 400, no transaction', async () => {
+      const superAdmin: SafeUser = { ...admin, role: UserRole.SUPER_ADMIN, businessId: null };
+      await expect(service.reorder({}, dto, superAdmin)).rejects.toBeInstanceOf(BadRequestException);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('an ADMIN is always scoped to their own restaurant: a businessId in the query is ignored', async () => {
+      businessRepo.findOne.mockResolvedValueOnce({ id: 'biz-1', active: true });
+      categoryRepo.find.mockResolvedValueOnce([{ id: 'c1', sortOrder: 1 }]);
+      const result = await service.reorder({ businessId: '11111111-1111-4111-8111-111111111111' }, dto, admin);
+      expect(result.businessId).toBe('biz-1');
+      expect(businessRepo.findOne).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'biz-1' }, lock: { mode: 'pessimistic_write' } }));
+    });
+
+    it('takes the Business lock BEFORE reading the categories, and refuses a suspended restaurant for an ADMIN (403) but not for a SUPER_ADMIN', async () => {
+      businessRepo.findOne.mockResolvedValueOnce({ id: 'biz-1', active: false });
+      await expect(service.reorder({}, dto, admin)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(categoryRepo.find).not.toHaveBeenCalled();
+
+      businessRepo.findOne.mockResolvedValueOnce({ id: 'biz-1', active: false });
+      categoryRepo.find.mockResolvedValueOnce([{ id: 'c1', sortOrder: 1 }]);
+      const superAdmin: SafeUser = { ...admin, role: UserRole.SUPER_ADMIN, businessId: null };
+      await expect(service.reorder({ businessId: 'biz-1' }, dto, superAdmin)).resolves.toMatchObject({ changed: false });
+    });
+
+    it('a conflict or an invalid list writes nothing', async () => {
+      businessRepo.findOne.mockResolvedValue({ id: 'biz-1', active: true });
+      categoryRepo.find.mockResolvedValue([{ id: 'c1', sortOrder: 1 }, { id: 'c2', sortOrder: 2 }]);
+      await expect(service.reorder({}, { orderedIds: ['c2', 'c1'], expectedIds: ['c1'] }, admin)).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.reorder({}, { orderedIds: ['c2', 'zz'], expectedIds: ['c1', 'c2'] }, admin)).rejects.toBeInstanceOf(BadRequestException);
+      expect(transactionManager.query).not.toHaveBeenCalled();
+    });
   });
 });
