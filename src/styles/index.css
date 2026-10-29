@@ -5539,3 +5539,126 @@ p {
     letter-spacing: 0;
   }
 }
+
+/* ============ Category dropdown of the shareable menu, phones only ============
+   CategoryTabs `enhanced` renders both the bar and the dropdown; under 640px the bar is hidden (display: none, so it also leaves the
+   accessibility tree) and the dropdown shows in the same sticky wrapper. The list hangs from the wrapper (absolute): opening it moves nothing. */
+.menu-picker {
+  display: none;
+}
+
+@media (max-width: 639.98px) {
+  .menu-nav--scroller,
+  .menu-nav-wrap::before,
+  .menu-nav-wrap::after {
+    display: none;
+  }
+
+  .menu-picker {
+    display: block;
+    padding: 6px 20px;
+  }
+
+  .public-menu .menu-section {
+    scroll-margin-top: 58px;
+  }
+
+  /* a balanced width on wide phones: the control fills a small phone but stops at 420px (the sticky wrapper itself stays full width) */
+  .menu-picker__trigger {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    max-width: 420px;
+    min-height: 44px;
+    padding: 0 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 700;
+    text-align: left;
+  }
+
+  .menu-picker__trigger svg,
+  .menu-picker__option svg {
+    flex: none;
+  }
+
+  .menu-picker__current {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .menu-picker__chevron {
+    display: inline-flex;
+    flex: none;
+    color: var(--text-secondary);
+    transition: transform 0.15s ease;
+  }
+
+  .menu-picker__chevron--open {
+    transform: rotate(180deg);
+  }
+
+  .menu-picker__trigger:focus-visible,
+  .menu-picker__option:focus-visible {
+    outline: 2px solid var(--primary-ui);
+    outline-offset: 2px;
+  }
+
+  .menu-picker__list {
+    position: absolute;
+    top: calc(100% - 2px);
+    left: 20px;
+    right: 20px;
+    max-width: 420px;
+    z-index: 6;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 6px 14px -8px var(--text-secondary);
+  }
+
+  .menu-picker__list ul {
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+  }
+
+  .menu-picker__option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .menu-picker__option--active {
+    background: var(--bg);
+    box-shadow: inset 3px 0 0 var(--primary-ui);
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .menu-picker__chevron {
+      transition: none;
+    }
+  }
+}
