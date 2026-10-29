@@ -5472,8 +5472,8 @@ p {
   }
 }
 
-/* phones: one column; the photo (or "Sin foto") on the left, the text on the right. The photo is as wide as the box and at least as tall
-   as it is wide; with more text it grows with the card (object-fit: cover crops it, never stretches it). */
+/* phones: one column; the photo (or "Sin foto") on the left, the text on the right. The photo box is always a square (112px, 92px on small
+   phones), pinned to the top: more text makes the CARD taller, never the photo (object-fit: cover crops it, never stretches it). */
 @media (max-width: 639.98px) {
   .public-menu .product-grid {
     grid-template-columns: 1fr;
@@ -5486,9 +5486,9 @@ p {
 
   .product-tile--readonly .product-tile__media {
     flex: none;
+    align-self: flex-start;
     width: 112px;
-    min-height: 112px;
-    aspect-ratio: auto;
+    height: 112px;
   }
 
   .product-tile--readonly .product-tile__body {
@@ -5525,7 +5525,7 @@ p {
 @media (max-width: 359.98px) {
   .product-tile--readonly .product-tile__media {
     width: 92px;
-    min-height: 92px;
+    height: 92px;
   }
 
   /* a smaller tag, so that "RECOMENDADO" still fits whole in the narrower photo box */

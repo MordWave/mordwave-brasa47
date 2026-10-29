@@ -83,13 +83,14 @@ test('5. descriptions: up to three lines, long words break; 13px on every screen
   for (const query of ['min-width: 640px', 'max-width: 639.98px']) assert.match(find(media(query), '.product-tile--readonly .product-tile__desc'), /font-size: 13px;[\s\S]*line-height: 1\.4;/)
 })
 
-test('6. under 640px: one column and a horizontal card (photo left, text right); photo 112px, 92px under 360px; cover, never stretched', () => {
+test('6. under 640px: one column and a horizontal card (photo left, text right); square photo 112px (92px under 360px) that never grows with the text; cover, never stretched', () => {
   const phone = media('max-width: 639.98px')
   assert.match(find(phone, '.public-menu .product-grid'), /grid-template-columns: 1fr;[\s\S]*gap: 12px;/)
   assert.match(find(phone, '.product-tile--readonly'), /flex-direction: row;/)
   const photo = find(phone, '.product-tile--readonly .product-tile__media')
-  assert.match(photo, /flex: none;[\s\S]*width: 112px;[\s\S]*min-height: 112px;[\s\S]*aspect-ratio: auto;/)
-  assert.match(find(NEW_BLOCK.slice(NEW_BLOCK.indexOf('@media (max-width: 359.98px)')), '.product-tile--readonly .product-tile__media'), /width: 92px;[\s\S]*min-height: 92px;/)
+  assert.match(photo, /flex: none;\s*align-self: flex-start;\s*width: 112px;\s*height: 112px;/)
+  assert.ok(!/min-height|aspect-ratio/.test(photo), 'the photo box never grows with the text')
+  assert.match(find(NEW_BLOCK.slice(NEW_BLOCK.indexOf('@media (max-width: 359.98px)')), '.product-tile--readonly .product-tile__media'), /width: 92px;\s*height: 92px;/)
   // the shared image rule (object-fit: cover, full size of its box) is untouched, so a photo is cropped, not deformed
   const img = css.slice(css.indexOf('.product-tile__media img {'), css.indexOf('}', css.indexOf('.product-tile__media img {')))
   assert.match(img, /width: 100%;\s*height: 100%;\s*object-fit: cover;/)
