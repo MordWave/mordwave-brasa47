@@ -495,7 +495,7 @@ export default function ProductFormModal({
           </footer>
         </form>
       </div>
-      {cropSrc && <PhotoCropModal imageSrc={cropSrc} onCancel={handleCropCancel} onConfirm={handleCropConfirm} />}
+      {cropSrc && <PhotoCropModal imageSrc={cropSrc} onCancel={handleCropCancel} onConfirm={handleCropConfirm} allowFit />}
     </div>
   )
 }
