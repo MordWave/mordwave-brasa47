@@ -1,16 +1,17 @@
-import { useCallback, useState } from 'react'
-import { FIT_BACKGROUND, composeSquare, getComposedBlob, getCroppedBlob, minFitZoom } from '../../../utils/cropImage'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { MAX_ZOOM, ZOOM_STEP, composeSquare, containZoom, drawComposition, getComposedBlob, getCroppedBlob, initialFraming, zoomRange } from '../../../utils/cropImage'
 import LazyCropper from '../LazyCropper'
 
-const INITIAL_CROP = { x: 0, y: 0 }
-const INITIAL_ZOOM = 1
-const MAX_ZOOM = 3
+const FILL = 'fill'
+const FIT = 'fit'
 
-// `allowFit` (product photos): the photo can be zoomed out until it is shown whole with a neutral margin around it, and the square that is exported is
-// composed from what the editor shows, margins included. Without it (logo, cover) the photo always fills the frame, as before.
+// `allowFit` (product photos): two ways to frame the photo. «Llenar cuadro» (the default) is the habitual crop: the photo fills the square and nothing is added.
+// «Mostrar completa» shows the whole photo, never stretched, and fills the free space by extending the photo's own edges; the file is composed from what the
+// editor shows. Without `allowFit` (logo) the dialog is the same as before: the photo always fills the frame.
 export default function PhotoCropModal({ imageSrc, onCancel, onConfirm, allowFit = false }) {
-  const [crop, setCrop] = useState(INITIAL_CROP)
-  const [zoom, setZoom] = useState(INITIAL_ZOOM)
+  const [mode, setMode] = useState(FILL)
+  const [crop, setCrop] = useState(initialFraming(FILL, 1).crop)
+  const [zoom, setZoom] = useState(initialFraming(FILL, 1).zoom)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null)
   const [mediaSize, setMediaSize] = useState(null)
   const [cropSize, setCropSize] = useState(null)
@@ -21,12 +22,42 @@ export default function PhotoCropModal({ imageSrc, onCancel, onConfirm, allowFit
     setCroppedAreaPixels(areaPixels)
   }, [])
 
-  const minZoom = allowFit && mediaSize ? minFitZoom(mediaSize.naturalWidth, mediaSize.naturalHeight) : 1
-  const ready = allowFit ? Boolean(mediaSize && cropSize) : Boolean(croppedAreaPixels)
+  const fit = allowFit && mode === FIT
+  const contain = mediaSize ? containZoom(mediaSize.naturalWidth, mediaSize.naturalHeight) : 1
+  const range = fit ? zoomRange(contain) : { min: 1, max: MAX_ZOOM }
+  const ready = allowFit ? Boolean(mediaSize && cropSize && (fit || croppedAreaPixels)) : Boolean(croppedAreaPixels)
+
+  // The editor's own picture of the free space: the same drawing as the exported file, at the size of the frame on screen.
+  const previewRef = useRef(null)
+  const [previewImage, setPreviewImage] = useState(null)
+  useEffect(() => {
+    if (!fit) return undefined
+    let alive = true
+    const image = new Image()
+    image.onload = () => alive && setPreviewImage(image)
+    image.src = imageSrc
+    return () => {
+      alive = false
+    }
+  }, [fit, imageSrc])
+  useEffect(() => {
+    const canvas = previewRef.current
+    if (!fit || !previewImage || !mediaSize || !cropSize || !canvas) return
+    const size = Math.round(cropSize.width * Math.min(window.devicePixelRatio || 1, 2))
+    canvas.width = size
+    canvas.height = size
+    drawComposition(canvas.getContext('2d'), previewImage, composeSquare({ crop, zoom, mediaSize, cropSize }), size)
+  }, [fit, previewImage, crop, zoom, mediaSize, cropSize])
+
+  function chooseMode(next) {
+    const framing = initialFraming(next, contain)
+    setMode(next)
+    setCrop(framing.crop)
+    setZoom(framing.zoom)
+  }
 
   function handleReset() {
-    setCrop(INITIAL_CROP)
-    setZoom(INITIAL_ZOOM)
+    chooseMode(FILL)
   }
 
   async function handleConfirm() {
@@ -34,7 +65,7 @@ export default function PhotoCropModal({ imageSrc, onCancel, onConfirm, allowFit
     setProcessing(true)
     setError('')
     try {
-      const blob = allowFit
+      const blob = fit
         ? await getComposedBlob(imageSrc, composeSquare({ crop, zoom, mediaSize, cropSize }))
         : await getCroppedBlob(imageSrc, croppedAreaPixels)
       onConfirm(blob)
@@ -44,38 +75,54 @@ export default function PhotoCropModal({ imageSrc, onCancel, onConfirm, allowFit
     }
   }
 
-  const fitProps = allowFit ? { minZoom, onMediaLoaded: setMediaSize, onCropSizeChange: setCropSize } : {}
+  const fitProps = allowFit ? { minZoom: range.min, maxZoom: range.max, onMediaLoaded: setMediaSize, onCropSizeChange: setCropSize } : {}
+  const option = (value, label) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={mode === value}
+      className={`segmented__option${mode === value ? ' segmented__option--on' : ''}`}
+      onClick={() => chooseMode(value)}
+      disabled={processing}
+    >
+      {label}
+    </button>
+  )
 
   return (
     <div className="confirm-backdrop" onClick={(e) => e.stopPropagation()}>
       <div className="confirm-dialog admin-menu__crop-modal">
         <h3 className="admin-menu__modal-title">Ajustar foto</h3>
-        {/* with allowFit the margin that the exported image will have is shown in its own colour, whatever the theme */}
-        <div className="admin-menu__crop-area" style={allowFit ? { background: FIT_BACKGROUND } : undefined}>
+        <div className="admin-menu__crop-area">
+          {fit && <canvas ref={previewRef} className="admin-menu__crop-edges" aria-hidden="true" style={{ width: cropSize?.width, height: cropSize?.height }} />}
           <LazyCropper
             image={imageSrc}
             crop={crop}
             zoom={zoom}
             aspect={1}
-            maxZoom={MAX_ZOOM}
             onCropChange={setCrop}
             onZoomChange={setZoom}
             onCropComplete={handleCropComplete}
             {...fitProps}
           />
         </div>
+        {allowFit && (
+          <div className="segmented admin-menu__crop-modes" role="radiogroup" aria-label="Encuadre de la foto">
+            {option(FILL, 'Llenar cuadro')}
+            {option(FIT, 'Mostrar completa')}
+          </div>
+        )}
         <label className="admin-menu__crop-zoom">
           <span>Zoom</span>
           <input
             type="range"
-            min={minZoom}
-            max={MAX_ZOOM}
-            step={0.05}
+            min={range.min}
+            max={range.max}
+            step={ZOOM_STEP}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
           />
         </label>
-        {allowFit && <p className="admin-menu__crop-hint">Alejá el zoom para ver el producto completo; el espacio libre queda con fondo neutro.</p>}
         {error && <p className="admin-menu__form-error">{error}</p>}
         <div className="confirm-dialog__actions">
           <button type="button" className="btn btn--outline btn--small" onClick={handleReset} disabled={processing}>
