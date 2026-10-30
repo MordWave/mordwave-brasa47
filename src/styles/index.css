@@ -3307,40 +3307,6 @@ p {
   text-align: left;
 }
 
-/* ProductFormModal only (Fase 7 personalization made it tall enough to
-   exceed the viewport on desktop) — the dialog itself is capped and never
-   scrolls; only its form body does, so the title stays put above it and
-   the actions row can stick to the bottom of that scroll area. Other
-   .admin-menu__modal users (TableFormModal, CategoryFormModal, etc.) don't
-   get this modifier and are unaffected. */
-.admin-menu__modal--product {
-  display: flex;
-  flex-direction: column;
-  max-height: 90vh;
-}
-
-.admin-menu__modal--product .admin-menu__modal-title {
-  flex-shrink: 0;
-}
-
-.admin-menu__modal--product .admin-menu__form {
-  flex: 1;
-  /* Lets a flex child actually shrink below its content's natural height
-     instead of forcing the dialog to grow past max-height — the classic
-     flexbox overflow gotcha without this. */
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.admin-menu__modal--product .confirm-dialog__actions {
-  position: sticky;
-  bottom: 0;
-  background: var(--surface);
-  padding-top: 14px;
-  margin-top: 4px;
-  border-top: 1px solid var(--border);
-}
-
 .admin-menu__modal-title {
   font-family: var(--font-display);
   font-size: 19px;
@@ -3415,55 +3381,6 @@ p {
   flex: 0 0 110px;
 }
 
-.admin-menu__field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.admin-menu__field-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-.admin-menu__ingredient-checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-}
-
-.admin-menu__addons {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.admin-menu__addon-row {
-  display: grid;
-  grid-template-columns: 1fr 80px auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.admin-menu__addon-row input {
-  width: 100%;
-}
-
-.admin-menu__addon-remove {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 4px 8px;
-}
-
-.admin-menu__addon-remove:hover {
-  color: var(--danger);
-}
-
 .admin-menu__image-field {
   display: flex;
   flex-direction: column;
@@ -3522,110 +3439,6 @@ p {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-}
-
-/* Product form: essential fields first, optional ones in collapsible sections, short explanations (tokens only) */
-.admin-menu__modal--product .admin-menu__form {
-  /* keeps the scrollbar from covering the right edge of the fields and hints */
-  padding-right: 10px;
-}
-
-.admin-menu__form-note,
-.admin-menu__hint {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-.admin-menu__required {
-  color: var(--danger);
-  font-weight: 800;
-}
-
-/* an example shown inside an empty field must not look like a saved value */
-.admin-menu__form ::placeholder {
-  color: var(--text-secondary);
-  font-style: italic;
-  opacity: 0.75;
-}
-
-.admin-menu__availability {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.admin-menu__section {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.admin-menu__section > summary {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  min-height: 44px;
-  padding: 8px 36px 8px 12px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.admin-menu__section > summary::-webkit-details-marker {
-  display: none;
-}
-
-.admin-menu__section > summary::after {
-  content: '';
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  border-right: 2px solid var(--text-secondary);
-  border-bottom: 2px solid var(--text-secondary);
-  transform: translateY(-70%) rotate(45deg);
-}
-
-.admin-menu__section[open] > summary::after {
-  transform: translateY(-30%) rotate(-135deg);
-}
-
-.admin-menu__section[open] > summary {
-  border-bottom: 1px solid var(--border);
-}
-
-.admin-menu__section-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.admin-menu__section-note {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.admin-menu__section-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-}
-
-@media (max-width: 639.98px) {
-  /* comfortable tap targets on a phone: the availability switch, and a little less for the removable-ingredient checkboxes */
-  .admin-menu__modal--product .admin-menu__availability .admin-menu__checkbox {
-    min-height: 44px;
-  }
-
-  .admin-menu__modal--product .admin-menu__ingredient-checks .admin-menu__checkbox {
-    min-height: 36px;
-  }
 }
 
 .admin-menu__crop-modal {
@@ -5885,6 +5698,501 @@ p {
   .product-row--reorder .product-row__actions {
     justify-self: stretch;
     justify-content: flex-end;
+  }
+}
+
+/* an example shown inside an empty field must not look like a saved value (all the admin forms) */
+.admin-menu__form ::placeholder {
+  color: var(--text-secondary);
+  font-style: italic;
+  opacity: 0.75;
+}
+
+/* ============ Product form (Menú > Nuevo / Editar producto) ============
+   Three groups (main information, presentation, state and personalisation) separated by hairlines, no nested cards; one column, price and category side by
+   side only when there is room; fields of 16px (iOS Safari does not zoom the page when a field gets focus); the actions stay visible at the bottom.
+   Tokens only: it follows the panel's light and dark themes. */
+.pf {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  max-height: min(92vh, 880px);
+  max-height: min(92dvh, 880px);
+  overflow: hidden;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--surface-edge);
+  border-radius: 16px;
+  box-shadow: var(--shadow-modal);
+  color: var(--text);
+}
+
+.pf__head {
+  padding: 20px 20px 6px;
+}
+
+.pf__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.pf__form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.pf__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  /* content fades under the title when it scrolls, instead of being cut */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, var(--surface) 14px);
+  mask-image: linear-gradient(to bottom, transparent 0, var(--surface) 14px);
+}
+
+/* sections: a hairline and air, no extra cards */
+.pf-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pf-sec + .pf-sec {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+
+.pf-sec__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pf-sec__legend {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.pf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pf-label {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pf-req {
+  color: var(--danger);
+  font-weight: 800;
+}
+
+.pf-opt {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.pf-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.pf-error {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.pf input:not([type='checkbox']):not([type='file']),
+.pf select,
+.pf textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 16px; /* 16px: iOS Safari does not zoom the page when a field gets focus */
+  font-weight: 500;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.pf textarea {
+  min-height: 76px;
+  padding: 10px 12px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.pf input::placeholder,
+.pf textarea::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.pf input:focus-visible,
+.pf select:focus-visible,
+.pf textarea:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring) 24%, transparent);
+}
+
+.pf-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* photo: a compact row, thumbnail + action */
+.pf-photo {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.pf-photo__thumb {
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--text-muted);
+  background: var(--input-bg);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.pf-photo__thumb--has {
+  border-style: solid;
+}
+
+.pf-photo__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pf-photo__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pf-photo__side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pf-photo__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf .pf-photo__pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.pf-link {
+  min-height: 40px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pf-link--danger {
+  color: var(--danger);
+}
+
+/* availability: a switch */
+.pf-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.pf-switch__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pf-switch__title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.pf .pf-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pf-switch__track {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 28px;
+  background: var(--border);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+}
+
+.pf-switch__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: var(--surface);
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+
+.pf-switch input:checked ~ .pf-switch__track {
+  background: var(--success);
+}
+
+.pf-switch input:checked ~ .pf-switch__track .pf-switch__thumb {
+  transform: translateX(20px);
+}
+
+.pf-switch input:focus-visible ~ .pf-switch__track {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* order personalisation: a light disclosure row */
+.pf-more {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.pf-more > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.pf-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pf-more__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pf-more__title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pf-more__sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.pf-more__chev {
+  flex: none;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.pf-more[open] .pf-more__chev {
+  transform: rotate(180deg);
+}
+
+.pf-more__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0 18px;
+}
+
+.pf-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pf-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.pf-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary-control);
+}
+
+.pf-addons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pf-addon {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 40px;
+  gap: 8px;
+  align-items: center;
+}
+
+.pf-addon__remove {
+  width: 40px;
+  height: 40px;
+  font-size: 14px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.pf .pf-add {
+  align-self: flex-start;
+  min-height: 40px;
+}
+
+/* actions: always visible, thumb-sized on a phone */
+.pf__foot {
+  display: flex;
+  gap: 12px;
+  padding: 12px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.pf .pf__btn {
+  flex: 1;
+  width: auto;
+  min-height: 48px;
+  padding: 0 16px;
+  font-size: 15px;
+}
+
+/* very narrow phones (320px): a little less side padding and a tighter extras row, so the name of an extra keeps room */
+@media (max-width: 360px) {
+  .pf__head,
+  .pf__body,
+  .pf__foot {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .pf-addon {
+    grid-template-columns: minmax(0, 1fr) 80px 36px;
+    gap: 6px;
+  }
+
+  .pf-addon__remove {
+    width: 36px;
+  }
+}
+
+@media (min-width: 481px) {
+  .pf-row {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+}
+
+@media (min-width: 640px) {
+  .pf {
+    max-width: 560px;
+  }
+
+  .pf__foot {
+    justify-content: flex-end;
+  }
+
+  .pf .pf__btn {
+    flex: 0 0 auto;
+    min-width: 132px;
+    min-height: 44px;
   }
 }
 

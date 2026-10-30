@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import DevAutofill from '../../../devtools/autofill/DevAutofill'
 import { DEV_TOOLS_BUILD_ENABLED } from '../../../devtools/buildFlag.js'
 import { translateApiError } from '../../../services/errorMessages'
@@ -94,6 +94,7 @@ export default function ProductFormModal({
   // The tag is NOT one of them: it is shown on the product's card in the public digital menu too.
   const [qrOpen, setQrOpen] = useState((product?.ingredients?.length ?? 0) > 0 || (product?.addOns?.length ?? 0) > 0)
   const errorRef = useRef(null)
+  const uid = useId()
 
   // The error sits at the end of a long scrolling form: bring it into view so it is never missed on a phone.
   useEffect(() => {
@@ -272,16 +273,24 @@ export default function ProductFormModal({
 
   const busy = submitting || uploadingImage
 
+  const Req = () => (
+    <span className="pf-req" aria-hidden="true">
+      *
+    </span>
+  )
+  const Opt = () => <span className="pf-opt">Opcional</span>
+
   return (
     <div className="confirm-backdrop" onClick={onClose}>
-      <div
-        className="confirm-dialog admin-menu__modal admin-menu__modal--product"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="admin-menu__modal-title">
-          {isEditing ? 'Editar producto' : 'Nuevo producto'}
-        </h3>
-        <form onSubmit={handleSubmit} className="admin-menu__form">
+      <div className="pf" role="dialog" aria-modal="true" aria-labelledby={`${uid}-title`} onClick={(e) => e.stopPropagation()}>
+        <header className="pf__head">
+          <h3 id={`${uid}-title`} className="pf__title">
+            {isEditing ? 'Editar producto' : 'Nuevo producto'}
+          </h3>
+        </header>
+
+        <form onSubmit={handleSubmit} className="pf__form">
+          <div className="pf__body">
           {DEV_TOOLS_BUILD_ENABLED && (
             <DevAutofill
               kind="product"
@@ -299,212 +308,192 @@ export default function ProductFormModal({
               }}
             />
           )}
-          <p className="admin-menu__form-note">
-            Los campos con <span className="admin-menu__required" aria-hidden="true">*</span> son obligatorios. Lo demás es opcional.
-          </p>
-
-          <label>
-            <span>
-              Nombre <span className="admin-menu__required" aria-hidden="true">*</span>
-            </span>
-            <input value={name} onChange={(e) => setName(e.target.value)} required />
-          </label>
-          <label>
-            <span>
-              Precio (CLP) <span className="admin-menu__required" aria-hidden="true">*</span>
-            </span>
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            <span>
-              Categoría <span className="admin-menu__required" aria-hidden="true">*</span>
-            </span>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.active ? '' : ' (inactiva)'}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Descripción (opcional)</span>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
-          </label>
-
-          <div className="admin-menu__image-field">
-            <span className="admin-menu__image-label">Foto (opcional)</span>
-            <div className="admin-menu__image-preview">
-              {imagePreviewUrl ? (
-                <img src={imagePreviewUrl} alt="" className="admin-menu__image-thumb" />
-              ) : (
-                <span className="admin-menu__image-placeholder">Sin foto</span>
-              )}
-            </div>
-            <div className="admin-menu__image-actions">
-              <label className="btn btn--outline btn--small admin-menu__file-btn">
-                {imagePreviewUrl ? 'Reemplazar foto' : 'Seleccionar foto'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  disabled={busy}
-                  hidden
-                />
+            {/* ---- 1. Información principal ---- */}
+            <section className="pf-sec pf-sec--main" aria-labelledby={`${uid}-s1`}>
+              <h4 id={`${uid}-s1`} className="pf-sec__title">
+                Información principal <span className="pf-sec__legend">* obligatorio</span>
+              </h4>
+              <label className="pf-field">
+                <span className="pf-label">
+                  Nombre <Req />
+                </span>
+                <input value={name} onChange={(e) => setName(e.target.value)} required />
               </label>
-              {imagePreviewUrl && (
-                <button
-                  type="button"
-                  className="btn btn--outline btn--small admin-menu__delete-btn"
-                  onClick={handleRemovePhoto}
-                  disabled={busy}
-                >
-                  Quitar foto
-                </button>
-              )}
-            </div>
-            <p className="admin-menu__hint">Podrás recortarla en formato cuadrado antes de guardarla.</p>
-            {uploadingImage && <p className="admin-menu__image-status">Subiendo imagen…</p>}
-            {imageError && <p className="admin-menu__form-error">{imageError}</p>}
-          </div>
-
-          <label>
-            <span>Etiqueta (opcional)</span>
-            <input
-              value={tag}
-              onChange={(e) => setTag(e.target.value)}
-              maxLength={MAX_TAG_LENGTH}
-              placeholder="Ejemplo: Recomendado"
-            />
-            <small className="admin-menu__hint">
-              Aparece como una insignia sobre el producto, en la carta digital y en el pedido por QR, por ejemplo «Nuevo» o «Recomendado».
-            </small>
-          </label>
-
-          <div className="admin-menu__availability">
-            <label className="admin-menu__checkbox">
-              <input
-                type="checkbox"
-                checked={available}
-                onChange={(e) => setAvailable(e.target.checked)}
-              />
-              <span>Disponible</span>
-            </label>
-            <p className="admin-menu__hint">
-              Desmárcalo si hoy no puedes ofrecerlo: seguirá en la carta como «No disponible hoy» y no se podrá pedir. Para ocultarlo por completo, usa
-              «Desactivar» en la lista de productos.
-            </p>
-          </div>
-
-          <details className="admin-menu__section" open={qrOpen} onToggle={(e) => setQrOpen(e.currentTarget.open)}>
-            <summary>
-              <span className="admin-menu__section-title">Opciones para el pedido por QR</span>
-              <span className="admin-menu__section-note">Opcional · ingredientes y extras</span>
-            </summary>
-            <div className="admin-menu__section-body">
-              <label>
-                <span>Ingredientes (uno por línea)</span>
-                <textarea
-                  value={ingredientsText}
-                  onChange={(e) => setIngredientsText(e.target.value)}
-                  rows={4}
-                  placeholder={'Ejemplo, uno por línea:\nCarne 180 g\nPan brioche'}
-                />
-                <small className="admin-menu__hint">El cliente los ve al elegir el producto y puede quitar los que marques abajo.</small>
-              </label>
-
-              {ingredientsList.length > 0 && (
-                <div className="admin-menu__field-group">
-                  <span className="admin-menu__field-label">Ingredientes que se pueden quitar</span>
-                  <div className="admin-menu__ingredient-checks">
-                    {ingredientsList.map((ingredient) => (
-                      <label key={ingredient} className="admin-menu__checkbox">
-                        <input
-                          type="checkbox"
-                          checked={removableIngredients.includes(ingredient)}
-                          onChange={() => toggleRemovable(ingredient)}
-                        />
-                        <span>{ingredient}</span>
-                      </label>
+              <div className="pf-row">
+                <label className="pf-field">
+                  <span className="pf-label">
+                    Precio (CLP) <Req />
+                  </span>
+                  <input type="number" min="0" step="1" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value)} required />
+                </label>
+                <label className="pf-field">
+                  <span className="pf-label">
+                    Categoría <Req />
+                  </span>
+                  <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                        {c.active ? '' : ' (inactiva)'}
+                      </option>
                     ))}
+                  </select>
+                </label>
+              </div>
+              <label className="pf-field">
+                <span className="pf-label">
+                  Descripción <Opt />
+                </span>
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+              </label>
+            </section>
+
+            {/* ---- 2. Presentación ---- */}
+            <section className="pf-sec pf-sec--look" aria-labelledby={`${uid}-s2`}>
+              <h4 id={`${uid}-s2`} className="pf-sec__title">
+                Presentación
+              </h4>
+              <div className="pf-field">
+                <span className="pf-label">
+                  Fotografía <Opt />
+                </span>
+                <div className="pf-photo">
+                  <div className={`pf-photo__thumb${imagePreviewUrl ? ' pf-photo__thumb--has' : ''}`}>
+                    {imagePreviewUrl ? (
+                      <img src={imagePreviewUrl} alt="" />
+                    ) : (
+                      <span className="pf-photo__empty">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M4 8h3l1.6-2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+                          <circle cx="12" cy="13" r="3.4" />
+                        </svg>
+                        <span>Sin foto</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="pf-photo__side">
+                    <div className="pf-photo__actions">
+                      <label className="btn btn--outline btn--small pf-photo__pick">
+                        {imagePreviewUrl ? 'Reemplazar' : 'Seleccionar foto'}
+                        <input type="file" accept="image/*" onChange={handleFileChange} disabled={busy} hidden />
+                      </label>
+                      {imagePreviewUrl && (
+                        <button type="button" className="pf-link pf-link--danger" onClick={handleRemovePhoto} disabled={busy}>
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+                    <p className="pf-hint">Formato cuadrado. Puedes recortarla antes de guardar.</p>
                   </div>
                 </div>
-              )}
-
-              <div className="admin-menu__field-group">
-                <span className="admin-menu__field-label">Extras</span>
-                <p className="admin-menu__hint">El precio de cada extra se suma al del producto cuando el cliente lo elige.</p>
-                {addOns.length > 0 && (
-                  <div className="admin-menu__addons">
-                    {addOns.map((addOn, index) => (
-                      <div className="admin-menu__addon-row" key={index}>
-                        <input
-                          type="text"
-                          value={addOn.name}
-                          onChange={(e) => updateAddOn(index, { name: e.target.value })}
-                          maxLength={MAX_ADD_ON_NAME_LENGTH}
-                          placeholder="Nombre del extra"
-                          aria-label="Nombre del extra"
-                        />
-                        <input
-                          type="number"
-                          value={addOn.price}
-                          onChange={(e) => updateAddOn(index, { price: e.target.value })}
-                          min="0"
-                          max={MAX_ADD_ON_PRICE}
-                          step="1"
-                          placeholder="Precio"
-                          aria-label="Precio del extra"
-                        />
-                        <button
-                          type="button"
-                          className="admin-menu__addon-remove"
-                          onClick={() => removeAddOn(index)}
-                          aria-label="Eliminar extra"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="btn btn--outline btn--small"
-                  onClick={addAddOnRow}
-                  disabled={addOns.length >= MAX_ADD_ONS}
-                >
-                  + Agregar extra
-                </button>
+                {uploadingImage && <p className="pf-hint">Subiendo imagen…</p>}
+                {imageError && <p className="pf-error">{imageError}</p>}
               </div>
-            </div>
-          </details>
-          {error && (
-            <p ref={errorRef} role="alert" className="admin-menu__form-error">
-              {error}
-            </p>
-          )}
-          <div className="confirm-dialog__actions">
-            <button type="button" className="btn btn--outline btn--small" onClick={onClose} disabled={busy}>
+              <label className="pf-field">
+                <span className="pf-label">
+                  Etiqueta <Opt />
+                </span>
+                <input value={tag} onChange={(e) => setTag(e.target.value)} maxLength={MAX_TAG_LENGTH} placeholder="Ejemplo: Recomendado" />
+                <span className="pf-hint">Se muestra como una insignia: Nuevo, Recomendado, etc.</span>
+              </label>
+            </section>
+
+            {/* ---- 3. Estado y personalización ---- */}
+            <section className="pf-sec pf-sec--state" aria-labelledby={`${uid}-s3`}>
+              <h4 id={`${uid}-s3`} className="pf-sec__title">
+                Estado y personalización
+              </h4>
+              <div className="pf-field">
+                <span className="pf-label">Disponibilidad</span>
+                <label className="pf-switch">
+                  <span className="pf-switch__text">
+                    <span className="pf-switch__title" id={`${uid}-avail`}>
+                      Disponible hoy
+                    </span>
+                    <span className="pf-hint" id={`${uid}-avail-hint`}>
+                      Si lo desactivas, seguirá visible como «No disponible hoy». Para ocultarlo, usa «Desactivar» en la lista.
+                    </span>
+                  </span>
+                  <input type="checkbox" role="switch" aria-labelledby={`${uid}-avail`} aria-describedby={`${uid}-avail-hint`} checked={available} onChange={(e) => setAvailable(e.target.checked)} />
+                  <span className="pf-switch__track" aria-hidden="true">
+                    <span className="pf-switch__thumb" />
+                  </span>
+                </label>
+              </div>
+
+              <details className="pf-more" open={qrOpen} onToggle={(e) => setQrOpen(e.currentTarget.open)}>
+                <summary>
+                  <span className="pf-more__text">
+                    <span className="pf-more__title">Personalización del pedido</span>
+                    <span className="pf-more__sub">Ingredientes y extras · Opcional</span>
+                  </span>
+                  <svg className="pf-more__chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </summary>
+                <div className="pf-more__body">
+                  <label className="pf-field">
+                    <span className="pf-label">Ingredientes</span>
+                    <textarea value={ingredientsText} onChange={(e) => setIngredientsText(e.target.value)} rows={4} placeholder={'Ejemplo, uno por línea:\nCarne 180 g\nPan brioche'} />
+                    <span className="pf-hint">Uno por línea. El cliente los ve y puede quitar los que marques abajo.</span>
+                  </label>
+
+                  {ingredientsList.length > 0 && (
+                    <div className="pf-field">
+                      <span className="pf-label">Se pueden quitar</span>
+                      <div className="pf-checks">
+                        {ingredientsList.map((ingredient) => (
+                          <label key={ingredient} className="pf-check">
+                            <input type="checkbox" checked={removableIngredients.includes(ingredient)} onChange={() => toggleRemovable(ingredient)} />
+                            <span>{ingredient}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pf-field">
+                    <span className="pf-label">Extras</span>
+                    <span className="pf-hint">El precio de cada extra se suma al del producto.</span>
+                    {addOns.length > 0 && (
+                      <div className="pf-addons">
+                        {addOns.map((addOn, index) => (
+                          <div className="pf-addon" key={index}>
+                            <input type="text" value={addOn.name} onChange={(e) => updateAddOn(index, { name: e.target.value })} maxLength={MAX_ADD_ON_NAME_LENGTH} placeholder="Nombre del extra" aria-label="Nombre del extra" />
+                            <input type="number" inputMode="numeric" value={addOn.price} onChange={(e) => updateAddOn(index, { price: e.target.value })} min="0" max={MAX_ADD_ON_PRICE} step="1" placeholder="Precio" aria-label="Precio del extra" />
+                            <button type="button" className="pf-addon__remove" onClick={() => removeAddOn(index)} aria-label="Eliminar extra">
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button type="button" className="btn btn--outline btn--small pf-add" onClick={addAddOnRow} disabled={addOns.length >= MAX_ADD_ONS}>
+                      + Agregar extra
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </section>
+
+            {error && (
+              <p ref={errorRef} role="alert" className="pf-error">
+                {error}
+              </p>
+            )}
+          </div>
+
+          <footer className="pf__foot">
+            <button type="button" className="btn btn--outline pf__btn" onClick={onClose} disabled={busy}>
               Cancelar
             </button>
-            <button type="submit" className="btn btn--primary btn--small" disabled={busy}>
+            <button type="submit" className="btn btn--primary pf__btn" disabled={busy}>
               {submitting ? 'Guardando…' : 'Guardar'}
             </button>
-          </div>
+          </footer>
         </form>
       </div>
-      {cropSrc && (
-        <PhotoCropModal imageSrc={cropSrc} onCancel={handleCropCancel} onConfirm={handleCropConfirm} />
-      )}
+      {cropSrc && <PhotoCropModal imageSrc={cropSrc} onCancel={handleCropCancel} onConfirm={handleCropConfirm} />}
     </div>
   )
 }
