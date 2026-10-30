@@ -56,16 +56,20 @@ const escapeId = (id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // ---- structure ----------------------------------------------------------------------------------------------------------------------------
 
-test('the form is a labelled dialog with three groups in the approved order, and the fields inside them in the approved order', () => {
+test('the form is a labelled dialog with its groups in the approved order (information, personalisation, presentation, availability) and the fields inside them in order', () => {
   const html = r.form({})
   const titleId = html.match(/<div class="pf" role="dialog" aria-modal="true" aria-labelledby="([^"]+)">/)?.[1]
   assert.ok(titleId, 'a dialog labelled by its title')
   assert.ok(html.includes(`<h3 id="${titleId}" class="pf__title">Nuevo producto</h3>`))
   assert.ok(r.form({ product: PRODUCT }).includes('>Editar producto</h3>'))
-  ordered(html, ['Información principal', 'Presentación', 'Estado y personalización'])
-  ordered(html, ['Nombre', 'Precio (CLP)', 'Categoría', 'Descripción', 'Fotografía', 'Etiqueta', 'Disponibilidad', 'Personalización del pedido'])
+  ordered(html, ['Información principal', 'Personalización del pedido', 'Presentación', 'Disponibilidad'])
+  ordered(html, ['Nombre', 'Precio (CLP)', 'Categoría', 'Descripción', 'Personalización del pedido', 'Fotografía', 'Etiqueta', 'Disponible hoy'])
+  assert.doesNotMatch(html, /Estado y personalización/, 'the last group is just "Disponibilidad"')
+  // three titled groups plus the disclosure row between the first and the second
   assert.equal((html.match(/<section class="pf-sec /g) ?? []).length, 3)
   for (const section of ['main', 'look', 'state']) assert.match(html, new RegExp(`<section class="pf-sec pf-sec--${section}" aria-labelledby="[^"]+">`))
+  assert.match(html, /<\/section><div class="pf-sec pf-sec--more"><details class="pf-more"[^>]*>[\s\S]*?<\/details><\/div><section class="pf-sec pf-sec--look"/)
+  assert.match(html, /<h4 id="[^"]+" class="pf-sec__title">Disponibilidad<\/h4>/)
 })
 
 test('required and optional are discreet: an asterisk and a legend on the required ones, "Opcional" on the right of the optional ones', () => {
@@ -126,7 +130,7 @@ test('availability: a real checkbox with the switch role, named "Disponible hoy"
   }
   const html = r.form({})
   assert.ok(html.includes('Para ocultarlo, usa «Desactivar» en la lista.'), 'the difference with deactivating the product')
-  assert.match(html, /<span class="pf-label">Disponibilidad<\/span>/)
+  assert.doesNotMatch(html, /<span class="pf-label">Disponibilidad<\/span>/, 'the group title already says it')
   assert.match(code(source), /checked=\{available\} onChange=\{\(e\) => setAvailable\(e\.target\.checked\)\}/)
 })
 
@@ -158,7 +162,8 @@ test('"Personalización del pedido" opens by itself only when the edited product
   assert.equal(openDetails(r.form({ product: { ...SIMPLE, ingredients: ['Sal'] } })), 1, 'ingredients only')
   // the tag is a presentation field: it lives in "Presentación", outside the disclosure
   const html = r.form({ product: { ...SIMPLE, tag: 'Nuevo' } })
-  assert.ok(at(html, 'Etiqueta') < at(html, '<details'))
+  assert.ok(at(html, 'Etiqueta') > at(html, '</details>'), 'the tag comes after the disclosure, in Presentación')
+  assert.ok(!html.slice(html.indexOf('<details'), html.indexOf('</details>')).includes('Etiqueta'), 'and is not inside it')
   assert.match(code(source), /if \(validationError\) \{\s*if \(trimmedTag\.length <= MAX_TAG_LENGTH\) setQrOpen\(true\)/)
 })
 
@@ -208,6 +213,9 @@ test('styles: editable fields of at least 16px and a comfortable height (iPhone 
 
 test('styles: hairlines between the groups, no nested cards or decorative backgrounds, tokens only (light and dark), actions always visible and thumb-sized', () => {
   assert.match(formCss, /\.pf-sec \+ \.pf-sec \{\s*border-top: 1px solid var\(--border\);/)
+  // the disclosure row carries its own hairlines: the group dividers around it are not repeated
+  assert.match(formCss, /\.pf-sec \+ \.pf-sec--more,\s*\.pf-sec--more \+ \.pf-sec \{\s*border-top: none;\s*padding-top: 0;/)
+  assert.match(formCss, /\.pf-more \{\s*border-top: 1px solid var\(--border\);\s*border-bottom: 1px solid var\(--border\);/)
   const secRule = formCss.match(/\.pf-sec \{[^}]*\}/)[0]
   assert.doesNotMatch(secRule, /background|box-shadow|border-radius/)
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(formCss), 'colours come from the tokens')

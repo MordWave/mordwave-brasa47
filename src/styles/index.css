@@ -5774,6 +5774,13 @@ p {
   padding-top: 20px;
 }
 
+/* "Personalización del pedido" is a row between two groups and carries its own hairlines (the disclosure's): the group dividers around it are not repeated */
+.pf-sec + .pf-sec--more,
+.pf-sec--more + .pf-sec {
+  border-top: none;
+  padding-top: 0;
+}
+
 .pf-sec__title {
   display: flex;
   align-items: baseline;
