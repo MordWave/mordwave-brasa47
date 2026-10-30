@@ -49,6 +49,7 @@ function loadImage(src) {
 // the photo as the editor renders it at zoom 1) and how big the frame is on screen (`cropSize`). Whatever the frame shows is what the file contains.
 export const FIT_BACKGROUND = '#F2EFE9' // neutral and quiet; part of the exported image, so it does not depend on the light / dark theme
 export const FIT_MIN_ZOOM_FLOOR = 0.25 // a very panoramic photo never needs more room than this
+export const ZOOM_STEPS_PER_UNIT = 20 // the zoom slider moves in steps of 0.05
 export const FIT_MARGIN = 0.8 // the lowest zoom leaves a margin around the whole photo, so a product that touches its edges can still be given some air
 
 // The lowest zoom the editor allows (zoom 1 is the one that fills the square): the one at which the whole photo fits inside the square (short side over
@@ -56,7 +57,10 @@ export const FIT_MARGIN = 0.8 // the lowest zoom leaves a margin around the whol
 export function minFitZoom(naturalWidth, naturalHeight) {
   if (!(naturalWidth > 0) || !(naturalHeight > 0)) return 1
   const wholePhoto = Math.min(naturalWidth, naturalHeight) / Math.max(naturalWidth, naturalHeight)
-  return Math.min(1, Math.max(FIT_MIN_ZOOM_FLOOR, wholePhoto * FIT_MARGIN))
+  // On the slider's own grid (a multiple of its step): a range input counts its steps from `min`, so any other value would leave the top of the
+  // slider (and, in Safari, zoom 1) unreachable by a step.
+  const onGrid = Math.floor(wholePhoto * FIT_MARGIN * ZOOM_STEPS_PER_UNIT + 1e-9) / ZOOM_STEPS_PER_UNIT
+  return Math.min(1, Math.max(FIT_MIN_ZOOM_FLOOR, onGrid))
 }
 
 // Where to draw the photo inside the exported square. `size` is the side of the file: the frame at the photo's own resolution, never more than

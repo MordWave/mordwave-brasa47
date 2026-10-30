@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { FIT_BACKGROUND, FIT_MIN_ZOOM_FLOOR, composeSquare, getComposedBlob, minFitZoom } from './cropImage.js'
+import { FIT_BACKGROUND, FIT_MIN_ZOOM_FLOOR, ZOOM_STEPS_PER_UNIT, composeSquare, getComposedBlob, minFitZoom } from './cropImage.js'
 
 // 9L.8 — product photos can be zoomed out until the whole photo is shown with a neutral margin, and what is exported is that square (not the clamped
 // rectangle react-easy-crop reports, which can never contain margins).
@@ -24,6 +24,19 @@ test('minimum zoom: the whole photo plus a margin, from its natural proportions;
     const zoom = minFitZoom(w, h)
     assert.ok(zoom <= 1 && zoom >= FIT_MIN_ZOOM_FLOOR, `${w}x${h}: ${zoom}`)
   }
+})
+
+test('the minimum is on the slider\'s step grid, so zoom 1 and the maximum stay reachable from it (a range input counts its steps from `min`)', () => {
+  for (const [w, h] of [[1600, 1200], [1200, 1600], [1000, 1000], [1920, 1080], [3000, 2000], [4000, 1000], [4032, 3024]]) {
+    const min = minFitZoom(w, h)
+    for (const target of [1, 3]) {
+      const steps = (target - min) * ZOOM_STEPS_PER_UNIT
+      assert.ok(Math.abs(steps - Math.round(steps)) < 1e-9, `${w}x${h}: ${target} is ${steps} steps from ${min}`)
+    }
+  }
+  assert.equal(minFitZoom(1600, 1200), 0.6)
+  assert.equal(minFitZoom(4032, 3024), 0.6) // a phone photo (4:3)
+  assert.equal(minFitZoom(1920, 1080), 0.45) // 16:9: 0.5625 · 0.8 = 0.45
 })
 
 test('zoom 1 and centred is the habitual crop: the photo covers the whole square, no margins', () => {

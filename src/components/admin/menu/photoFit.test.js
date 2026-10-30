@@ -68,3 +68,15 @@ test('the hint uses tokens only, and the cropper stays behind the lazy boundary 
   assert.match(modal, /import LazyCropper from '\.\.\/LazyCropper'/)
   assert.doesNotMatch(modal, /from 'react-easy-crop'/)
 })
+
+test('the three actions never overflow the dialog (375 / 320 px, "Procesando…" included): they wrap instead, thumb-sized', () => {
+  const css = read('../../../styles/index.css')
+  const row = css.slice(css.indexOf('.admin-menu__crop-modal .confirm-dialog__actions {'), css.indexOf('/* ---- shared pieces still used by'))
+  assert.match(row, /\.admin-menu__crop-modal \.confirm-dialog__actions \{\s*flex-wrap: wrap;/)
+  assert.match(row, /\.admin-menu__crop-modal \.confirm-dialog__actions \.btn \{[^}]*flex: 1 1 auto;[^}]*min-width: 0;[^}]*min-height: 44px;[^}]*white-space: nowrap;/)
+  assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(row))
+  // the labels are the same as before, so nothing else in the dialog changes
+  const html = r.render({ allowFit: true })
+  for (const label of ['Restablecer', 'Cancelar', 'Confirmar']) assert.ok(html.includes(`>${label}<`))
+  assert.match(modal, /\{processing \? 'Procesando…' : 'Confirmar'\}/)
+})
