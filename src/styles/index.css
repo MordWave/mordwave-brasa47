@@ -3443,6 +3443,8 @@ p {
 
 .admin-menu__crop-modal {
   max-width: 420px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
 }
 
 .admin-menu__crop-area {
@@ -3479,10 +3481,33 @@ p {
   flex: 1;
 }
 
-.admin-menu__crop-hint {
-  margin: 8px 0 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
+/* "Llenar cuadro" / "Mostrar completa" (product photos): the shared .segmented control, full width, right under the preview. */
+.admin-menu__crop-modes {
+  display: flex;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.admin-menu__crop-modes .segmented__option {
+  flex: 1;
+  padding: 0 8px;
+}
+
+/* the editor's picture of the free space around the photo, centred on the frame (the library's own mask darkens everything outside it) */
+.admin-menu__crop-edges {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* short phones (320x568): the preview gives some height back so the whole dialog fits without scrolling */
+@media (max-height: 640px) {
+  .admin-menu__crop-area {
+    height: 220px;
+    margin-bottom: 10px;
+  }
 }
 
 /* The three actions stay on one row while they fit (375 px) and wrap instead of overflowing the dialog when they do not (320 px, or the longer
@@ -3490,6 +3515,7 @@ p {
 .admin-menu__crop-modal .confirm-dialog__actions {
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 14px;
 }
 
 .admin-menu__crop-modal .confirm-dialog__actions .btn {
