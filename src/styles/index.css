@@ -3479,6 +3479,12 @@ p {
   flex: 1;
 }
 
+.admin-menu__crop-hint {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 /* ---- shared pieces still used by the SUPER_ADMIN "Administradores" view (tenant/admins): status/notice/error lines and the
    status badges. The selector itself now lives in the "platform" section below. Tokens only. ---- */
 .business-picker__title {

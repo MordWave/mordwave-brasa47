@@ -106,7 +106,7 @@ test('photo: the editor, the preview, the readable errors and the PR #90 protect
   assert.match(src, /import PhotoCropModal from '\.\/PhotoCropModal'/)
   assert.match(src, /onChange=\{handleFileChange\}/)
   assert.match(src, /No pudimos previsualizar esta foto\. Probá con otro formato \(JPG o PNG\) o sacá la foto de nuevo\./)
-  assert.match(src, /\{cropSrc && <PhotoCropModal imageSrc=\{cropSrc\} onCancel=\{handleCropCancel\} onConfirm=\{handleCropConfirm\} \/>\}/)
+  assert.match(src, /\{cropSrc && <PhotoCropModal imageSrc=\{cropSrc\} onCancel=\{handleCropCancel\} onConfirm=\{handleCropConfirm\} allowFit \/>\}/)
   assert.match(src, /\{imageError && <p className="pf-error">\{imageError\}<\/p>\}/)
   assert.match(src, /setImageError\(translateApiError\(err\)\)/)
   assert.match(src, /await onUploadImage\(product\.id, croppedFile\)/)
