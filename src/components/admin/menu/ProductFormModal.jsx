@@ -348,7 +348,64 @@ export default function ProductFormModal({
               </label>
             </section>
 
-            {/* ---- 2. Presentación ---- */}
+            {/* ---- 2. Personalización del pedido (a light disclosure between the groups: its own hairlines) ---- */}
+            <div className="pf-sec pf-sec--more">
+            <details className="pf-more" open={qrOpen} onToggle={(e) => setQrOpen(e.currentTarget.open)}>
+              <summary>
+                <span className="pf-more__text">
+                  <span className="pf-more__title">Personalización del pedido</span>
+                  <span className="pf-more__sub">Ingredientes y extras · Opcional</span>
+                </span>
+                <svg className="pf-more__chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </summary>
+              <div className="pf-more__body">
+                <label className="pf-field">
+                  <span className="pf-label">Ingredientes</span>
+                  <textarea value={ingredientsText} onChange={(e) => setIngredientsText(e.target.value)} rows={4} placeholder={'Ejemplo, uno por línea:\nCarne 180 g\nPan brioche'} />
+                  <span className="pf-hint">Uno por línea. El cliente los ve y puede quitar los que marques abajo.</span>
+                </label>
+
+                {ingredientsList.length > 0 && (
+                  <div className="pf-field">
+                    <span className="pf-label">Se pueden quitar</span>
+                    <div className="pf-checks">
+                      {ingredientsList.map((ingredient) => (
+                        <label key={ingredient} className="pf-check">
+                          <input type="checkbox" checked={removableIngredients.includes(ingredient)} onChange={() => toggleRemovable(ingredient)} />
+                          <span>{ingredient}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pf-field">
+                  <span className="pf-label">Extras</span>
+                  <span className="pf-hint">El precio de cada extra se suma al del producto.</span>
+                  {addOns.length > 0 && (
+                    <div className="pf-addons">
+                      {addOns.map((addOn, index) => (
+                        <div className="pf-addon" key={index}>
+                          <input type="text" value={addOn.name} onChange={(e) => updateAddOn(index, { name: e.target.value })} maxLength={MAX_ADD_ON_NAME_LENGTH} placeholder="Nombre del extra" aria-label="Nombre del extra" />
+                          <input type="number" inputMode="numeric" value={addOn.price} onChange={(e) => updateAddOn(index, { price: e.target.value })} min="0" max={MAX_ADD_ON_PRICE} step="1" placeholder="Precio" aria-label="Precio del extra" />
+                          <button type="button" className="pf-addon__remove" onClick={() => removeAddOn(index)} aria-label="Eliminar extra">
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button type="button" className="btn btn--outline btn--small pf-add" onClick={addAddOnRow} disabled={addOns.length >= MAX_ADD_ONS}>
+                    + Agregar extra
+                  </button>
+                </div>
+              </div>
+            </details>
+            </div>
+
+            {/* ---- 3. Presentación ---- */}
             <section className="pf-sec pf-sec--look" aria-labelledby={`${uid}-s2`}>
               <h4 id={`${uid}-s2`} className="pf-sec__title">
                 Presentación
@@ -398,13 +455,12 @@ export default function ProductFormModal({
               </label>
             </section>
 
-            {/* ---- 3. Estado y personalización ---- */}
+            {/* ---- 4. Disponibilidad ---- */}
             <section className="pf-sec pf-sec--state" aria-labelledby={`${uid}-s3`}>
               <h4 id={`${uid}-s3`} className="pf-sec__title">
-                Estado y personalización
+                Disponibilidad
               </h4>
               <div className="pf-field">
-                <span className="pf-label">Disponibilidad</span>
                 <label className="pf-switch">
                   <span className="pf-switch__text">
                     <span className="pf-switch__title" id={`${uid}-avail`}>
@@ -420,60 +476,6 @@ export default function ProductFormModal({
                   </span>
                 </label>
               </div>
-
-              <details className="pf-more" open={qrOpen} onToggle={(e) => setQrOpen(e.currentTarget.open)}>
-                <summary>
-                  <span className="pf-more__text">
-                    <span className="pf-more__title">Personalización del pedido</span>
-                    <span className="pf-more__sub">Ingredientes y extras · Opcional</span>
-                  </span>
-                  <svg className="pf-more__chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </summary>
-                <div className="pf-more__body">
-                  <label className="pf-field">
-                    <span className="pf-label">Ingredientes</span>
-                    <textarea value={ingredientsText} onChange={(e) => setIngredientsText(e.target.value)} rows={4} placeholder={'Ejemplo, uno por línea:\nCarne 180 g\nPan brioche'} />
-                    <span className="pf-hint">Uno por línea. El cliente los ve y puede quitar los que marques abajo.</span>
-                  </label>
-
-                  {ingredientsList.length > 0 && (
-                    <div className="pf-field">
-                      <span className="pf-label">Se pueden quitar</span>
-                      <div className="pf-checks">
-                        {ingredientsList.map((ingredient) => (
-                          <label key={ingredient} className="pf-check">
-                            <input type="checkbox" checked={removableIngredients.includes(ingredient)} onChange={() => toggleRemovable(ingredient)} />
-                            <span>{ingredient}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="pf-field">
-                    <span className="pf-label">Extras</span>
-                    <span className="pf-hint">El precio de cada extra se suma al del producto.</span>
-                    {addOns.length > 0 && (
-                      <div className="pf-addons">
-                        {addOns.map((addOn, index) => (
-                          <div className="pf-addon" key={index}>
-                            <input type="text" value={addOn.name} onChange={(e) => updateAddOn(index, { name: e.target.value })} maxLength={MAX_ADD_ON_NAME_LENGTH} placeholder="Nombre del extra" aria-label="Nombre del extra" />
-                            <input type="number" inputMode="numeric" value={addOn.price} onChange={(e) => updateAddOn(index, { price: e.target.value })} min="0" max={MAX_ADD_ON_PRICE} step="1" placeholder="Precio" aria-label="Precio del extra" />
-                            <button type="button" className="pf-addon__remove" onClick={() => removeAddOn(index)} aria-label="Eliminar extra">
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <button type="button" className="btn btn--outline btn--small pf-add" onClick={addAddOnRow} disabled={addOns.length >= MAX_ADD_ONS}>
-                      + Agregar extra
-                    </button>
-                  </div>
-                </div>
-              </details>
             </section>
 
             {error && (
